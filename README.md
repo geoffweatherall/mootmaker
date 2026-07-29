@@ -19,7 +19,7 @@ Projects built with Claude for this exploration:
 - [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) - React SPA with Material Design
 - [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) - Creates the shared S3 bucket used for Terraform remote state by the other projects
 - [mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts) - CloudFormation locking down the AWS accounts the other projects deploy into: SCPs, IAM Identity Center (SSO) for keyless access, billing alerts, and access-key rotation
-- [mootmaker-tools](https://github.com/geoffweatherall/mootmaker-tools) - Admin/support tools (e.g. a sample data generator) run locally against a deployed environment
+- [mootmaker-tools](https://github.com/geoffweatherall/mootmaker-tools) - Admin/support tools (e.g. a sample data generator), each deployed as its own AWS Lambda and invoked on demand against a deployed environment
 
 ## Learnings
 

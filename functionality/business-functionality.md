@@ -14,21 +14,22 @@ Going forward, this file is the source of truth for what the system does. New fu
 - Requesting a password reset never reveals whether a given email address actually has an account — the same response is shown either way, to protect user privacy.
 - Every part of the system other than the home page, sign-in, sign-up, and password-reset screens requires the user to be signed in.
 - If someone tries to open a page without being signed in, they are taken to the sign-in screen and automatically returned to the page they originally wanted once they've signed in.
-- There are currently no distinct user roles — every signed-in person has identical access to every part of the system. There is no separate "administrator" account type.
+- Every account is one of two roles: "standard" or "administrator." A new account is standard by default. This role cannot be changed by the account holder — only granted directly against the underlying system, not through any screen in the product.
 - There is currently no self-service way for a user to close or delete their own account.
 
 ## People
 
 - Everyone who uses the system — whether they have their own login or not — is represented as a "Person," and a Person's name is required.
 - Signing up for an account automatically creates a matching Person record, using the name given at sign-up.
-- The system also supports adding people who do not have their own account or login (for example, a visiting guest), and they can then be booked as the organiser or an attendee of a meeting on their behalf. This is no longer possible directly through the web app, though — it currently has no page for adding such a person, a gap to close before this is needed in practice.
+- The system also supports adding people who do not have their own account or login (for example, a visiting guest), and they can then be booked as the organiser or an attendee of a meeting on their behalf. Adding a person this way is an administrator-only action, done from the Settings screen (see [Administration](#administration)).
+- Any signed-in user can change their own name at any time, from the Settings screen. An administrator can also change any person's name, whether or not that person has their own account. Wherever a person's name is used elsewhere in the system — meeting listings, calendars — the updated name appears immediately.
 
 ## Rooms
 
 - A room is defined by a name and a capacity — the maximum total number of people, including the organiser, that the room can hold for a meeting.
 - A room's capacity must be at least 2 people.
-- Any signed-in user can add a new room to the system.
-- Once a room has been created, its details cannot currently be edited or removed.
+- Adding a new room, or editing an existing room's name or capacity, is an administrator-only action, done from the Settings screen (see [Administration](#administration)). Reducing a room's capacity below the size of a meeting already booked into it is allowed — the existing meeting is simply not re-checked against the new, smaller capacity.
+- Rooms cannot currently be removed once created.
 
 ## Business Hours
 
@@ -52,7 +53,7 @@ Going forward, this file is the source of truth for what the system does. New fu
 - A daily room-availability view shows every room for a chosen day (defaulting to today) as a row spanning business hours, with each existing meeting shown as a blocked-out segment across the portion of the day it occupies, labelled with as much of the meeting's subject as fits.
 - A person calendar view shows the meetings a chosen person is organising or attending, as a wall calendar covering the current work week and the five following work weeks (Monday to Friday only). Each day lists its meetings in time order, showing the start and end time, the subject, and the room. The person is chosen from a searchable list — typing any part of a name narrows it down to matching people, which keeps this usable as the number of people grows.
 - Once signed in, both views can be reached from the home page and from the main navigation menu ("Availability" and "Calendar"), and each has its own URL reflecting the day or person being viewed, so it can be shared with another signed-in user to show them the same view. Both places default the calendar view to the signed-in user's own calendar.
-- These calendar views replace the earlier flat lists of every person, every room, and every meeting, which have all been removed — rooms and meetings are now browsed through the daily room-availability view rather than as undifferentiated lists. Forms to add a room or a meeting remain available, reached from that view.
+- These calendar views replace the earlier flat lists of every person, every room, and every meeting, which have all been removed — rooms and meetings are now browsed through the daily room-availability view rather than as undifferentiated lists. A form to add a meeting remains available, reached from that view; adding or editing a room has moved to the Settings screen (see [Administration](#administration)).
 - Signed-in users also see two agenda lists on the home page: the meetings they're organising or attending "Today" and "Tomorrow", each sorted by start time and showing the subject, time, and room.
 - Signing in doesn't always mean there's a Person to show a calendar for — the demo account and the e2e test account are both examples of a sign-in with no matching Person. Rather than guessing (which used to mean showing a different, unrelated person's private calendar and meetings), the home page shows a clear "your account hasn't been set up properly" message instead, and the navigation menu's "Calendar" item is disabled.
 - Signed-out visitors to the home page see none of the above — since every part of the system requires sign-in, there's nothing to show them yet. Instead the home page offers two ways in: an embedded sign-in form pre-filled with the demo account's details (see Accounts and Sign-In) ready to submit, and a "sign up for your own account" section that spells out the three steps involved before showing the sign-up button.
@@ -72,8 +73,9 @@ Going forward, this file is the source of truth for what the system does. New fu
 
 ## Administration
 
-- There is currently no administrator dashboard, no user or room management beyond what any signed-in user can already do, and no reporting or usage metrics.
-- A data-reset function exists that erases all rooms, people, and meetings. It is intended for testing purposes but is not currently restricted to administrators or disabled in customer-facing settings — this is a known gap to close before wider release.
+- The Settings screen, reached from a shortcut at the bottom of the main navigation menu (see [Design and User Experience](#design-and-user-experience)), is where every account manages its own name. Administrators see two additional sections on the same screen: a list of every room, with the ability to edit a room's name/capacity or add a new one, and a list of every person, with the ability to edit anyone's name or add a new person (including a guest with no account of their own — see [People](#people)). Standard users see only the name section.
+- There is still no separate reporting or usage-metrics dashboard.
+- A data-reset function exists that erases all rooms and meetings, and every person without a linked account. It is intended for testing purposes, and is not reachable by any user of the product — it's an operational tool (`mootmaker-tools/database-reset`) invoked directly with AWS credentials, not part of the API surface at all.
 
 ## Not Yet Implemented
 
@@ -82,7 +84,7 @@ The following functionality has been discussed but is not yet built. It is recor
 - Recurring meetings (for example, a weekly standup).
 - Editing or cancelling an existing meeting.
 - A "find a room" search that suggests the smallest available room for a given list of attendees and time window.
-- User roles and administrator permissions.
+- Removing a room once created.
 - Closing/deleting one's own account.
 - Signing up or signing in using an existing Google account.
 - Usage metrics and reporting.
