@@ -47,6 +47,8 @@ Going forward, this file is the source of truth for what the system does. New fu
 - If a meeting or room can't be saved because it breaks one or more rules, every problem is reported back at once, so it can be corrected in a single attempt rather than discovered one issue at a time.
 - Once a meeting has been made there is currently no way to cancel or change it.
 - The system currently assumes all users share the same time zone; meeting times are not converted or adjusted between time zones.
+- Booking a meeting is now available directly from the home page ("Add Meeting"), as well as from the daily room-availability view, and is a two-step process: the meeting's subject, time, and attendees are entered first, and the room is chosen last, once those are known — the room step needs to know how many people are coming and when before it can help pick one. The form defaults the organiser to the signed-in user (when they have a linked Person), the start time to the next 15-minute boundary from now, and the length to one hour.
+- On the room step, a "Suggest a room" button finds the smallest room with enough capacity for the organiser plus all attendees that has no other meeting booked over the chosen time, and fills it in. Pressing it again when a room is already chosen suggests a different room with just sufficient capacity, rather than repeating the same one. If no room qualifies, the user is told so and can adjust the attendees or time themselves.
 
 ## Calendar Views
 
@@ -83,7 +85,6 @@ The following functionality has been discussed but is not yet built. It is recor
 
 - Recurring meetings (for example, a weekly standup).
 - Editing or cancelling an existing meeting.
-- A "find a room" search that suggests the smallest available room for a given list of attendees and time window.
 - Removing a room once created.
 - Closing/deleting one's own account.
 - Signing up or signing in using an existing Google account.
