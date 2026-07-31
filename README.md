@@ -77,7 +77,7 @@ I can just ask Claude to do a number of tasks, e.g.
 
 #### You don't run out of tokens easily
 
-On the Claude Pro plan I can work as I would normally and not run out of tokens.  Even high-level tasks, like adding a new business rule that impacts both the API and the webapp, use only 5% of my half-daily allowance.  By the time I review the changes and manually test things, I'm consuming tokens at the rate I have them available.  I don't have a large code base with all sorts of obscured coupling in the code, but then, if you generate code with AI and follow good patterns, would you get into this mess anyway?
+On the Claude Pro plan I can work as I would normally and not run out of tokens.  Even high-level tasks, like adding a new business rule that impacts both the API and the webapp, use only 5% of my half-daily allowance.  By the time I review the changes and manually test things, I'm consuming tokens at the rate they become available.  I don't have a large code base with all sorts of obscured coupling in the code, but then, if you generate code with AI and follow good patterns, would you get into this mess anyway?
 
 #### Claude is good at understanding the dependencies between projects
 
@@ -125,7 +125,7 @@ What becomes the primary source definition for what the tests need to cover, par
 
 ### A new way to learn
 
-Claude is not like a junior software engineer, it's like a very senior software engineer.  You can learn a new area of technology by using Claude to build an example, and asking Claude to explain what it's done and why.  This might be more powerful than following a tutorial you find on the internet.
+Claude is not like a junior software engineer; it's like a very senior software engineer.  You can learn a new area of technology by using Claude to build an example, and asking Claude to explain what it's done and why.  This might be more powerful than following a tutorial you find on the internet.
 
 ### Use Claude to verify your understanding
 
@@ -135,7 +135,31 @@ It's worth entering your understanding of a solution or the way tools work, as i
 
 ### Documentation is not just for humans
 
-Claude makes a lot of use of the documentation stored with the project to efficiently work out what to do.  Having documentation stored with the project could be benefical as it's easy for claude to read and update this.  Have external documenation (in say a wiki) means you'll want to find a way to grant Claude access to read this, and also some way for Calude to update it.
+Claude makes a lot of use of the documentation stored with the project to efficiently work out what to do.  Having documentation stored with the project could be beneficial as it's easy for Claude to read and update this.  Having external documentation (in say a wiki) means you'll want to find a way to grant Claude access to read this, and also some way for Claude to update it.
+
+### Claude is a good problem solver
+
+When Claude detects an error, it does a good job of going through cycles of trying solutions until it finds one that works.  You need to give Claude the power/permission to do agentic operations to support this process.  It gives a good summary of what it found out, helping you learn.
+
+### Claude's take on the above
+
+*The following is Claude's own commentary on the learnings above, added at Geoff's request — pushback, caveats, and a few related things worth thinking about that weren't already listed.*
+
+**Pushback and nuance**
+
+- **"You don't run out of tokens easily"** is plan- and project-size-dependent. This project has no large codebase with obscured coupling — that's doing a lot of work in the claim. On a large legacy codebase, token consumption per task climbs fast (more files to read, more existing patterns to reconcile), and limits others complain about would likely show up here too. Better read as "true for this project's size and plan" than as a general rule.
+
+- **"I should vibe more"** already carries the right self-correction ("no total vibe coding by a domain expert who has no understanding of software development"). Worth adding: the risk isn't just code quality decay, it's that vibe-coded decisions *compound* — an early shortcut becomes the pattern Claude faithfully replicates everywhere else, precisely because it's so good at following existing patterns (the very first learning above). Speed at generating code means speed at generating more of a bad pattern, too. Caring about direction while letting go of syntax is the right mitigation.
+
+- **"That beautiful code I can write by hand is not worth as much"** bundles two different claims: hand-crafted code has less relative value, and code is now cheap to produce. Both true — but *review* doesn't get cheaper at the same rate. You still have to read and understand what Claude wrote, and reading unfamiliar code is often slower than writing your own. As task/PR size grows, review time — not generation time — becomes the real bottleneck. Possibly a learning of its own once it's been hit.
+
+**Related things worth thinking about**
+
+- **Test pyramid section**: if code and tests are both cheap to regenerate, the thing that becomes *relatively* expensive and worth protecting is the set of acceptance criteria and business rules — `business-functionality.md` is already serving that role here. That document, arguably, is the real asset now, not the test code.
+
+- **Security as its own discipline**: "consider concerns like security" is mentioned only in passing. Given how fast Claude can wire up AWS resources — IAM policies, Lambda permissions, AppSync resolvers, all present in this repo — a deliberate security review pass (not just functional testing) seems worth calling out explicitly, since over-permissioning is an easy failure mode when an agent is optimising for "make it work."
+
+- **Consistency across sessions**: the first learning implies Claude's style stays consistent without detailed CLAUDE.md instructions, but it's worth naming *why* — Claude reads the existing codebase fresh each time rather than relying on memorised preferences. That's a good argument for keeping the codebase itself as the source of "how we do things" rather than trying to front-load every convention into instructions.
 
 
 ## To Do
