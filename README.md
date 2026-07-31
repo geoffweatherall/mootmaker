@@ -133,6 +133,11 @@ It's worth entering your understanding of a solution or the way tools work, as i
 
 ![Claude helps you understand](resources/ask-claude-to-check-your-understanding.png)
 
+### Documentation is not just for humans
+
+Claude makes a lot of use of the documentation stored with the project to efficiently work out what to do.  Having documentation stored with the project could be benefical as it's easy for claude to read and update this.  Have external documenation (in say a wiki) means you'll want to find a way to grant Claude access to read this, and also some way for Calude to update it.
+
+
 ## To Do
 
 Unordered.
