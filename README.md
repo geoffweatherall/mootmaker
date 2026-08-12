@@ -183,6 +183,7 @@ Unordered.
 - [ ] In a non-prod environment, have a button to first reset and then add useful sample data
 - [ ] Add DynamoDB GSIs to replace current table scans with more efficient query operations.
 - [ ] (Maybe) add unit tests in the webapp.  Useful if humans will do development, but maybe less so if everything remains vibed?
+- [ ] Test the webapp on narrow mobile devices. Known issues so far: error messages/banners aren't visible, so there's no feedback when an action silently fails; the room name isn't visible next to the "Suggest a room" button's result.
 
 And what would happen if I just told Claude to do this whole list?
 
