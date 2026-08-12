@@ -54,12 +54,34 @@ unlike the logo's fixed colours.
 | `--color-secondary` | `#0E8F82` | `#2DD4BF` |
 | `--color-accent` | `#F59E0B` | `#FBBF24` |
 
+## Room-identity palette
+
+A separate 8-hue categorical palette, `--color-room-1` through `--color-room-8`, for colour-coding
+rooms in `mootmaker-webapp`'s daily availability grid and person calendar - kept apart from
+primary/secondary/accent so a room's colour is never mistaken for a primary-action/warning cue
+elsewhere in the UI. Validated (CVD-safe adjacent-pair separation, contrast against `--color-bg`
+in both modes) with the Claude Code dataviz skill's palette validator rather than eyeballed; see
+`tokens.css`'s own comment and `mootmaker-webapp/webapp/src/theme/tokens.ts` for the full
+rationale, including why three of the eight hues (light mode) are always paired with the room's
+name as visible text rather than used as colour alone.
+
+## Typography
+
+Two typefaces, both self-hosted via `@fontsource` (no external font request at runtime):
+**Inter** (`--font-body`) for body/UI text - a workhorse face built for small sizes in dense forms
+and tables - and **Outfit** (`--font-heading`) for headings - geometric with rounded terminals,
+echoing this mark's own flat rounded shape language, so headings read as distinctly "Mootmaker"
+rather than generic browser-default chrome.
+
 ## Status
 
-Wired up in `mootmaker-webapp`: the MUI theme's palette is built from the UI tokens above (with
-a light/dark toggle in the app bar, defaulting to the OS preference), `icon.svg` is the favicon, and
-`logo.svg` appears next to the app name in the header. The Android app doesn't exist as code yet -
-just an empty repo - so applying the branding there remains future work.
+Wired up in `mootmaker-webapp`: the MUI theme's palette, typography, shadows, and component
+styling (buttons, inputs, chips) are all built from the tokens above; `icon.svg` is the favicon,
+and `logo.svg` appears next to the app name in the header. Light/dark follows the OS preference
+only - there's no in-app toggle (see that project's `ThemeModeProvider.tsx`), though the
+`data-theme` override in `tokens.css` is kept in place for if one gets added later. The Android
+app doesn't exist as code yet - just an empty repo - so applying the branding there remains
+future work.
 
 The webapp's own sidebar/account icons (`mootmaker-webapp/webapp/src/icons/`) are also custom
 flat-shape glyphs built to sit alongside this mark, rather than stock Material icons - see that
