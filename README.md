@@ -153,6 +153,20 @@ When Claude detects an error, it does a good job of going through cycles of tryi
 
 - **"That beautiful code I can write by hand is not worth as much"** bundles two different claims: hand-crafted code has less relative value, and code is now cheap to produce. Both true — but *review* doesn't get cheaper at the same rate. You still have to read and understand what Claude wrote, and reading unfamiliar code is often slower than writing your own. As task/PR size grows, review time — not generation time — becomes the real bottleneck. Possibly a learning of its own once it's been hit.
 
+### Solving tricky issues can still need human insight
+
+Claude does not always know the answer, and sometimes cannot solve issues without a human to point out something "obvious".
+
+I gave Claude the task of improving API latency (which is related to using Java Lambdas for API logic).  Claude enabled SnapStart but that made little difference to API latency.  Using Claude saved my time as it agentically ran tests to record API latency before and after changes (in addition to making the change and deploying it).  However, it reported no significant improvement (i.e. less than 10% faster).  Claude summarized what it had found, and included the key change needed to solve the issue, but did not make the connection itself of what needed doing.
+
+![Claude gets close to a solution](resources/solving-coldstart-java-issue-0.png)
+
+After prompting it to address "interpreter-speed class loading of DynamoDB SDK internals the first time they're touched" ( which it had highlighted), it went on to solve the issue.
+
+
+![Claude solves with human prompting](resources/solving-coldstart-java-issue-1.png)
+
+
 **Related things worth thinking about**
 
 - **Test pyramid section**: if code and tests are both cheap to regenerate, the thing that becomes *relatively* expensive and worth protecting is the set of acceptance criteria and business rules — `business-functionality.md` is already serving that role here. That document, arguably, is the real asset now, not the test code.
