@@ -21,6 +21,11 @@ Projects built with Claude for this exploration:
 - [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) - Creates the shared S3 bucket used for Terraform remote state by the other projects
 - [mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts) - CloudFormation locking down the AWS accounts the other projects deploy into: SCPs, IAM Identity Center (SSO) for keyless access, billing alerts, and access-key rotation
 - [mootmaker-tools](https://github.com/geoffweatherall/mootmaker-tools) - Admin/support tools (e.g. a sample data generator), each deployed as its own AWS Lambda and invoked on demand against a deployed environment
+- [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e) - Full-stack end-to-end tests (real API, real Cognito, real email) and the supporting test-only infrastructure (e.g. SES email reading)
+
+## Testing strategy
+
+See [testing-strategy.md](testing-strategy.md) for the overall testing approach across all of the above, including how it's shaped by developing this project largely by "vibe coding" with Claude ([I should vibe more](#i-should-vibe-more)). Each project also has its own `testing-strategy.md` with repo-specific detail, linked from that document.
 
 ## Learnings
 
@@ -202,7 +207,8 @@ Unordered.
 - [ ] Reset button appears in the UI for environments that support it.  Share environment config between the API and the webapp
 - [ ] In a non-prod environment, have a button to first reset and then add useful sample data
 - [ ] Add DynamoDB GSIs to replace current table scans with more efficient query operations.
-- [ ] (Maybe) add unit tests in the webapp.  Useful if humans will do development, but maybe less so if everything remains vibed?
+- [ ] Add unit tests in the webapp (Vitest) — the "maybe, if humans will do development" question above is resolved as part of the overall [testing strategy](testing-strategy.md) (yes, regardless of who's developing); not yet implemented.
+- [ ] Better solution for the webapp to read the API's GraphQL schema directly, to prevent contract drift between the hand-maintained `graphql/types.ts` and the API's actual schema (e.g. codegen) — likely once CI/CD pipelines exist. See [testing-strategy.md](testing-strategy.md#known-gaps--future-work).
 - [ ] Test the webapp on narrow mobile devices. Known issues so far: error messages/banners aren't visible, so there's no feedback when an action silently fails; the room name isn't visible next to the "Suggest a room" button's result.
 
 And what would happen if I just told Claude to do this whole list?
