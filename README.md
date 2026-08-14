@@ -15,6 +15,7 @@ I began this journey as a bit of an AI sceptic, only having had exposure to Micr
 
 Projects built with Claude for this exploration:
 
+
 - [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api) - GraphQL API written using AppSync and Java Lambdas
 - [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) - React SPA with Material Design
 - [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) - Creates the shared S3 bucket used for Terraform remote state by the other projects
