@@ -167,6 +167,11 @@ After prompting it to address "interpreter-speed class loading of DynamoDB SDK i
 
 ![Claude solves with human prompting](resources/solving-coldstart-java-issue-1.png)
 
+Also going a step further with latency reduction, using a single switchboard lambda rather than a lambda per resolver:
+
+
+![Claude solves with human prompting](resources/using-a-switchboard-lambda.png)
+
 
 **Related things worth thinking about**
 
