@@ -13,6 +13,7 @@ I began this journey as a bit of an AI sceptic, only having had exposure to Micr
 
 ## Projects
 
+
 Projects built with Claude for this exploration:
 
 - [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api) - GraphQL API written using AppSync and Java Lambdas
