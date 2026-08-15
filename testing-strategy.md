@@ -86,14 +86,12 @@ live in [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e) (test-
 infrastructure). Both are deployed once and left running, not tied to any single ephemeral
 environment's lifecycle.
 
-**Blocked as of 2026-08-15**: this project's account-wide Service Control Policy
+**Deployed 2026-08-15**: the account's SCP allow-list
 ([mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts)'s
-`scp-guardrails.yaml`) allows only an explicit service list, and `ses`/`sns`/`sqs` aren't on it —
-Cognito currently sends email via its own default sending rather than SES, so none of the three
-have ever been needed before. The Terraform is written but deliberately left unapplied until that
-allow-list is updated (Claude doesn't modify SCPs — that change needs the organization management
-account, `339140804537`, which Claude only ever has credentials to the workload account,
-`431071856068`, for anyway).
+`scp-guardrails.yaml` and `identity-center.yaml`) was updated to include `ses`/`sns`/`sqs`, and both
+mootmaker-domain's SES domain identity and mootmaker-e2e's receipt rule/SNS/SQS pipeline are now
+live. `mail.mootmaker.com` genuinely receives mail. Not yet exercised end-to-end by an actual test —
+that's mootmaker-e2e's full-stack suite, still to be built.
 
 **Bypassing the code requirement entirely**, for tests that don't care about exercising the
 real code-entry UI step (most don't — only "correct code succeeds" scenarios do; a "wrong code is
@@ -237,12 +235,6 @@ specifically so that latitude doesn't turn into unbounded AWS resource sprawl ac
   [mootmaker's to-do list](README.md#to-do).
 - Everything under "planned" in each per-repo `testing-strategy.md` — this document only records
   the strategy; check each repo's own file for current build status.
-- **SCP update needed for real-email reading** (see [Reading Cognito's emails in
-  tests](#reading-cognitos-emails-in-tests) above): `ses`, `sns`, and `sqs` all need adding to
-  `pAllowedServiceActions` in **both**
-  `mootmaker-bootstrap-aws-accounts/management-account/scp-guardrails.yaml` **and**
-  `identity-center.yaml` (they're required to stay in sync — see the description on that parameter
-  in either file). Deployed via CloudFormation in the organization management account
-  (`339140804537`), logged in as the account root user — see that repo's
-  `management-account/README.md#deploying-scp-guardrailsyaml`. The Terraform is written and
-  validated, ready to apply once this lands.
+- ~~SCP update needed for real-email reading~~ — done 2026-08-15 (see [Reading Cognito's emails in
+  tests](#reading-cognitos-emails-in-tests) above). `mootmaker-e2e`'s full-stack test suite itself
+  (the thing that will actually exercise this pipeline) is the remaining gap.
