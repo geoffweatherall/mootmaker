@@ -43,17 +43,17 @@ wiring mistake between two systems that were never actually connected during the
 | Unit tests | mootmaker-api (`impl/`) | none (JVM) | seconds | fully deterministic | validation rule bugs, DynamoDB query construction, capacity/overlap math |
 | Acceptance tests | mootmaker-api (`verify/`) | real deployed AWS, ephemeral | ~minutes deploy + seconds | mostly deterministic (real Cognito M2M, no email) | IAM/permission gaps, Terraform misconfig, AppSync↔Lambda wiring, GSI/table design, server-side auth boundaries |
 | Lint + typecheck | mootmaker-webapp | none | seconds | fully deterministic | dead code, type drift |
-| Unit tests | mootmaker-webapp (new — Vitest) | none | seconds | fully deterministic | pure logic: date/time formatting, error-message mapping, suggested-room caching, organiser/attendee filtering, room-colour assignment |
-| Integration tests against a mocked API | mootmaker-webapp (new — Playwright + MSW) | none (mocked GraphQL, mocked auth) | seconds | fully deterministic | page-level wiring: right query fires, validation errors render, success navigates, `RequireAuth` gates correctly |
+| Unit tests | mootmaker-webapp (Vitest) | none | seconds | fully deterministic | pure logic: date/time formatting, error-message mapping, suggested-room caching, organiser/attendee filtering, room-colour assignment |
+| Integration tests against a mocked API | mootmaker-webapp (Playwright + MSW) | none (mocked GraphQL, mocked auth) | seconds | fully deterministic | page-level wiring: right query fires, validation errors render, success navigates, `RequireAuth` gates correctly |
 | Full-stack e2e | mootmaker-e2e (new) | real deployed AWS, ephemeral or special-purpose | minutes | least deterministic, especially the real-email cases | real Cognito email delivery, DNS/certs, CloudFront/S3 serving, cross-service integration nothing else can see |
 
-The webapp's existing Playwright suite (`webapp/tests/`) currently sits between rows 5 and 6 above
-— it drives a real browser against a locally-run dev server, but talks to a genuinely deployed API
-and a real, pre-confirmed Cognito user. The plan is to split it: most of its scenarios move onto
-the mocked-API layer (fast, deterministic, no live environment needed), and mootmaker-e2e becomes
-the only place a deployed webapp is tested against a deployed backend. See
-[mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)
-for the detail.
+**Built 2026-08-15**: the webapp's Vitest and MSW-mocked-integration layers exist now (30 unit
+tests, 27 integration tests, both independently verified green) — see
+[mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md).
+The old live-API Playwright suite was **replaced in place**, not kept alongside the new one (an
+explicit choice): `webapp/tests/*.spec.ts` now needs no live AWS environment, deployed API, or real
+Cognito user at all. mootmaker-e2e (full-stack, deployed-webapp-against-deployed-API) remains not
+yet built — see that repo's own `testing-strategy.md`.
 
 ## Reading Cognito's emails in tests
 
@@ -144,16 +144,20 @@ mechanism — this section only adds the policy on top of it):
   no longer deploys to or runs tests against it.
 - **Ephemeral environments** — created and destroyed freely, one per purpose, named by convention
   so they're identifiable and machine-cleanable:
-  - `claude-<YYMMDD>-<HHmm>-<rand4>` — Claude's own interactive dev-session environments (e.g.
-    `claude-260815-1432-x7q2`).
-  - `e2e-<YYMMDD>-<HHmm>-<rand4>` — automated e2e test-run environments (e.g.
-    `e2e-260815-1432-x7q2`).
+  - `claude-<YYMMDD>-<rand4>` — Claude's own interactive dev-session environments (e.g.
+    `claude-260815-x7q2`).
+  - `e2e-<YYMMDD>-<rand4>` — automated e2e test-run environments (e.g. `e2e-260815-x7q2`).
 
   Separate prefixes so a cleanup pass (or a human glancing at the AWS console) can tell a stale dev
   sandbox apart from an in-progress e2e run without needing extra metadata. The timestamp is
-  deliberately compact (no seconds) and the random suffix short (4 chars) to leave headroom under
-  AWS resource-name length limits once `<environment>-<project-name>-...` is assembled (S3 bucket
-  names and Cognito domain prefixes are the tightest, at 63 characters).
+  deliberately compact (day only, no time-of-day) and the random suffix short (4 chars) to leave
+  headroom under AWS resource-name length limits once `<environment>-<project-name>-...` is
+  assembled. The original design (`<YYMMDD>-<HHmm>-<rand4>`, 1 character longer) guessed S3 bucket
+  names/Cognito domain prefixes (63 chars) would be the tightest constraint — real deployment
+  testing on 2026-08-15 found otherwise: mootmaker-api's longest Lambda function name
+  (`mootmaker-post-confirmation-create-person`, 64-char hard limit) is the actual binding one, at
+  22 characters max for the environment name. The day-only form (18/15 characters) clears that with
+  margin to spare.
 
 ### Ephemeral environment lifecycle
 
@@ -165,11 +169,13 @@ mechanism — this section only adds the policy on top of it):
   environment currently in use should be torn down, rather than silently leaving it running or
   silently destroying it. (This is recorded as a standing instruction for Claude — see the note
   below.)
-- **Scripts** (decided 2026-08-15, not yet built): three separate bash scripts, living in
+- **Scripts** (built and verified end-to-end 2026-08-15): three separate bash scripts, living in
   [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e) alongside the other
   cross-cutting test infrastructure — see
   [mootmaker-e2e/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-e2e/blob/main/testing-strategy.md#ephemeral-environment-scripts)
-  for the full design and reasoning. In short:
+  for the full design and reasoning. Naming ended up `claude-<YYMMDD>-<rand4>` (day-only, no
+  time-of-day) rather than the originally-designed `<YYMMDD>-<HHmm>-<rand4>` — real deployment
+  testing found the longer form 1 character over a Lambda function-name limit. In short:
   - `create-ephemeral-env.sh` — generates a name and calls each project's own `deploy.sh` in
     sequence.
   - `teardown-ephemeral-env.sh <name>` — calls each project's own `undeploy.sh` for one specific,
