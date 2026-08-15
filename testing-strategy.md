@@ -58,80 +58,64 @@ yet built — see that repo's own `testing-strategy.md`.
 ## Reading Cognito's emails in tests
 
 Sign-up and forgot-password both require entering a code Cognito emails to the user — automating
-either flow end-to-end means reading that email somehow. Two approaches, used for different
-layers:
+either flow end-to-end means reading that email somehow, or avoiding needing to.
 
-- **Option 1 — bypass email entirely.** Uses Cognito's `CustomEmailSender` trigger — **not**
-  `CustomMessage` as originally planned here: `CustomMessage`'s `codeParameter` is only ever the
-  literal placeholder string `"{####}"` for building a custom message template, never the real
-  code, so it can't do what this option needs. `CustomEmailSender` is the trigger Cognito actually
-  hands the generated code to, KMS-encrypted in transit (defence in depth, since this trigger — and
-  only this one — gets the real value); the Lambda decrypts it with the AWS Encryption SDK against
-  a customer-managed KMS key Cognito is granted `kms:Encrypt` on, and writes it to a DynamoDB table
-  the test reads directly via the AWS SDK. Configuring this trigger hands Cognito's default email
-  sending over to it entirely for that user pool — since nothing in an ephemeral environment needs
-  to actually receive the email (that's what Option 2 is for), the handler simply doesn't send one
-  when enabled, rather than reimplementing sending itself. Fast, deterministic, no dependency on
-  real mail delivery — the default for every test that needs a code but isn't specifically testing
-  email delivery itself. Implemented in mootmaker-api, since the trigger is part of the API's
-  Cognito setup.
+**Reading the real email (SES → SNS → SQS)** is the only mechanism for tests where a genuinely
+real code matters. A subdomain's MX record points at Amazon SES; a receipt rule publishes the
+message to an SNS topic (SES receipt rules can't deliver to SQS directly), which an SQS queue is
+subscribed to; the test long-polls the queue and parses the code out of the real email body. Slower
+and less deterministic than a bypass would have been (real mail delivery, a real network hop), but
+it's the only thing that actually proves Cognito's email sending is configured and working.
+Reserved for a small number of full-stack e2e tests in mootmaker-e2e whose specific purpose is
+proving that path works — never needed anywhere the code itself is the only thing under test (see
+below).
 
-  A lighter complementary option for tests that don't care about the code-entry UI step
-  specifically (most don't — only "correct code succeeds" scenarios do; a "wrong code is rejected"
-  test can submit any wrong value without knowing the real one): Cognito's Admin API lets a caller
-  with `cognito-idp` permissions skip the code requirement entirely —
-  `AdminConfirmSignUp` confirms a sign-up with no code at all, and `AdminSetUserPassword` sets a
-  password with no reset code at all. Neither needs any new mootmaker-api infrastructure (both are
-  plain AWS SDK calls test code can make directly); neither actually exercises the real code-entry
-  UI, so it's not a substitute for Option 1 above where that specifically matters, only a way to
-  avoid needing *any* code-reading mechanism for tests that just need a working account.
-- **Option 2 — read the real email.** A subdomain's MX record points at Amazon SES; a receipt rule
-  publishes the message to an SNS topic (SES receipt rules can't deliver to SQS directly), which an
-  SQS queue is subscribed to; the test long-polls the queue and parses the code out of the real
-  email body. Slower and less deterministic (real mail delivery, a real network hop), but it's the
-  only thing that actually proves Cognito's email sending is configured and working. Reserved for a
-  small number of full-stack e2e tests in mootmaker-e2e whose specific purpose is proving that path
-  works — never used where the code itself is the only thing under test.
+This infrastructure is **one persistent, shared pipeline** — deployed once, like
+mootmaker-domain's hosted zone, not created and destroyed per ephemeral environment. AWS SES only
+allows one *active* receipt rule set per region per account, so standing up a fresh rule set for
+every ephemeral e2e run would mean concurrent runs fighting over which one is active; a single
+always-on rule set matching everything under one subdomain avoids that entirely. Each e2e run
+instead sends its Cognito sign-up/reset to a **uniquely-tagged address** under that shared
+subdomain and filters the SQS queue for messages addressed to its own tag, ignoring anyone else's
+— so concurrent runs don't see each other's mail even though the pipeline itself is shared.
 
-  Unlike Option 1, this infrastructure is **one persistent, shared pipeline** — deployed once,
-  like mootmaker-domain's hosted zone, not created and destroyed per ephemeral environment. AWS SES
-  only allows one *active* receipt rule set per region per account, so standing up a fresh rule set
-  for every ephemeral e2e run would mean concurrent runs fighting over which one is active; a single
-  always-on rule set matching everything under one subdomain avoids that entirely. Each e2e run
-  instead sends its Cognito sign-up/reset to a **uniquely-tagged address** under that shared
-  subdomain and filters the SQS queue for messages addressed to its own tag, ignoring anyone else's
-  — so concurrent runs don't see each other's mail even though the pipeline itself is shared.
-
-Option 1 is **configurable per environment** rather than always-on: its trigger behaviour is
-gated by a Terraform variable in mootmaker-api, enabled for ephemeral environments and disabled
-for `test` and `production` (so it can never affect how a real user's confirmation email behaves,
-and doesn't exist at all in an environment a real person might use). That variable's value comes
-from the **environment name's naming pattern alone** — `mootmaker-api/deploy.sh` self-enables it
-for a `claude-*`/`e2e-*` name and leaves it off for anything else, so nothing that calls `deploy.sh`
-(a human, `create-ephemeral-env.sh`, future CI) needs to know the variable exists or pass a flag
-for it. Since the bypass only ever runs inside an already-ephemeral, test-only environment (never
-`test` or `production`), it applies to every sign-up/reset in that environment rather than needing
-a further test-only address convention on top — there's no real user to protect from it once the
-environment itself is ephemeral.
-
-Option 2's SES/SNS/SQS infrastructure is split across two repos by what it actually is: the domain
-identity and MX record live in [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain)
-(DNS, shared and persistent, alongside the rest of that zone), while the receipt rule, SNS topic,
-and SQS queue live in [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e) (test-only
+It's split across two repos by what it actually is: the domain identity and MX record live in
+[mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) (DNS, shared and
+persistent, alongside the rest of that zone), while the receipt rule, SNS topic, and SQS queue
+live in [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e) (test-only
 infrastructure). Both are deployed once and left running, not tied to any single ephemeral
 environment's lifecycle.
 
-**Blocked as of 2026-08-15 — both options, not just Option 2**: this project's account-wide Service
-Control Policy
+**Blocked as of 2026-08-15**: this project's account-wide Service Control Policy
 ([mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts)'s
-`scp-guardrails.yaml`) allows only an explicit service list. `ses`, `sns`, and `sqs` aren't on it
-(needed for Option 2), and neither is `kms` (needed for Option 1's `CustomEmailSender` trigger,
-discovered once the corrected trigger mechanism above was worked out) — Cognito currently sends
-email via its own default sending rather than SES, so none of the four have ever been needed
-before. The Terraform for both options is written but deliberately left unapplied until that
+`scp-guardrails.yaml`) allows only an explicit service list, and `ses`/`sns`/`sqs` aren't on it —
+Cognito currently sends email via its own default sending rather than SES, so none of the three
+have ever been needed before. The Terraform is written but deliberately left unapplied until that
 allow-list is updated (Claude doesn't modify SCPs — that change needs the organization management
 account, `339140804537`, which Claude only ever has credentials to the workload account,
 `431071856068`, for anyway).
+
+**Bypassing the code requirement entirely**, for tests that don't care about exercising the
+real code-entry UI step (most don't — only "correct code succeeds" scenarios do; a "wrong code is
+rejected" test can submit any wrong value without knowing the real one): Cognito's Admin API lets
+a caller with `cognito-idp` permissions skip the code requirement outright —
+`AdminConfirmSignUp` confirms a sign-up with no code at all, and `AdminSetUserPassword` sets a
+password with no reset code at all. No new infrastructure needed for this at all (`cognito-idp:*`
+is already SCP-allowed, and both are plain AWS SDK calls test code can make directly) — but neither
+actually exercises the real code-entry UI, so it's not a substitute for reading the real email
+where that specifically matters, only a way to avoid needing *any* code-reading mechanism for tests
+that just need a working account.
+
+**Dropped, 2026-08-15**: a `CustomEmailSender`-trigger-based bypass (decrypting Cognito's real code
+via a KMS-encrypted delivery, no real email needed) was built, unit-tested, and `terraform
+validate`-clean, but removed before ever being applied. It was blocked by the same SCP gap (`kms`
+wasn't allowed either), and once that was understood, the cost stopped making sense: a
+customer-managed KMS key is billed a flat $1/month *per key* regardless of use — unlike everything
+else in this project, which is pure pay-per-request — and as designed would have been created per
+ephemeral environment rather than shared, plus the AWS Encryption SDK dependency it needed took the
+shared Lambda jar (every function in mootmaker-api ships from one jar) from ~7.2 MB to ~24 MB. Not
+worth carrying for a feature that was never going to be free to run and still needed an SCP change
+either way. See mootmaker-api's own `testing-strategy.md` for the detail.
 
 ## Environments
 
@@ -231,8 +215,10 @@ gets misdiagnosed as a real regression (wasted cycles chasing a ghost) or, worse
 of learning to ignore red tests. That's the concrete reason real-Cognito/real-email tests are kept
 in the smallest, least-frequently-run tier (see [Reading Cognito's emails in
 tests](#reading-cognitos-emails-in-tests) above) rather than spread through the suite: the
-DynamoDB-bypass approach does the heavy lifting everywhere determinism matters, and real email
-delivery is only exercised by the few tests whose specific job is proving that path works.
+webapp's own mocked-auth layer already covers "correct code succeeds" scenarios deterministically
+(the mock invents and accepts its own fake code, no real Cognito involved at all), the Admin-API
+bypass covers anything else that just needs a working account, and real email delivery is only
+exercised by the few full-stack tests whose specific job is proving that path works.
 
 **Ephemeral infrastructure needs an explicit authority boundary, not just a capability.** Claude
 having latitude to run Terraform and wipe sandbox data was already established; standing up a
@@ -251,12 +237,12 @@ specifically so that latitude doesn't turn into unbounded AWS resource sprawl ac
   [mootmaker's to-do list](README.md#to-do).
 - Everything under "planned" in each per-repo `testing-strategy.md` — this document only records
   the strategy; check each repo's own file for current build status.
-- **SCP update needed for either email-reading option** (see [Reading Cognito's emails in
-  tests](#reading-cognitos-emails-in-tests) above): `ses`, `sns`, `sqs` (Option 2), and `kms`
-  (Option 1) all need adding to `pAllowedServiceActions` in **both**
+- **SCP update needed for real-email reading** (see [Reading Cognito's emails in
+  tests](#reading-cognitos-emails-in-tests) above): `ses`, `sns`, and `sqs` all need adding to
+  `pAllowedServiceActions` in **both**
   `mootmaker-bootstrap-aws-accounts/management-account/scp-guardrails.yaml` **and**
   `identity-center.yaml` (they're required to stay in sync — see the description on that parameter
   in either file). Deployed via CloudFormation in the organization management account
   (`339140804537`), logged in as the account root user — see that repo's
-  `management-account/README.md#deploying-scp-guardrailsyaml`. Both options' Terraform/code are
-  written and validated/unit-tested, ready to apply once this lands.
+  `management-account/README.md#deploying-scp-guardrailsyaml`. The Terraform is written and
+  validated, ready to apply once this lands.
