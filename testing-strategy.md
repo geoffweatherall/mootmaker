@@ -2,22 +2,28 @@
 
 This document records the overall testing strategy across this project's repositories —
 [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api),
-[mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp), and
-[mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e) — and, specifically, how
-developing this project largely by "vibe coding" with Claude (see this README's
-["I should vibe more"](README.md#i-should-vibe-more) and ["Impacts on the test
+[mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) (and, later,
+`mootmaker-android`), and [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra)
+(the shared test infrastructure any frontend depends on) — and, specifically, how developing this
+project largely by "vibe coding" with Claude (see this README's ["I should vibe
+more"](README.md#i-should-vibe-more) and ["Impacts on the test
 pyramid"](README.md#impacts-on-the-test-pyramid)) shapes that strategy differently than it would
 for a conventionally hand-reviewed codebase.
 
 Each repository also has its own `testing-strategy.md` with the detail specific to it:
 
 - [mootmaker-api/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-api/blob/main/testing-strategy.md)
-- [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)
-- [mootmaker-e2e/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-e2e/blob/main/testing-strategy.md)
+- [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md) —
+  including its `e2e/` and `acceptance/` suites; each frontend owns its own, not shared centrally.
+- [mootmaker-test-infra/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-test-infra/blob/main/testing-strategy.md) —
+  only the pieces genuinely shared across frontends (ephemeral-environment lifecycle, the SES
+  email-reading pipeline). Formerly `mootmaker-e2e`, which also used to own a full-stack test suite
+  itself — see that repo's README for the 2026-08-19 rename/restructure.
 
 This document is the map between them: the overall layering, the decisions that cut across repos
 (ephemeral environments, how verification-code emails get read in tests), and the "vibe coding"
-reasoning behind it.
+reasoning behind it. [mootmaker/use-cases.md](use-cases.md) is the client-agnostic scenario list
+each frontend's own `acceptance/` suite draws on.
 
 ## Goals
 
@@ -44,16 +50,28 @@ wiring mistake between two systems that were never actually connected during the
 | Acceptance tests | mootmaker-api (`verify/`) | real deployed AWS, ephemeral | ~minutes deploy + seconds | mostly deterministic (real Cognito M2M, no email) | IAM/permission gaps, Terraform misconfig, AppSync↔Lambda wiring, GSI/table design, server-side auth boundaries |
 | Lint + typecheck | mootmaker-webapp | none | seconds | fully deterministic | dead code, type drift |
 | Unit tests | mootmaker-webapp (Vitest) | none | seconds | fully deterministic | pure logic: date/time formatting, error-message mapping, suggested-room caching, organiser/attendee filtering, room-colour assignment |
-| Integration tests against a mocked API | mootmaker-webapp (Playwright + MSW) | none (mocked GraphQL, mocked auth) | seconds | fully deterministic | page-level wiring: right query fires, validation errors render, success navigates, `RequireAuth` gates correctly |
-| Full-stack e2e | mootmaker-e2e (new) | real deployed AWS, ephemeral or special-purpose | minutes | least deterministic, especially the real-email cases | real Cognito email delivery, DNS/certs, CloudFront/S3 serving, cross-service integration nothing else can see |
+| Integration tests | mootmaker-webapp (Playwright + MSW) | none (mocked GraphQL, mocked auth) | seconds | fully deterministic | page-level wiring: right query fires, validation errors render, success navigates, `RequireAuth` gates correctly |
+| e2e | mootmaker-webapp (`e2e/`) | real deployed AWS, ephemeral | minutes | least deterministic, especially the real-email cases | real Cognito email delivery, DNS/certs, CloudFront/S3 serving, cross-service integration nothing else can see |
+| Acceptance tests | mootmaker-webapp (`acceptance/`) | real deployed AWS, ephemeral | minutes | least deterministic, especially the real-email cases | use cases in [use-cases.md](use-cases.md) actually being satisfied end to end through the real UI, not just that the infrastructure behind them works |
+
+Each frontend (`mootmaker-webapp`, later `mootmaker-android`) owns its own `e2e`/`acceptance` pair
+in its own repo, using whatever's idiomatic for that platform — nothing here is shared *test code*
+across frontends, only the infrastructure in
+[mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) (ephemeral-env
+lifecycle, the SES email pipeline) is.
 
 **Built 2026-08-15**: the webapp's Vitest and MSW-mocked-integration layers exist now (30 unit
 tests, 27 integration tests, both independently verified green) — see
 [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md).
 The old live-API Playwright suite was **replaced in place**, not kept alongside the new one (an
 explicit choice): `webapp/tests/*.spec.ts` now needs no live AWS environment, deployed API, or real
-Cognito user at all. mootmaker-e2e (full-stack, deployed-webapp-against-deployed-API) remains not
-yet built — see that repo's own `testing-strategy.md`.
+Cognito user at all.
+
+**Built 2026-08-19**: `mootmaker-webapp/e2e/` (three specs: sign-up, forgot-password, smoke — moved
+from the old `mootmaker-e2e` repo, unchanged in behaviour) and a first thin slice of
+`mootmaker-webapp/acceptance/` (two use cases: sign-up with a real emailed code, add-a-meeting with
+the demo user). The other ~97 use cases in `use-cases.md` remain a checklist, not yet automated —
+see `mootmaker-webapp/acceptance/README.md` for the pattern to follow when adding more.
 
 ## Reading Cognito's emails in tests
 
@@ -66,9 +84,9 @@ message to an SNS topic (SES receipt rules can't deliver to SQS directly), which
 subscribed to; the test long-polls the queue and parses the code out of the real email body. Slower
 and less deterministic than a bypass would have been (real mail delivery, a real network hop), but
 it's the only thing that actually proves Cognito's email sending is configured and working.
-Reserved for a small number of full-stack e2e tests in mootmaker-e2e whose specific purpose is
-proving that path works — never needed anywhere the code itself is the only thing under test (see
-below).
+Reserved for a small number of e2e/acceptance tests in each frontend (e.g.
+`mootmaker-webapp/e2e/sign-up.spec.ts`) whose specific purpose is proving that path works — never
+needed anywhere the code itself is the only thing under test (see below).
 
 This infrastructure is **one persistent, shared pipeline** — deployed once, like
 mootmaker-domain's hosted zone, not created and destroyed per ephemeral environment. AWS SES only
@@ -82,16 +100,17 @@ subdomain and filters the SQS queue for messages addressed to its own tag, ignor
 It's split across two repos by what it actually is: the domain identity and MX record live in
 [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) (DNS, shared and
 persistent, alongside the rest of that zone), while the receipt rule, SNS topic, and SQS queue
-live in [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e) (test-only
-infrastructure). Both are deployed once and left running, not tied to any single ephemeral
-environment's lifecycle.
+live in [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) (test-only
+infrastructure, shared across every frontend). Both are deployed once and left running, not tied to
+any single ephemeral environment's lifecycle.
 
 **Deployed 2026-08-15**: the account's SCP allow-list
 ([mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts)'s
 `scp-guardrails.yaml` and `identity-center.yaml`) was updated to include `ses`/`sns`/`sqs`, and both
-mootmaker-domain's SES domain identity and mootmaker-e2e's receipt rule/SNS/SQS pipeline are now
-live. `mail.mootmaker.com` genuinely receives mail. Not yet exercised end-to-end by an actual test —
-that's mootmaker-e2e's full-stack suite, still to be built.
+mootmaker-domain's SES domain identity and mootmaker-test-infra's (then still `mootmaker-e2e`'s)
+receipt rule/SNS/SQS pipeline are now live. `mail.mootmaker.com` genuinely receives mail, and this
+pipeline is now exercised end-to-end by `mootmaker-webapp/e2e/sign-up.spec.ts` and
+`forgot-password.spec.ts` (built 2026-08-19).
 
 **Bypassing the code requirement entirely**, for tests that don't care about exercising the
 real code-entry UI step (most don't — only "correct code succeeds" scenarios do; a "wrong code is
@@ -125,13 +144,22 @@ mechanism — this section only adds the policy on top of it):
 - **`test`** — now reserved for **human manual testing only**. Automated tooling, Claude included,
   no longer deploys to or runs tests against it.
 - **Ephemeral environments** — created and destroyed freely, one per purpose, named by convention
-  so they're identifiable and machine-cleanable:
+  so they're identifiable and machine-cleanable: `<kind>-<YYMMDD>-<rand4>`, where `kind` identifies
+  exactly what created the environment, not just that it's ephemeral:
   - `claude-<YYMMDD>-<rand4>` — Claude's own interactive dev-session environments (e.g.
-    `claude-260815-x7q2`).
-  - `e2e-<YYMMDD>-<rand4>` — automated e2e test-run environments (e.g. `e2e-260815-x7q2`).
+    `claude-260815-x7q2`), reused for a whole session rather than per-task.
+  - `<frontend>-<tier>-<YYMMDD>-<rand4>` — an automated test suite's own run, e.g.
+    `web-e2e-<YYMMDD>-<rand4>` / `web-acc-<YYMMDD>-<rand4>` for `mootmaker-webapp`'s `e2e/run.sh` /
+    `acceptance/run.sh`. `and-e2e-*`/`and-acc-*` expected once `mootmaker-android` gains the same
+    pattern. **Changed 2026-08-19** — previously a single generic `e2e-<YYMMDD>-<rand4>` covered
+    every automated run regardless of which frontend or test tier created it; that stopped being
+    distinguishable the moment a second frontend needed the same pattern. See
+    [mootmaker-test-infra/testing-strategy.md#naming-convention](https://github.com/geoffweatherall/mootmaker-test-infra/blob/main/testing-strategy.md#naming-convention)
+    for the full detail, including the character budget this leaves under the ceiling below.
 
-  Separate prefixes so a cleanup pass (or a human glancing at the AWS console) can tell a stale dev
-  sandbox apart from an in-progress e2e run without needing extra metadata. The timestamp is
+  Naming by creator/purpose (rather than one shared prefix) so a cleanup pass (or a human glancing
+  at the AWS console) can tell a stale dev sandbox apart from a specific automated suite's
+  in-progress run without needing extra metadata. The timestamp is
   deliberately compact (day only, no time-of-day) and the random suffix short (4 chars) to leave
   headroom under AWS resource-name length limits once `<environment>-<project-name>-...` is
   assembled. The original design (`<YYMMDD>-<HHmm>-<rand4>`, 1 character longer) guessed S3 bucket
@@ -151,19 +179,22 @@ mechanism — this section only adds the policy on top of it):
   environment currently in use should be torn down, rather than silently leaving it running or
   silently destroying it. (This is recorded as a standing instruction for Claude — see the note
   below.)
-- **Scripts** (built and verified end-to-end 2026-08-15): three separate bash scripts, living in
-  [mootmaker-e2e](https://github.com/geoffweatherall/mootmaker-e2e) alongside the other
-  cross-cutting test infrastructure — see
-  [mootmaker-e2e/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-e2e/blob/main/testing-strategy.md#ephemeral-environment-scripts)
+- **Scripts** (built and verified end-to-end 2026-08-15; a fourth added 2026-08-19): four separate bash scripts, living in
+  [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) alongside the
+  other cross-cutting test infrastructure — see
+  [mootmaker-test-infra/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-test-infra/blob/main/testing-strategy.md#ephemeral-environment-scripts)
   for the full design and reasoning. Naming ended up `claude-<YYMMDD>-<rand4>` (day-only, no
   time-of-day) rather than the originally-designed `<YYMMDD>-<HHmm>-<rand4>` — real deployment
   testing found the longer form 1 character over a Lambda function-name limit. In short:
   - `create-ephemeral-env.sh` — generates a name and calls each project's own `deploy.sh` in
     sequence.
   - `teardown-ephemeral-env.sh <name>` — calls each project's own `undeploy.sh` for one specific,
-    already-known environment (what the commit-time cleanup prompt above uses).
+    already-known environment (what the commit-time cleanup prompt above uses), then removes that
+    environment's now-empty state files from the shared state bucket so it stops showing up in
+    `cleanup-stale-envs.sh`'s discovery afterward.
   - `cleanup-stale-envs.sh` — the batch sweep, for anything left behind by an interrupted session.
-    Discovers every `claude-*`/`e2e-*` environment via the shared Terraform state bucket
+    Discovers every environment matching the `<kind>-<YYMMDD>-<rand4>` convention (any recognized
+    `kind`, not just `claude`/`e2e`) via the shared Terraform state bucket
     ([mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform))
     — every project's state key is `<environment>/<project-name>/terraform.tfstate`, so listing
     that bucket's keys and grouping by the first path segment gives a reliable, centralised list of
@@ -171,9 +202,19 @@ mechanism — this section only adds the policy on top of it):
     everything it finds and asks for confirmation before tearing down each one, matching
     `undeploy.sh`'s own always-interactive, no-`-auto-approve` safety pattern rather than an age
     threshold or a pick-list menu.
+  - `list-ephemeral-envs.sh` (added 2026-08-19) — read-only, destroys/deletes nothing. For every
+    discovered environment's state files, counts the resources actually tracked inside; empty ones
+    are a completed teardown's leftover state object, safe to delete directly. For nonzero counts,
+    cross-checks against real AWS via `terraform plan -refresh-only` — distinguishing benign drift
+    (tags, ACM validation finishing, etc. — still genuinely deployed) from resources actually
+    confirmed gone, rather than treating any refresh difference as "gone" (an early version did
+    exactly that and was corrected after testing against a real environment showed it produced
+    false positives — see
+    [mootmaker-test-infra/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-test-infra/blob/main/testing-strategy.md#ephemeral-environment-scripts)
+    for the detail). Complements `cleanup-stale-envs.sh` by making the distinction visible up front.
 
-  All three are thin orchestrators over the existing per-project `deploy.sh`/`undeploy.sh` — none
-  of the actual deploy mechanics get duplicated.
+  The first three are thin orchestrators over the existing per-project `deploy.sh`/`undeploy.sh` —
+  none of the actual deploy mechanics get duplicated.
 
 > **Note to Claude, in future sessions**: this workflow (create a `claude-*` environment when
 > starting dev/deploy work; ask before a commit whether to tear down the one in use; never deploy
@@ -236,5 +277,11 @@ specifically so that latitude doesn't turn into unbounded AWS resource sprawl ac
 - Everything under "planned" in each per-repo `testing-strategy.md` — this document only records
   the strategy; check each repo's own file for current build status.
 - ~~SCP update needed for real-email reading~~ — done 2026-08-15 (see [Reading Cognito's emails in
-  tests](#reading-cognitos-emails-in-tests) above). `mootmaker-e2e`'s full-stack test suite itself
-  (the thing that will actually exercise this pipeline) is the remaining gap.
+  tests](#reading-cognitos-emails-in-tests) above). ~~mootmaker-e2e's full-stack test suite itself~~
+  — done 2026-08-19, moved into `mootmaker-webapp/e2e/` (see that repo's testing-strategy.md).
+- **Only two of ~99 use cases in `use-cases.md` are automated** (in
+  `mootmaker-webapp/acceptance/`) — a deliberate thin first slice, not full coverage. See that
+  suite's own README for the pattern to follow when adding more.
+- `mootmaker-test-infra`'s `create-ephemeral-env.sh` still unconditionally deploys mootmaker-api
+  *and* mootmaker-webapp together — fine today, but `mootmaker-android`'s tests will only need the
+  API half. Not solved yet; see that repo's own testing-strategy.md.
