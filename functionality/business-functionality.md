@@ -41,7 +41,7 @@ Going forward, this file is the source of truth for what the system does. New fu
 - Every meeting must have a subject; it cannot be left blank.
 - A room can only host one meeting at a time: the system will not allow a new meeting whose time overlaps with an existing meeting for the same room. A meeting is allowed to start the instant an earlier meeting in the same room ends.
 - The total number of people at a meeting — the organiser plus all attendees — cannot exceed the room's capacity.
-- A meeting's start and finish times must fall on a five-minute boundary (for example 10:15 or 10:20, but not 10:13), keeping scheduling consistent across the system.
+- A meeting's start and finish times must fall on a fifteen-minute boundary (for example 10:15 or 10:30, but not 10:20), keeping scheduling consistent across the system.
 - There is no limit on how far in advance, or how far in the past, a meeting can be scheduled.
 - Any signed-in user can create a meeting and may organise it on behalf of any person in the system, not only themselves.
 - The organiser and the attendees are always kept separate: the person organising a meeting cannot also be listed as one of its attendees. This matters because the organiser already counts as one of the meeting's people for the room-capacity rule above — letting the same person be counted as both the organiser and an attendee would let a meeting silently claim to have one more person in the room than it really does.

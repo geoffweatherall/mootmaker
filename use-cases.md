@@ -90,8 +90,8 @@ against — that catalog is expected to be re-checked against changes here, not 
 
 38. <a id="uc-38"></a>Add a meeting with all required fields filled in correctly → success, navigates to a relevant view with a confirmation toast. *(webapp: [F.38](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/f-add-meeting.md#tc-f38) · android: not yet automated)*
 39. <a id="uc-39"></a>Organiser defaults to the signed-in user's own Person (when resolved and not already changed). *(webapp: [F.39](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/f-add-meeting.md#tc-f39) · android: not yet automated)*
-40. <a id="uc-40"></a>Start time defaults to the next 5-minute boundary; end time defaults to an hour later, same calendar day. *(webapp: [F.40](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/f-add-meeting.md#tc-f40) · android: not yet automated — **⚠ this wording may be stale**: the shipped default is a 15-minute boundary, not 5; see the webapp catalog's README for the discovered drift)*
-41. <a id="uc-41"></a>Time pickers only offer 5-minute-boundary minutes. *(webapp: [F.41](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/f-add-meeting.md#tc-f41) · android: not yet automated)*
+40. <a id="uc-40"></a>Start time defaults to the next 15-minute boundary; end time defaults to an hour later, same calendar day. *(webapp: [F.40](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/f-add-meeting.md#tc-f40) · android: not yet automated)*
+41. <a id="uc-41"></a>Time pickers only offer 15-minute-boundary minutes. *(webapp: [F.41](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/f-add-meeting.md#tc-f41) · android: not yet automated)*
 42. <a id="uc-42"></a>Picking an end time before the start time / equal to it. *(webapp: [F.42](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/f-add-meeting.md#tc-f42) · android: not yet automated — **⚠ likely unenforced today**: neither the webapp nor the API currently validate this; see the webapp catalog's README)*
 43. <a id="uc-43"></a>Picking a start/end time pair that would span midnight. *(webapp: [F.43](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/f-add-meeting.md#tc-f43) · android: not yet automated)*
 44. <a id="uc-44"></a>Selecting someone as an attendee removes them from the Organiser dropdown, and vice versa; deselecting frees them up again. *(webapp: [F.44](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/f-add-meeting.md#tc-f44) · android: not yet automated)*
@@ -191,13 +191,14 @@ A few things worth flagging separately since they shape *how* you'd test rather 
   native navigation. Worth doing once a second frontend's `acceptance/` suite actually exists and
   the distinction stops being hypothetical.
 - **Three inconsistencies between this list's wording and the actual webapp/API implementation**
-  were found while writing the detailed test-case catalog (2026-08-22), flagged inline above (⚠)
-  on cases 40, 42, and 62, with full detail in
+  were found while writing the detailed test-case catalog (2026-08-22), with full detail in
   [mootmaker-webapp/acceptance/test-cases/README.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/README.md)'s
-  "Known doc/code drift" and "Known implementation gap" sections: case 40's "5-minute boundary"
-  start-time default is stale (the shipped default is 15 minutes); case 42's expectation that an
-  end-before-start time range is rejected doesn't appear to be enforced anywhere, client or server;
-  and case 62's week/month navigation doesn't exist in the current `PersonCalendarPage` at all (no
-  controls beyond the person selector). None of these were "fixed" in place here — each is a
-  decision for whoever owns this list and the corresponding code (update the wording, or build/fix
-  the behaviour), not something a documentation pass should resolve unilaterally.
+  "Known doc/code drift" / "Known implementation gaps" sections: case 40's "5-minute boundary"
+  start-time default was stale wording (**fixed 2026-08-22** — the rule itself was tightened to 15
+  minutes system-wide, not just the wording corrected; case 41's picker-step wording was updated to
+  match); case 42's expectation that an end-before-start time range is rejected doesn't appear to
+  be enforced anywhere, client or server (still open — flagged ⚠ above); and case 62's week/month
+  navigation doesn't exist in the current `PersonCalendarPage` at all, no controls beyond the person
+  selector (still open — flagged ⚠ above). Cases 42 and 62 are still a decision for whoever owns
+  this list and the corresponding code (update the wording, or build/fix the behaviour) — not
+  something a documentation pass should resolve unilaterally.
