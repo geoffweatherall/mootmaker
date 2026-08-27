@@ -91,5 +91,5 @@ The following functionality has been discussed but is not yet built. It is recor
 - Closing/deleting one's own account.
 - Signing up or signing in using an existing Google account.
 - Usage metrics and reporting.
-- A custom brand theme, including a dark mode, in place of the current default Material Design styling.
+- An in-app light/dark mode toggle (currently it only follows the OS preference). The custom brand theme itself (colours, typography, light and dark palettes) is already built - see [branding/README.md](../branding/README.md).
 - An Android app offering the same functionality as the web application.

@@ -21,7 +21,8 @@ Projects built with Claude for this exploration:
 - [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) - Creates the shared S3 bucket used for Terraform remote state by the other projects
 - [mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts) - CloudFormation locking down the AWS accounts the other projects deploy into: SCPs, IAM Identity Center (SSO) for keyless access, billing alerts, and access-key rotation
 - [mootmaker-tools](https://github.com/geoffweatherall/mootmaker-tools) - Admin/support tools (e.g. a sample data generator), each deployed as its own AWS Lambda and invoked on demand against a deployed environment
-- [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) - Native Android app, a second frontend for the same API (early stage)
+- [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) - DNS/domain identity (hosted zone, SES domain identity for mail.mootmaker.com), shared and persistent across environments
+- [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) - Native Android app, a second frontend for the same API (not yet started)
 - [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) - Test infrastructure shared across every frontend: ephemeral-environment lifecycle scripts and the SES email-reading pipeline. Formerly `mootmaker-e2e`, which also used to own a full-stack test suite itself before each frontend gained its own `e2e`/`acceptance` suites (see [use-cases.md](use-cases.md))
 
 ## Testing strategy

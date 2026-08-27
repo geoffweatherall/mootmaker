@@ -3,8 +3,10 @@
 This document records the overall testing strategy across this project's repositories —
 [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api),
 [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) (and, later,
-`mootmaker-android`), and [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra)
-(the shared test infrastructure any frontend depends on) — and, specifically, how developing this
+`mootmaker-android`), [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra)
+(the shared test infrastructure any frontend depends on), and
+[mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) (DNS/mail identity used by
+the real-email test pipeline) — and, specifically, how developing this
 project largely by "vibe coding" with Claude (see this README's ["I should vibe
 more"](README.md#i-should-vibe-more) and ["Impacts on the test
 pyramid"](README.md#impacts-on-the-test-pyramid)) shapes that strategy differently than it would
