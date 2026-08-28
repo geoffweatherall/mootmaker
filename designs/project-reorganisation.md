@@ -353,11 +353,12 @@ to override.
 
 **No unanswered design questions** — every decision needed to start Phase 1 is made.
 
-Of the four pending actions from Geoff, **three were resolved on 2026-08-29**:
+**All four pending actions from Geoff were resolved on 2026-08-29.** Nothing now blocks execution.
 
 1. ~~Approve this design → Status `Ready`~~ — **done**, Status promoted 2026-08-29.
-2. Run `gh auth refresh -s project` (interactive, browser) — **still outstanding**, needed by
-   Phase 3. Only Geoff can do this; an AI session cannot complete a browser flow.
+2. ~~Run `gh auth refresh -s project`~~ — **done**. Token scopes are now
+   `gist, project, read:org, repo, workflow`, and `gh project list` succeeds. Phase 3's board is
+   unblocked.
 3. ~~Choose an option in
    [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1)~~ —
    **done: option B**, migrate the state keys to the new repo names. Chosen over the suggested
@@ -758,6 +759,24 @@ difference is real but genuinely hard to measure — it shows up as documents th
 nobody asked for, versus competent template-fills. For the mechanical phases there is no measurable
 difference and paying for it is waste.
 
+**Operational constraint: Claude cannot switch its own model.** The session model is set by Geoff
+via `/model` (or the `model` setting); an AI session has no way to change it mid-run. The table
+above is therefore *guidance for Geoff*, not something that happens automatically — and a plan that
+assumed per-phase switching during an unattended run would be wrong.
+
+How to reconcile that with running unattended:
+
+- **Run Phases 1–2 on Opus in one go, and do not try to switch.** The README rewrite and all of
+  Phase 2 are the Opus-worthy bulk. The Sonnet-suited parts are a minority *and* are supposed to be
+  done with a script (see "Prefer scripts over per-file reasoning") — reviewing a generated diff is
+  cheap on any model, so model choice barely matters for exactly the work Sonnet was suggested for.
+  The scripting convention largely dissolves this problem.
+- **Take the clean break before Phase 4**, which is different in kind (terraform, deploys,
+  verification — highly instrumentable) and follows a `[Geoff]` gate at the end of Phase 3 anyway.
+  That is the one switch genuinely worth making.
+- `opusplan` (a `/model` option pairing Opus planning with Sonnet execution) may suit this work,
+  but how it decides which is which has not been verified here — investigate before relying on it.
+
 ### When to notify, and when to just keep going
 
 Notification reaches a phone via Remote Control. **Verified 2026-08-29: mobile push is currently
@@ -783,7 +802,7 @@ unattended end to end.
 
 | Gate | Phase | Front-loadable? |
 |---|---|---|
-| `gh auth refresh -s project` | 0 (needed by 3) | **Outstanding** — only Geoff can run it |
+| ~~`gh auth refresh -s project`~~ | 0 (needed by 3) | ✅ Done 2026-08-29 |
 | ~~Approve this design → Status `Ready`~~ | 0 | ✅ Done 2026-08-29 |
 | ~~Choose an option in [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1)~~ | 4 | ✅ Done 2026-08-29 — option B |
 | ~~Decide when to tear down `test`~~ | 4 | ✅ Done 2026-08-29 — immediately |
@@ -802,7 +821,8 @@ its recommended model — see "Model selection per phase" above for the reasonin
 ### Phase 0 — Prerequisites
 *Model: Sonnet.*
 
-- [ ] `[Geoff]` Run `gh auth refresh -s project` (interactive, browser). Needed before Phase 3.
+- [x] `[Geoff]` Run `gh auth refresh -s project` (interactive, browser). **Done 2026-08-29** —
+      scopes now `gist, project, read:org, repo, workflow`; `gh project list` succeeds.
 - [x] `[Geoff]` Approve this design — move Status to `Ready`. **Done 2026-08-29.**
 - [x] `[Geoff]` Choose the `mootmaker-tools#1` state option. **Done 2026-08-29 — option B**
       (migrate keys to the new repo names). Applied in Phase 4.
