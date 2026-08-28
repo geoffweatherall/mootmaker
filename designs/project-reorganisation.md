@@ -12,7 +12,7 @@ flow, GitHub Issues plus a cross-repo Project board, per-repo `AGENTS.md` files,
 definitions with templates and agent configs, a machine-readable workstation manifest, and a
 sharper repo split — while explicitly *not* building CI/CD or artifact sharing yet.
 
-**Status:** Drafting — 2026-08-29
+**Status:** Ready — 2026-08-29 (approved by Geoff; build from this as written)
 
 ---
 
@@ -353,16 +353,17 @@ to override.
 
 **No unanswered design questions** — every decision needed to start Phase 1 is made.
 
-There are, however, **four pending actions from Geoff**, none of which is an open question so much
-as a thing only he can do. All four are front-loadable, and doing them together unblocks Phases 1
-and 2 end to end:
+Of the four pending actions from Geoff, **three were resolved on 2026-08-29**:
 
-1. Approve this design → Status `Ready`. Nothing starts without it.
-2. Run `gh auth refresh -s project` (interactive, browser) — needed by Phase 3.
-3. Choose an option in
-   [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1) — needed by
-   Phase 4.
-4. Decide when to tear down `test` — needed by Phase 4.
+1. ~~Approve this design → Status `Ready`~~ — **done**, Status promoted 2026-08-29.
+2. Run `gh auth refresh -s project` (interactive, browser) — **still outstanding**, needed by
+   Phase 3. Only Geoff can do this; an AI session cannot complete a browser flow.
+3. ~~Choose an option in
+   [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1)~~ —
+   **done: option B**, migrate the state keys to the new repo names. Chosen over the suggested
+   option C; recorded on the issue.
+4. ~~Decide when to tear down `test`~~ — **done: immediately**, before Phase 1, rather than during
+   Phase 4. See Decision 3.
 
 A fifth, not on the critical path but needed before any genuinely unattended run: **enable mobile
 push in `/config`**. Verified disabled 2026-08-29, which means a blocked session currently stops
@@ -782,10 +783,10 @@ unattended end to end.
 
 | Gate | Phase | Front-loadable? |
 |---|---|---|
-| `gh auth refresh -s project` | 0 (needed by 3) | **Yes** — do it now |
-| Approve this design → Status `Ready` | 0 | **Yes** — nothing starts without it |
-| Choose an option in [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1) | 4 | **Yes** |
-| Decide when to tear down `test` | 4 | **Yes** |
+| `gh auth refresh -s project` | 0 (needed by 3) | **Outstanding** — only Geoff can run it |
+| ~~Approve this design → Status `Ready`~~ | 0 | ✅ Done 2026-08-29 |
+| ~~Choose an option in [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1)~~ | 4 | ✅ Done 2026-08-29 — option B |
+| ~~Decide when to tear down `test`~~ | 4 | ✅ Done 2026-08-29 — immediately |
 | Sanity-check one `AGENTS.md` + `principles.md` | 2 | No — needs the documents to exist |
 | Confirm the issue triage | 3 | No — needs the triage to exist |
 
@@ -802,7 +803,13 @@ its recommended model — see "Model selection per phase" above for the reasonin
 *Model: Sonnet.*
 
 - [ ] `[Geoff]` Run `gh auth refresh -s project` (interactive, browser). Needed before Phase 3.
-- [ ] `[Geoff]` Approve this design — move Status to `Ready`.
+- [x] `[Geoff]` Approve this design — move Status to `Ready`. **Done 2026-08-29.**
+- [x] `[Geoff]` Choose the `mootmaker-tools#1` state option. **Done 2026-08-29 — option B**
+      (migrate keys to the new repo names). Applied in Phase 4.
+- [x] `[Geoff]` Decide when to tear down `test`. **Done 2026-08-29 — immediately**, before Phase 1.
+- [ ] `[Claude]` Tear down `test` (tools, then webapp, then API — `teardown-ephemeral-env.sh`
+      refuses non-ephemeral names by design, so this is manual `undeploy.sh` calls). Confirm no
+      `test-` resources or state remain.
 - [ ] `[Claude]` Confirm `aws sso login` is valid before any AWS-touching step.
 - [ ] `[Claude]` Confirm `git filter-repo` availability; if missing, note it for the manifest and
       plan the `git subtree split` fallback.
@@ -922,12 +929,15 @@ its recommended model — see "Model selection per phase" above for the reasonin
       with history.
 - [ ] `[Claude]` Rename `mootmaker-tools` → `mootmaker-demo-data` on GitHub; update the local
       checkout directory and remote; remove the admin tools from it.
-- [ ] `[Geoff]` Choose an option in
-      [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1) — pin the
-      keys (A), migrate them (B), or decouple them from the repo name entirely (C, suggested).
-- [ ] `[Claude]` Apply the chosen option across every affected environment; if migrating, back up
-      state first and verify `terraform plan` shows **no changes** before any apply. Close the
-      issue with the reasoning and a commit link.
+- [x] `[Geoff]` Choose an option in
+      [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1).
+      **Done 2026-08-29 — option B**, migrate the keys to the new repo names.
+- [ ] `[Claude]` Apply option B: copy each state object from `<env>/mootmaker-tools-<tool>/` to
+      `<env>/mootmaker-demo-data-<tool>/` or `<env>/mootmaker-admin-tools-<tool>/` as appropriate,
+      update the `key=` literal in each `deploy.sh`, verify, then delete the old objects. Back up
+      state first and require `terraform plan` to show **no changes** before any apply. Only
+      `production` remains affected now that `test` is torn down. Close the issue with the
+      reasoning and a commit link.
 - [ ] `[Claude]` Settle the pre-existing `mootmaker-e2e-email` state-key mismatch the same way,
       while this machinery is open.
 - [ ] `[Claude]` Split `deploy-all.sh` / `undeploy-all.sh`; write both READMEs including the new
@@ -935,7 +945,8 @@ its recommended model — see "Model selection per phase" above for the reasonin
 - [ ] `[Claude]` Update every reference to `mootmaker-tools` across all repos.
 - [ ] `[Claude]` Write `docs/process/environments.md`'s production+ephemeral model; update every
       script/doc referencing the `test` environment.
-- [ ] `[Geoff]` Decide when to tear down the `test` environment.
+- [x] `[Geoff]` Decide when to tear down the `test` environment. **Done 2026-08-29 — immediately**,
+      before Phase 1 rather than here. Executed in Phase 0.
 - [ ] `[Claude]` Full verification: fresh ephemeral environment, deploy everything from both new
       repos plus API and webapp, run the acceptance suite green.
 
