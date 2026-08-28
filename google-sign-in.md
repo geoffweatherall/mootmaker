@@ -1,5 +1,10 @@
 # Sign in with Google — design & decisions
 
+> **Superseded by [designs/google-sign-in.md](designs/google-sign-in.md)** (2026-08-28) — the
+> unified, current design doc following this project's design-doc template. This file's content is
+> preserved as detailed historical planning notes and is still linked from there; treat the new
+> file as the source of truth for status and next steps.
+
 Status: **planning only — no code changes made yet.** This document records what was decided in
 planning discussion on 2026-08-28, so implementation can start (or resume) without re-deriving it.
 See [google-sign-in-todo.md](google-sign-in-todo.md) for the actual step-by-step checklist.

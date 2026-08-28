@@ -1,5 +1,9 @@
 # Sign in with Google — to-do list
 
+> **Superseded by [designs/google-sign-in.md](designs/google-sign-in.md)** (2026-08-28) — the
+> unified, current design doc, including this checklist's content. This file is preserved as
+> historical detail; treat the new file as the source of truth for status and next steps.
+
 See [google-sign-in.md](google-sign-in.md) for the reasoning behind every decision referenced here.
 This file exists so work can resume mid-stream without re-reading the whole conversation — keep it
 up to date as steps complete.
