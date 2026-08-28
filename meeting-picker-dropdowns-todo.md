@@ -1,7 +1,16 @@
 # Meeting form pickers — sort + filter — to-do
 
-Status: **not started, not scheduled** — captured per Geoff's request on 2026-08-28, explicitly not
-to be worked on now. No dependency on the delete-my-account or Google sign-in work.
+Status: **done, 2026-08-28.** All three pickers (Organiser, Attendees, Room) in
+[AddMeetingPage.tsx](../mootmaker-webapp/webapp/src/pages/AddMeetingPage.tsx) now use MUI
+`Autocomplete` (single-select for Organiser/Room, `multiple` with checkboxes for Attendees) with
+client-side filter-as-you-type, exactly as scoped below. All three lists are also now sorted
+alphabetically by name, matching `SettingsPage.tsx`'s existing convention. Verified on a narrow
+mobile viewport via real screenshots against the mocked dev server, and against a real deployed
+acceptance environment — every acceptance-suite case exercising these fields (mutual exclusivity,
+validation, room suggestion, mobile layout) passes. A handful of acceptance/integration tests
+needed matching updates for the DOM shape change (`Select`'s `<div>` → `Autocomplete`'s `<input>` -
+`toHaveText`/`textContent` reads became `toHaveValue`/`inputValue`), documented in the relevant
+commit.
 
 ## What's there today
 
