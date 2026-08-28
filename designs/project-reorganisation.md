@@ -237,6 +237,30 @@ per-PR judgement, not a gate.
 cost would bake in an untested assumption. Documenting it properly and using it selectively
 generates that evidence. Revisit after ~10 PRs (*Open question NB-3*).
 
+**"Review" here does not mean GitHub's Approve button — it cannot.** Claude has no GitHub identity;
+it acts through `gh` authenticated as Geoff, so every branch, commit, and PR it creates is authored
+by Geoff. GitHub blocks approving your own pull request, so on a solo project the formal Approve
+review is permanently unavailable. This was found the practical way, on this design's own PR.
+
+That is fine, and the process must not pretend otherwise:
+
+- **Reading the diff is the review. Merging is the approval.** Branch protection is deliberately not
+  enabled (see "GitHub, outside any repo"), so a self-authored PR merges without an approving
+  review. No gate is lost.
+- **The real human gate lives in the artifact, not in GitHub.** For a design, it is the
+  `Drafting → Ready` promotion in the doc's own Status line — explicitly Geoff's alone, recorded
+  where any tool can read it. That is strictly better than GitHub's review state for this project,
+  because it is tool-agnostic: Antigravity can read a `Status:` line without being taught GitHub's
+  review API.
+- **Merging and promoting are two separate acts.** Merging a design PR puts the document safely on
+  `main`; it does not make the design build-from-able. Only the explicit Status change does. Keeping
+  them separate means a design can live on `main` while still being chewed over.
+
+**Attribution stays honest as-is.** Commits already carry `Co-Authored-By: Claude Opus 5`, which
+accurately records who wrote what. Making PRs *appear* to come from a Claude identity would
+misrepresent accountability — Geoff owns and merges the work — so it is not done for cosmetic
+reasons. See NB-7 for the one case where a distinct identity would genuinely earn its keep.
+
 ### 9. Human review boundary: design, tests, and the risky categories
 
 **Decision, and the project's stated position on "how much vibe coding is acceptable":**
@@ -363,6 +387,13 @@ front-loaded because they need their artifacts to exist first — see the Human 
   in `mootmaker-workspace/.claude/`, which is inside no repo and therefore unversioned and not
   reproducible on another machine. Noted in Technical considerations; a fix is proposed but the
   right long-term answer may be different.
+- **NB-7 — Does the AI-review experiment need a separate GitHub identity?** Tied to NB-3. A second
+  agent leaving a PR review would also act as Geoff via `gh`, making it a self-review with the same
+  block described in Decision 8 — so the reviewer would be indistinguishable from the author, which
+  defeats most of the point of the experiment. A machine account or GitHub App would fix that
+  properly and make the review visibly independent. Deliberately deferred: it is an account and a
+  token to maintain, and it only pays off once AI review is actually being run. Decide alongside
+  NB-3 rather than before it.
 
 ---
 
@@ -666,6 +697,27 @@ conventions below exist to keep that knowledge on disk rather than in a session.
   design — and it will — update the design rather than silently working around it. A design doc
   describes the current plan.
 
+### Pull requests for this reorganisation
+
+Yes, this work uses PRs — but **a PR is per-repo, and this work spans up to 10 repos**, so "one PR
+per phase" is not achievable. Taken literally it would mean one PR per repo per phase: roughly
+twenty across Phases 1 and 2 alone, most of them a single mechanical file. The rule instead:
+
+| Scope | PR approach |
+|---|---|
+| **Hub (`mootmaker`)** | **One PR per phase.** All the judgment-dense work is here — README, principles, process and role docs. Real review value, and a natural checkpoint. |
+| **Satellite repos** | **One PR each for the whole reorganisation**, opened when that repo's changes are complete (end of Phase 2 for most; Phase 4 for the two tools repos). Their changes are mechanical and script-generated — `AGENTS.md`, the `CLAUDE.md` symlink, link updates — and are reviewed via the generating script's diff rather than file by file. Still gives a record and a clean revert point, without ten near-empty PRs. |
+| **Phase 3** | **No PR — none is possible.** Labels, issues, and the Project board are GitHub state, not repository content; there is nothing to branch. Its review gate is the `[Geoff]` triage confirmation already in the checklist. |
+| **Repo create / rename / archive (Phase 4)** | **Not PR-able either.** Done directly, with the verification steps in that phase standing in for review. |
+
+Review and merge follow Decision 8: read the diff, merge it, and — for a design — promote Status
+separately. There is no approval step to wait for.
+
+**This is the first real cost of choosing 10 repos over consolidation** (Decision 1): every
+cross-cutting change is now N pull requests instead of one. Worth watching honestly during
+execution — if it becomes genuinely obstructive rather than merely tedious, that is evidence to
+revisit the topology, not a reason to quietly stop opening PRs.
+
 ### Resuming a cold session
 
 In order, without skipping:
@@ -795,7 +847,9 @@ its recommended model — see "Model selection per phase" above for the reasonin
   - [ ] `mootmaker-bootstrap-aws-accounts`
 - [ ] `[Claude]` Write and run a link checker across all repos; fix anything it finds. No broken
       relative or GitHub links anywhere.
-- [ ] `[Claude]` Commit as separate commits per piece of work; open one PR.
+- [ ] `[Claude]` Commit as separate commits per piece of work; open the hub PR for this phase. Leave
+      satellite-repo branches open — they get one PR each at the end of Phase 2 (see "Pull requests
+      for this reorganisation").
 
 ### Phase 2 — Process, principles, roles, and agent instructions
 *Model: **Opus** throughout — this is the phase worth paying for.*
@@ -805,7 +859,9 @@ its recommended model — see "Model selection per phase" above for the reasonin
 - [ ] `[Claude]` Write `docs/process/principles.md`, including the verified tech stack and the
       review boundary from Decision 9.
 - [ ] `[Claude]` Write the remaining process docs — tick each:
-  - [ ] `docs/process/branching-and-prs.md`
+  - [ ] `docs/process/branching-and-prs.md` (must state the review-then-merge reality from
+        Decision 8 explicitly — there is no Approve step on a solo project — and the per-repo PR
+        strategy from "Working conventions")
   - [ ] `docs/process/issues-and-board.md`
   - [ ] `docs/process/environments.md` (including the ephemeral lifetime limit from Decision 3)
   - [ ] `docs/process/ai-collaboration.md` (model choice, AI review, instrumentability — draw on
@@ -838,6 +894,8 @@ its recommended model — see "Model selection per phase" above for the reasonin
   - [ ] `mootmaker-bootstrap-terraform`
   - [ ] `mootmaker-bootstrap-aws-accounts`
   - [ ] `mootmaker-android` (placeholder — repo is empty)
+- [ ] `[Claude]` Open the hub PR for this phase, and one PR per satellite repo covering all its
+      reorganisation changes from Phases 1 and 2 together.
 - [ ] `[Geoff]` Sanity-check one `AGENTS.md` and the principles doc — these are the two documents
       that most need to reflect what you actually think.
 
@@ -896,7 +954,9 @@ its recommended model — see "Model selection per phase" above for the reasonin
 
 ## Definition of done
 
-- All five phases complete, each merged via its own PR with Geoff's review.
+- All five phases complete, merged per the PR strategy in "Working conventions" — a hub PR per
+  phase, one PR per satellite repo, and no PR for Phase 3 (nothing to branch). Each read and merged
+  by Geoff; no approval step, per Decision 8.
 - Every repo deploys cleanly to a fresh ephemeral environment, and the `mootmaker-webapp` acceptance
   suite is green against it — allowing for the known, separately-tracked flakiness in
   `mootmaker-webapp#1`.
