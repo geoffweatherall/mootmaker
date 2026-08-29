@@ -905,47 +905,47 @@ its recommended model — see "Model selection per phase" above for the reasonin
 ### Phase 2 — Process, principles, roles, and agent instructions
 *Model: **Opus** throughout — this is the phase worth paying for.*
 
-- [ ] `[Claude]` Write `docs/process/README.md` — the canonical workflow rules that every
+- [x] `[Claude]` Write `docs/process/README.md` — the canonical workflow rules that every
       `AGENTS.md` points to.
-- [ ] `[Claude]` Write `docs/process/principles.md`, including the verified tech stack and the
+- [x] `[Claude]` Write `docs/process/principles.md`, including the verified tech stack and the
       review boundary from Decision 9.
-- [ ] `[Claude]` Write the remaining process docs — tick each:
-  - [ ] `docs/process/branching-and-prs.md` (must state the review-then-merge reality from
+- [x] `[Claude]` Write the remaining process docs — tick each:
+  - [x] `docs/process/branching-and-prs.md` (must state the review-then-merge reality from
         Decision 8 explicitly — there is no Approve step on a solo project — and the per-repo PR
         strategy from "Working conventions")
-  - [ ] `docs/process/issues-and-board.md`
-  - [ ] `docs/process/environments.md` (including the ephemeral lifetime limit from Decision 3)
-  - [ ] `docs/process/ai-collaboration.md` (model choice, AI review, instrumentability — draw on
+  - [x] `docs/process/issues-and-board.md`
+  - [x] `docs/process/environments.md` (including the ephemeral lifetime limit from Decision 3)
+  - [x] `docs/process/ai-collaboration.md` (model choice, AI review, instrumentability — draw on
         `docs/showcase/debugging-techniques.md` and the "Working conventions" section above)
-- [ ] `[Claude]` Write `docs/roles/` — tick each:
-  - [ ] `README.md` (the hats index)
-  - [ ] `developer.md`
-  - [ ] `product-owner.md`
-  - [ ] `marketer.md`
-  - [ ] `operator.md`
-  - [ ] `author.md`
-  - [ ] `templates/` (one-pager, marketing brief, release note, incident note)
-- [ ] `[Claude]` Write `docs/roles/agents/` definitions (one per hat) and `tools/install-agents.sh`.
-- [ ] `[Claude]` Write `docs/development/` — tick each:
-  - [ ] `getting-started.md`
-  - [ ] `architecture.md`
-  - [ ] `workstation.md`
-- [ ] `[Claude]` Write `tools/workstation/manifest.yaml` and `check.sh`; seed the manifest from what
+- [x] `[Claude]` Write `docs/roles/` — tick each:
+  - [x] `README.md` (the hats index)
+  - [x] `developer.md`
+  - [x] `product-owner.md`
+  - [x] `marketer.md`
+  - [x] `operator.md`
+  - [x] `author.md`
+  - [x] `templates/` (one-pager, marketing brief, release note, incident note)
+- [x] `[Claude]` Write `docs/roles/agents/` definitions (one per hat) and `tools/install-agents.sh`.
+- [x] `[Claude]` Write `docs/development/` — tick each:
+  - [x] `getting-started.md`
+  - [x] `architecture.md`
+  - [x] `workstation.md`
+- [x] `[Claude]` Write `tools/workstation/manifest.yaml` and `check.sh`; seed the manifest from what
       this workspace actually needs (git, gh + scopes, aws cli + SSO, terraform, java 25, maven,
       node/npm, playwright browsers, jq, git-filter-repo).
-- [ ] `[Claude]` Run `check.sh` on this machine and fix anything it gets wrong.
-- [ ] `[Claude]` Add `AGENTS.md` to every repo; fold in existing `CLAUDE.md` content (only `-api`,
+- [x] `[Claude]` Run `check.sh` on this machine and fix anything it gets wrong.
+- [x] `[Claude]` Add `AGENTS.md` to every repo; fold in existing `CLAUDE.md` content (only `-api`,
       `-webapp`, and `-tools` have one today); replace `CLAUDE.md` with a symlink. Tick each:
-  - [ ] `mootmaker` (hub)
-  - [ ] `mootmaker-api`
-  - [ ] `mootmaker-webapp`
-  - [ ] `mootmaker-tools`
-  - [ ] `mootmaker-test-infra`
-  - [ ] `mootmaker-domain`
-  - [ ] `mootmaker-bootstrap-terraform`
-  - [ ] `mootmaker-bootstrap-aws-accounts`
-  - [ ] `mootmaker-android` (placeholder — repo is empty)
-- [ ] `[Claude]` Open the hub PR for this phase, and one PR per satellite repo covering all its
+  - [x] `mootmaker` (hub)
+  - [x] `mootmaker-api`
+  - [x] `mootmaker-webapp`
+  - [x] `mootmaker-tools`
+  - [x] `mootmaker-test-infra`
+  - [x] `mootmaker-domain`
+  - [x] `mootmaker-bootstrap-terraform`
+  - [x] `mootmaker-bootstrap-aws-accounts`
+  - [x] `mootmaker-android` (placeholder — repo is empty)
+- [x] `[Claude]` Open the hub PR for this phase, and one PR per satellite repo covering all its
       reorganisation changes from Phases 1 and 2 together.
 - [ ] `[Geoff]` Sanity-check one `AGENTS.md` and the principles doc — these are the two documents
       that most need to reflect what you actually think.

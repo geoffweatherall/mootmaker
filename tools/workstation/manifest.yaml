@@ -1,0 +1,133 @@
+# What has to be installed to work on mootmaker.
+#
+# Read by tools/workstation/check.sh, which reports what is present and what is missing with the
+# command to fix it. Written for Ubuntu, which is the only development platform this project
+# targets.
+#
+# THE RULE: if you install something during a session that future work will need, add it here as
+# part of that session's work. Not as a follow-up - it will not happen.
+#
+# Fields:
+#   name      what to call it in output
+#   why       why mootmaker needs it - so a reader can judge whether they need it for their task
+#   check     a command that exits 0 when present. Keep it cheap; it runs on every check.
+#   version   optional: prints the installed version, shown alongside "ok"
+#   install   how to install it on Ubuntu
+#   notes     optional: anything that is not obvious from the above
+#   optional  optional: true when it is only needed for specific tasks, not everyday work
+
+tools:
+  - name: git
+    why: Source control for all ten repositories.
+    check: command -v git
+    version: git --version
+    install: sudo apt install -y git
+
+  - name: gh
+    why: >-
+      GitHub CLI. Issues, pull requests, labels, repository administration, and the cross-repo
+      project board.
+    check: command -v gh
+    version: gh --version
+    install: sudo apt install -y gh
+    notes: >-
+      Needs authenticating once with `gh auth login`, and the project board needs an extra scope
+      that is not granted by default: `gh auth refresh -s project`. Check with
+      `gh auth status` - the scope list should contain `project`.
+
+  - name: aws
+    why: AWS CLI v2. Inspecting deployed environments, and the credentials Terraform uses.
+    check: command -v aws
+    version: aws --version
+    install: >-
+      curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip &&
+      unzip -q -o /tmp/awscliv2.zip -d /tmp && sudo /tmp/aws/install --update
+    notes: >-
+      Authenticate with `aws sso login`, not an access key - this project has no long-lived
+      credentials by design. SSO tokens expire during long sessions; re-run `aws sso login`.
+
+  - name: terraform
+    why: All infrastructure. Every repository that deploys anything uses it.
+    check: command -v terraform
+    version: terraform version
+    install: >-
+      wget -qO- https://apt.releases.hashicorp.com/gpg |
+      sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg &&
+      echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg]
+      https://apt.releases.hashicorp.com $(lsb_release -cs) main" |
+      sudo tee /etc/apt/sources.list.d/hashicorp.list && sudo apt update &&
+      sudo apt install -y terraform
+
+  - name: java
+    why: The API and all Lambda tools are Java 25.
+    check: command -v java
+    version: java -version 2>&1 | head -1
+    install: sudo apt install -y openjdk-25-jdk
+    notes: Must be 25 or later - the Lambda runtime is java25 and the Maven release target is 25.
+
+  - name: mvn
+    why: Builds the Java projects.
+    check: command -v mvn
+    version: mvn -version 2>&1 | head -1
+    install: sudo apt install -y maven
+
+  - name: node
+    why: The webapp, and every Playwright test suite.
+    check: command -v node
+    version: node --version
+    install: sudo apt install -y nodejs npm
+    notes: >-
+      Node 20 or later. Ubuntu's packaged version can lag; if it is too old, use nodesource or a
+      version manager instead.
+
+  - name: npm
+    why: JavaScript dependencies.
+    check: command -v npm
+    version: npm --version
+    install: sudo apt install -y npm
+
+  - name: playwright-browsers
+    why: >-
+      The e2e and acceptance suites drive a real browser. The npm package alone is not enough; the
+      browser binaries are a separate download.
+    check: test -d "$HOME/.cache/ms-playwright"
+    install: npx playwright install --with-deps chromium
+    notes: >-
+      Run from a repository that already has Playwright installed, e.g. mootmaker-webapp. Remember
+      `npm install` at the repository root as well as in `webapp/` - they are separate package.json
+      files, and missing the root one produces a silent "playwright: not found".
+
+  - name: jq
+    why: Parsing JSON in shell scripts, and reading Terraform output.
+    check: command -v jq
+    version: jq --version
+    install: sudo apt install -y jq
+
+  - name: python3
+    why: The link checker, the workstation check, and assorted tooling in tools/.
+    check: command -v python3
+    version: python3 --version
+    install: sudo apt install -y python3
+
+  - name: pyyaml
+    why: Reads this manifest.
+    check: python3 -c "import yaml"
+    version: python3 -c "import yaml; print(yaml.__version__)"
+    install: sudo apt install -y python3-yaml
+
+  - name: git-filter-repo
+    why: >-
+      History-preserving extraction when splitting a repository. Needed by Phase 4 of the project
+      reorganisation, which splits mootmaker-tools by blast radius.
+    check: command -v git-filter-repo
+    install: sudo apt install -y git-filter-repo
+    optional: true
+    notes: >-
+      Only needed when actually splitting a repository. `git subtree split` is the fallback if it
+      cannot be installed, but filter-repo is the better tool.
+
+  - name: curl
+    why: Checking deployed sites respond, and installing other tools.
+    check: command -v curl
+    version: curl --version 2>&1 | head -1
+    install: sudo apt install -y curl
