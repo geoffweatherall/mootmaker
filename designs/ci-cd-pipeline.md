@@ -37,7 +37,9 @@ public repositories.
   bootstrap repos deploy rarely enough that automating them is low value. Named as a likely fast
   follow, not built here.
 - **Ephemeral-environment-per-PR.** Attractive (see NB-4 in the reorganisation design) but a real
-  cost and lifecycle question of its own — addressed as an open question below, not decided here.
+  cost and lifecycle question of its own. **Decided 2026-08-29: deferred** — PR checks stay
+  unit + mocked-integration only, with no AWS access. Revisit once the pipeline exists and there is
+  real evidence about how often something reaches `main` that acceptance-on-PR would have caught.
 - **Deploying `mootmaker-android`** — no code exists yet.
 - **Building the GraphQL schema-sharing mechanism itself.** That's `graphql-schema-sharing.md`'s
   job; this design only reserves the pipeline step that would invoke it.
@@ -138,21 +140,31 @@ way that issue describes (silently leaving tool state behind while reporting suc
 
 ### Blocking
 
-- **OQ-1 — Is merge-to-`main`-deploys-production actually the workflow Geoff wants, or does he want
-  an explicit approval gate between merge and deploy** (e.g. a required review on the deploy
-  workflow run itself, or a manual "promote" step)? Decision 1 above assumes the more automated end
-  of the spectrum. This is a genuine preference question, not something inferable from existing
-  project state.
-- **OQ-2 — Should ephemeral environments be created automatically per PR** (NB-4 in the
-  reorganisation design)? Real cost and lifecycle implications (who tears them down, how long they
-  live, whether every PR needs one or only ones touching deployable code) — needs a decision before
-  the PR-checks workflow's exact shape is finalized, since "run acceptance tests against a real
-  per-PR environment" versus "run them against a shared/reused environment" are different designs.
-- **OQ-3 — Which AWS account/role structure does the OIDC trust policy target?** Whether this reuses
-  the existing workload account's IAM Identity Center setup's underlying account, or needs its own
-  narrower role, is a decision that touches `mootmaker-bootstrap-aws-accounts` and should probably
-  be made by whoever owns that account's guardrails (Geoff, wearing the operator hat) rather than
-  assumed here.
+**All three resolved by Geoff on 2026-08-29.** Nothing now blocks this design moving to `Ready`
+once its Implementation checklist is filled in.
+
+- [x] **OQ-1 — merge-to-`main` deploys production, with no gate.** Confirmed: the PR itself is the
+  review, and `main`'s HEAD should always answer "what is in production". Decision 1 above stands as
+  written — no manual promote step, no GitHub Environments approval rule, no tag-triggered release.
+  The consequence named in Decision 1 is accepted knowingly: there is deliberately no by-hand escape
+  hatch for production once this ships.
+- [x] **OQ-2 — deferred, not adopted.** PR checks stay unit + mocked-integration only, with no AWS
+  access, exactly as this design's v1 scope already assumes. Revisit once the pipeline exists and
+  there is real evidence about how often something reaches `main` that acceptance-on-PR would have
+  caught — a decision worth making from experience rather than in advance. NB-4 in the
+  reorganisation design stays open on that basis.
+- [x] **OQ-3 — a new, narrowly-scoped deploy role in the workload account** (`431071856068`),
+  trusted by GitHub's OIDC provider, defined as CloudFormation in `mootmaker-bootstrap-aws-accounts`
+  alongside the existing guardrails. Explicitly *not* the broad WorkloadAdministrator-equivalent
+  option — least privilege wins here, accepting that a missing permission may surface mid-deploy
+  during bring-up and need iterating on.
+
+  **Practical consequence worth stating plainly:** per
+  [[reference-cloudformation-stack-naming]] and that repo's own README, CloudFormation stacks there
+  are applied by Geoff manually via the console as the root user in the **management** account
+  (`339140804537`). Claude only ever holds workload-account credentials. So the role's CFN template
+  can be written and reviewed here, but **standing it up is a `[Geoff]` step**, and the pipeline
+  cannot be tested end to end until that has happened. Sequenced accordingly in Rollout & migration.
 
 ### Non-blocking
 
@@ -217,8 +229,9 @@ way that issue describes (silently leaving tool state behind while reporting suc
 
 - **PR checks are new test infrastructure**, not a change to existing test layers — they run the
   same unit/mocked-integration suites that already exist, just automatically.
-- **The acceptance/e2e layers (real deployment required) are not run on every PR** in this design's
-  v1, pending OQ-2. If ephemeral-per-PR is adopted later, this section needs revisiting.
+- **The acceptance/e2e layers (real deployment required) are not run on every PR** — settled by
+  OQ-2, not merely pending. They stay a deliberate, human-triggered step against an ephemeral
+  environment. If ephemeral-per-PR is adopted later, this section needs revisiting.
 - **The deploy pipeline itself needs its own smoke test** — a minimal post-deploy check (e.g. the
   home page returns 200) before considering a deploy successful, distinct from the full acceptance
   suite.
@@ -238,15 +251,24 @@ way that issue describes (silently leaving tool state behind while reporting suc
 
 ## Rollout & migration
 
-1. Stand up the OIDC provider and IAM role(s) in AWS (needs OQ-3 resolved first).
-2. Build and merge `pr-checks.yml` for `mootmaker-api` and `mootmaker-webapp` — lowest risk, no AWS
-   access, immediate value.
-3. Build `deploy.yml`, test it thoroughly against an ephemeral environment (pointing the same
-   workflow at a non-production target) before ever pointing it at `production`.
-4. Cut over: retire local `./deploy.sh production` as the sanctioned path once `deploy.yml` has a
+1. **`[Claude]`** Write the CloudFormation for the OIDC provider and the narrow deploy role
+   (OQ-3), in `mootmaker-bootstrap-aws-accounts`, following that repo's stack-name-matches-filename
+   convention.
+2. **`[Geoff]`** Apply that stack manually via the CloudFormation console as root in the management
+   account — Claude holds workload-account credentials only and cannot do this step. **Everything
+   downstream is blocked until this lands**, so it is worth doing early rather than at the point of
+   first use.
+3. Build and merge `pr-checks.yml` for `mootmaker-api` and `mootmaker-webapp` — lowest risk, no AWS
+   access at all, and **not blocked on step 2**, so it can proceed in parallel.
+4. Build `deploy.yml`, test it thoroughly against an ephemeral environment (pointing the same
+   workflow at a non-production target) before ever pointing it at `production`. Expect to iterate
+   on the role's permissions here — a deliberately narrow policy (OQ-3) will surface missing
+   permissions during bring-up, and each one is a CFN change needing another `[Geoff]` console
+   apply. That friction is the accepted cost of least privilege, not a sign the approach is wrong.
+5. Cut over: retire local `./deploy.sh production` as the sanctioned path once `deploy.yml` has a
    proven track record — a handful of successful ephemeral-environment runs at minimum before the
    first real production deploy through the pipeline.
-5. Ephemeral sweep: report-only first, automatic teardown only after that's run cleanly for a
+6. Ephemeral sweep: report-only first, automatic teardown only after that's run cleanly for a
    stated period (a week is a reasonable starting bar, adjustable once there's real data).
 
 No data migration — this changes deployment mechanics only.
@@ -266,11 +288,14 @@ No data migration — this changes deployment mechanics only.
 
 ## Implementation checklist
 
-Sparse while Drafting, per the design-doc template — filled in properly once Status moves to
-`Ready`. The blocking open questions (OQ-1 through OQ-3) need answers first.
+All three blocking questions are answered (see Open questions), so this is now filled in properly.
+Status stays `Drafting` until Geoff promotes it — a design does not self-promote to `Ready`.
 
-- [ ] `[Geoff]` Resolve OQ-1, OQ-2, OQ-3.
-- [ ] `[Claude]` Stand up the OIDC provider and IAM role in `mootmaker-bootstrap-aws-accounts`.
+- [x] `[Geoff]` Resolve OQ-1, OQ-2, OQ-3. **Done 2026-08-29.**
+- [ ] `[Claude]` Write the OIDC provider + narrow deploy-role CloudFormation in
+      `mootmaker-bootstrap-aws-accounts`.
+- [ ] `[Geoff]` Apply that stack via the CloudFormation console as root in the management account —
+      not something Claude can do. Blocks `deploy.yml` bring-up (but not `pr-checks.yml`).
 - [ ] `[Claude]` Build and merge `pr-checks.yml` for `mootmaker-api` and `mootmaker-webapp`.
 - [ ] `[Claude]` Build `deploy.yml`; prove it against an ephemeral environment before production.
 - [ ] `[Claude]` Cut production over; retire local `./deploy.sh production` as the sanctioned path.
