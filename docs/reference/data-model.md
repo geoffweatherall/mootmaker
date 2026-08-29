@@ -5,7 +5,7 @@ Cognito (identity/auth) and DynamoDB (application data) — the two together, si
 that touch persisted state touch more than "the obvious database." Individual design docs describe
 *deltas* against this file under their own "Changes to the domain data model" section and link
 back here rather than duplicating it; this file gets updated once a design ships (see
-[README.md](README.md)'s process). Last verified 2026-08-28, against `mootmaker-api`.
+[README.md](../../designs/README.md)'s process). Last verified 2026-08-28, against `mootmaker-api`.
 
 ## Cognito
 
@@ -120,7 +120,7 @@ time).
 | `organiserId` | S | FK → People. |
 | `attendeeIds` | List\<S\> | FKs → People. |
 | `subject` | S | Meeting subject/title. |
-| `startTime` | S | Canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss`, no time-zone offset — see [date-time-format-settings.md](date-time-format-settings.md)'s Technical considerations for why the webapp treats this as naive local time, never UTC. |
+| `startTime` | S | Canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss`, no time-zone offset — see [date-time-format-settings.md](../../designs/date-time-format-settings.md)'s Technical considerations for why the webapp treats this as naive local time, never UTC. |
 | `endTime` | S | Same format as `startTime`. |
 
 **GSIs**:

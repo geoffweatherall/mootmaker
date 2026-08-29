@@ -9,7 +9,7 @@ This is now a **prerequisite for Sign in with Google** (see
 2026-08-28: self-service account deletion should exist before Google sign-in ships, rather than
 after. Two concrete reasons this ordering matters, beyond just "it's good to have":
 
-- [privacy-policy-draft.md](privacy-policy-draft.md) currently states deletion is a manual,
+- [privacy-policy-draft.md](../../docs/showcase/privacy-policy-draft.md) currently states deletion is a manual,
   support-request process. Shipping Google sign-in first would mean publishing that policy (needed
   for Google's consent screen) with a known gap already baked in, when it doesn't have to be.
 - Once Google-linked accounts exist, `AdminDeleteUser` conveniently removes a Cognito user and

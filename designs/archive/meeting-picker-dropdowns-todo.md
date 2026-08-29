@@ -1,7 +1,7 @@
 # Meeting form pickers — sort + filter — to-do
 
 Status: **done, 2026-08-28.** All three pickers (Organiser, Attendees, Room) in
-[AddMeetingPage.tsx](../mootmaker-webapp/webapp/src/pages/AddMeetingPage.tsx) now use MUI
+[AddMeetingPage.tsx](../../../mootmaker-webapp/webapp/src/pages/AddMeetingPage.tsx) now use MUI
 `Autocomplete` (single-select for Organiser/Room, `multiple` with checkboxes for Attendees) with
 client-side filter-as-you-type, exactly as scoped below. All three lists are also now sorted
 alphabetically by name, matching `SettingsPage.tsx`'s existing convention. Verified on a narrow
@@ -14,14 +14,14 @@ commit.
 
 ## What's there today
 
-[AddMeetingPage.tsx](../mootmaker-webapp/webapp/src/pages/AddMeetingPage.tsx) has three pickers, all
+[AddMeetingPage.tsx](../../../mootmaker-webapp/webapp/src/pages/AddMeetingPage.tsx) has three pickers, all
 plain MUI `Select`/`MenuItem` (not `Autocomplete`):
 - Organiser (single-select, ~line 284)
 - Attendees (multi-select with checkboxes, ~line 300)
 - Room (single-select, ~line 346)
 
 Organiser/attendee options already run through
-[addMeetingLogic.ts](../mootmaker-webapp/webapp/src/pages/addMeetingLogic.ts)'s
+[addMeetingLogic.ts](../../../mootmaker-webapp/webapp/src/pages/addMeetingLogic.ts)'s
 `filterOrganiserOptions`/`filterAttendeeOptions` — but that's mutual-exclusivity filtering only (the
 same person can't be picked as both), not sorting or text search. None of the three lists are sorted
 today; they render in whatever order the API returns (`Query.people`/`Query.rooms`, both a plain

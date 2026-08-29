@@ -698,6 +698,11 @@ conventions below exist to keep that knowledge on disk rather than in a session.
 - **Treat this document as a running log, not a frozen plan.** When reality diverges from the
   design — and it will — update the design rather than silently working around it. A design doc
   describes the current plan.
+- **Git operations are pre-approved.** Branch, commit, push, open and merge PRs without pausing to
+  ask (confirmed 2026-08-29). Stopping an unattended run for routine git mechanics buys nothing —
+  the work is reviewed at the PR, and git is recoverable by design. Genuinely destructive history
+  operations (force-pushing over someone else's commits, discarding changes that were not yours)
+  still warrant a word first.
 
 ### Pull requests for this reorganisation
 

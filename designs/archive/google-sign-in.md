@@ -1,6 +1,6 @@
 # Sign in with Google — design & decisions
 
-> **Superseded by [designs/google-sign-in.md](designs/google-sign-in.md)** (2026-08-28) — the
+> **Superseded by [designs/google-sign-in.md](../google-sign-in.md)** (2026-08-28) — the
 > unified, current design doc following this project's design-doc template. This file's content is
 > preserved as detailed historical planning notes and is still linked from there; treat the new
 > file as the source of truth for status and next steps.
@@ -169,7 +169,7 @@ two paths.
 1. **GCP project**: new, dedicated project for this — not folded into an existing one.
 2. **Consent screen branding**: "Mootmaker" as the display name.
 3. **Privacy policy**: go past Testing mode as soon as possible. A draft privacy policy page has
-   been written — see [privacy-policy-draft.md](privacy-policy-draft.md) — accurate to what the app
+   been written — see [privacy-policy-draft.md](../../docs/showcase/privacy-policy-draft.md) — accurate to what the app
    actually collects and does today (name/email, password only for native sign-up, booking data the
    user creates; no analytics/tracking found in the webapp; no Google data beyond basic profile
    accessed). It has two placeholders (contact email, effective date) and flags one real gap worth
