@@ -14,8 +14,8 @@ tidy list and lose that.
 
 ## The board
 
-One GitHub Project spans every mootmaker repository, giving the single view that per-repo issues
-otherwise lack.
+**[The Mootmaker board](https://github.com/users/geoffweatherall/projects/1)** spans every
+mootmaker repository, giving the single view that per-repo issues otherwise lack.
 
 | Field | Values | For |
 |---|---|---|
@@ -61,7 +61,7 @@ The same set exists in every repository, so a filter behaves consistently across
 | `bug` | Something does not work |
 | `enhancement` | New capability or improvement |
 | `infra` | Infrastructure, deployment, Terraform |
-| `docs` | Documentation |
+| `documentation` | Documentation |
 | `flaky-test` | Intermittent test failure — distinct from `bug`, because the triage is different |
 | `tech-debt` | Known compromise worth revisiting |
 | `hat:developer`, `hat:product`, `hat:marketing`, `hat:operator`, `hat:author` | Which role owns it |

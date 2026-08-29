@@ -68,7 +68,8 @@ condition, framed as transferable skills rather than a war story.
 | [docs/reference/](docs/reference/) | [Data model](docs/reference/data-model.md), [testing strategy](docs/reference/testing-strategy.md), [use cases](docs/reference/use-cases.md), and [what the system does](docs/reference/business-functionality.md) for a non-technical reader |
 | [docs/showcase/](docs/showcase/) | The learnings write-up, branding, and the marketing material |
 
-Issues are tracked in GitHub, in the repository they concern.
+Issues are tracked in GitHub, in the repository they concern, and gathered on the
+[Mootmaker board](https://github.com/users/geoffweatherall/projects/1).
 
 ## Working on it
 
