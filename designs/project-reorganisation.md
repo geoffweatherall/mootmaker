@@ -112,7 +112,7 @@ live AWS):
 | Environment | Contents |
 |---|---|
 | `production` | API, webapp, all four tools — the public demo |
-| `test` | API, webapp, all four tools; 6 Lambdas, 4 DynamoDB tables — **to be retired** |
+| `test` | API, webapp, all four tools — **retired 2026-08-29**, 73 resources destroyed |
 | `claude-260828-006t` | API + webapp — leaked; **torn down 2026-08-29** |
 | `claude-260828-2flz` | API + webapp — leaked; **torn down 2026-08-29** |
 | `claude-260828-92oq` | API + webapp + 2 tools — leaked; **torn down 2026-08-29** |
@@ -120,11 +120,11 @@ live AWS):
 | `domain`, `bootstrap` | Shared/persistent, not environments — unaffected |
 | `mootmaker-e2e-email` | SES email pipeline — see the naming note in Technical considerations |
 
-**A process gap this exposes, and the decision it forces.** Four ephemeral environments from a
-single session on 2026-08-28 are still running — 10 Lambdas and 16 DynamoDB tables, plus the
-Cognito pools, S3 buckets, CloudFront distributions and AppSync APIs that go with each. The
-ephemeral workflow's teardown step is convention only, and convention lost four times in one day.
-That directly contradicts the scale-to-zero principle this project claims.
+**A process gap this exposed, and the decision it forced.** Four ephemeral environments from a
+single session on 2026-08-28 were found still running — 10 Lambdas and 16 DynamoDB tables, plus the
+Cognito pools, S3 buckets, CloudFront distributions and AppSync APIs that go with each (all torn
+down on 2026-08-29). The ephemeral workflow's teardown step is convention only, and convention lost
+four times in one day. That directly contradicts the scale-to-zero principle this project claims.
 
 So Decision 3 carries a second obligation beyond retiring `test`: **ephemeral environments need a
 teardown guarantee that does not depend on a session remembering.** `mootmaker-test-infra` already
@@ -698,6 +698,11 @@ conventions below exist to keep that knowledge on disk rather than in a session.
 - **Treat this document as a running log, not a frozen plan.** When reality diverges from the
   design — and it will — update the design rather than silently working around it. A design doc
   describes the current plan.
+- **Git operations are pre-approved.** Branch, commit, push, open and merge PRs without pausing to
+  ask (confirmed 2026-08-29). Stopping an unattended run for routine git mechanics buys nothing —
+  the work is reviewed at the PR, and git is recoverable by design. Genuinely destructive history
+  operations (force-pushing over someone else's commits, discarding changes that were not yours)
+  still warrant a word first.
 
 ### Pull requests for this reorganisation
 
@@ -852,28 +857,47 @@ its recommended model — see "Model selection per phase" above for the reasonin
 ### Phase 1 — Hub restructure
 *Model: **Opus** for the README rewrite; Sonnet for the moves and link sweep.*
 
-- [ ] `[Claude]` Create the `docs/` tree and move every document to its target location, using
-      `git mv` so history follows.
-- [ ] `[Claude]` Split `README.md`: extract the Learnings essay to `docs/showcase/learnings.md`;
+- [x] `[Claude]` Create the `docs/` tree and move every document to its target location, using
+      `git mv` so history follows. **Done** — all moves recorded by git as renames, so history
+      follows each file. The unreferenced 5MB `image.png` turned out to be a Claude Code session
+      screenshot from when this project was called `room-booking`; it is filed with the other
+      session screenshots under a descriptive name rather than in marketing.
+- [x] `[Claude]` Split `README.md`: extract the Learnings essay to `docs/showcase/learnings.md`;
       rewrite the README as the ~100-line showcase-first landing page; delete the To Do section
-      (its content is captured for Phase 3 first).
-- [ ] `[Claude]` Move `designs/data-model.md` to `docs/reference/data-model.md` and update
-      `designs/README.md`.
-- [ ] `[Claude]` Migrate `delete-my-account.md` / `-todo.md` into `designs/delete-my-account.md`
-      under the template, leaving pointers in the originals (same treatment as `google-sign-in`).
-- [ ] `[Claude]` Write a link-rewrite script (old path → new path) rather than editing file by
+      (its content is captured for Phase 3 first). **Done** — README is 89 lines; the essay moved
+      intact with no editing of Geoff's writing; the multi-environment mechanics moved to
+      `docs/development/environments.md`; the 24 open and 7 completed To Do items are captured for
+      Phase 3 triage.
+- [x] `[Claude]` Move `designs/data-model.md` to `docs/reference/data-model.md` and update
+      `designs/README.md`. **Done** — `designs/README.md` also needed prose fixes the link sweep
+      could not catch, since they were backticked paths rather than markdown links.
+- [x] `[Claude]` ~~Migrate `delete-my-account.md` / `-todo.md` into `designs/delete-my-account.md`
+      under the template~~ — **deliberately not done; plan changed.** Both files are archived to
+      `designs/archive/` instead. Writing a template-shaped design for a feature nobody is currently
+      building produces a document that rots before it is used, and the archived pair is already the
+      most detailed record of that thinking. `designs/README.md` now states the rule this follows:
+      when an archived doc is picked up for real work, write a fresh design under the current
+      template then, and leave the original as history — which is exactly what happened with
+      `google-sign-in`.
+- [x] `[Claude]` Write a link-rewrite script (old path → new path) rather than editing file by
       file; keep it in `tools/` until the sweep is done so the work is reviewable and repeatable.
-- [ ] `[Claude]` Run the sweep and review its diff, per repo — tick each as it lands:
-  - [ ] `mootmaker` (internal links, the largest set)
-  - [ ] `mootmaker-api`
-  - [ ] `mootmaker-webapp`
-  - [ ] `mootmaker-test-infra`
-  - [ ] `mootmaker-tools`
-  - [ ] `mootmaker-domain`
-  - [ ] `mootmaker-bootstrap-terraform`
-  - [ ] `mootmaker-bootstrap-aws-accounts`
-- [ ] `[Claude]` Write and run a link checker across all repos; fix anything it finds. No broken
-      relative or GitHub links anywhere.
+      **Done** — `tools/rewrite-links.py`. It resolves each link against the file's *old* directory
+      before mapping, which is what makes a moved file's outgoing links come out right. It is
+      one-shot and refuses to re-run: a second pass re-resolves already-correct links and walks the
+      `../` prefix one level further out each time, which happened during development and was caught
+      by the checker.
+- [x] `[Claude]` Run the sweep and review its diff, per repo — tick each as it lands:
+  - [x] `mootmaker` (internal links, the largest set)
+  - [x] `mootmaker-api`
+  - [x] `mootmaker-webapp`
+  - [x] `mootmaker-test-infra`
+  - [x] `mootmaker-tools`
+  - [x] `mootmaker-domain`
+  - [x] `mootmaker-bootstrap-terraform` — no inbound links, nothing to change
+  - [x] `mootmaker-bootstrap-aws-accounts` — no inbound links, nothing to change
+- [x] `[Claude]` Write and run a link checker across all repos; fix anything it finds. No broken
+      relative or GitHub links anywhere. **Done** — `tools/check-links.py`; 0 broken links across 58
+      markdown files in all eight repos, down from 171 immediately after the moves.
 - [ ] `[Claude]` Commit as separate commits per piece of work; open the hub PR for this phase. Leave
       satellite-repo branches open — they get one PR each at the end of Phase 2 (see "Pull requests
       for this reorganisation").

@@ -107,7 +107,7 @@ by grepping for `formatLocalTime`/`formatLocalDate`/`DatePicker`/`TimePicker`/
 
 ## Changes to the domain data model and data storage models
 
-See [`data-model.md`](data-model.md) for the current state. This design adds two new fields to the
+See [`data-model.md`](../docs/reference/data-model.md) for the current state. This design adds two new fields to the
 `Person` domain concept — `timeFormat` (enum: `TWENTY_FOUR_HOUR` | `AM_PM`) and `dateFormat` (enum:
 `USA` | `BRITISH` | `ISO`) — defaulting to `TWENTY_FOUR_HOUR`/`ISO` for any Person that's never set
 them, surfaced via a new self-only mutation rather than folded into `PersonInput`/`updatePerson`

@@ -1,6 +1,6 @@
 # Sign in with Google — to-do list
 
-> **Superseded by [designs/google-sign-in.md](designs/google-sign-in.md)** (2026-08-28) — the
+> **Superseded by [designs/google-sign-in.md](../google-sign-in.md)** (2026-08-28) — the
 > unified, current design doc, including this checklist's content. This file is preserved as
 > historical detail; treat the new file as the source of truth for status and next steps.
 
@@ -23,7 +23,7 @@ are ordered by dependency — an item's "depends on" line names what must be don
 - GCP project: **new, dedicated project.**
 - Consent screen display name: **"Mootmaker."**
 - Privacy policy: going to production ASAP — draft written, see
-  [privacy-policy-draft.md](privacy-policy-draft.md). Still needs: a real support/contact email
+  [privacy-policy-draft.md](../../docs/showcase/privacy-policy-draft.md). Still needs: a real support/contact email
   filled in, an effective date, Geoff's read-through/sign-off, and an app logo (check
   `mootmaker/branding/` first).
 - Scopes: **`openid email profile` only — Calendar explicitly deferred**, not requested now (see

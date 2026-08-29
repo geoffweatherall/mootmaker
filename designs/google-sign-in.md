@@ -69,7 +69,7 @@ next).
 **Account linking — link at Cognito, not in our own data model.** Chosen over maintaining a
 Person-to-multiple-Cognito-users mapping ourselves, because `MyPersonHandler`/`PersonRepository`
 already resolve strictly off the JWT's `sub` via `cognitoSub` (see
-[data-model.md](data-model.md)'s Cross-references section) — this needs zero changes to that
+[data-model.md](../docs/reference/data-model.md)'s Cross-references section) — this needs zero changes to that
 resolution logic, and reuses Cognito's own `identities` bookkeeping instead of inventing a new one.
 Mechanism: a new `pre_sign_up` trigger, handling `triggerSource == "PreSignUp_ExternalProvider"`,
 looks up whether a native Cognito user already exists with the incoming email. If found *and*
@@ -158,7 +158,7 @@ paths.
 
 ## Changes to the domain data model and data storage models
 
-See [`data-model.md`](data-model.md). No DynamoDB schema changes — federated sign-up produces the
+See [`data-model.md`](../docs/reference/data-model.md). No DynamoDB schema changes — federated sign-up produces the
 exact same `Person` item shape as native sign-up always has. Changes are all on the Cognito side:
 a new `aws_cognito_identity_provider` (Google), OAuth flow config added to the existing `webapp`
 user pool client, and — worth calling out specifically since it's easy to miss — a **second Lambda

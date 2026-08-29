@@ -8,8 +8,8 @@ This document records the overall testing strategy across this project's reposit
 [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) (DNS/mail identity used by
 the real-email test pipeline) — and, specifically, how developing this
 project largely by "vibe coding" with Claude (see this README's ["I should vibe
-more"](README.md#i-should-vibe-more) and ["Impacts on the test
-pyramid"](README.md#impacts-on-the-test-pyramid)) shapes that strategy differently than it would
+more"](../showcase/learnings.md#i-should-vibe-more) and ["Impacts on the test
+pyramid"](../showcase/learnings.md#impacts-on-the-test-pyramid)) shapes that strategy differently than it would
 for a conventionally hand-reviewed codebase.
 
 Each repository also has its own `testing-strategy.md` with the detail specific to it:
@@ -139,7 +139,7 @@ either way. See mootmaker-api's own `testing-strategy.md` for the detail.
 ## Environments
 
 Three kinds of environment now exist, each with a distinct purpose (see mootmaker's own
-[Multi-environment deployments](README.md#multi-environment-deployments) for the underlying
+[Multi-environment deployments](../development/environments.md#multi-environment-deployments) for the underlying
 mechanism — this section only adds the policy on top of it):
 
 - **`production`** — the real, long-lived public deployment.
@@ -226,7 +226,7 @@ mechanism — this section only adds the policy on top of it):
 ## How "vibe coding" shapes this strategy
 
 This project is built by prompting Claude rather than by hand-writing and meticulously reviewing
-every line (see the main README's ["I should vibe more"](README.md#i-should-vibe-more) and
+every line (see the main README's ["I should vibe more"](../showcase/learnings.md#i-should-vibe-more) and
 Claude's own pushback on it). That changes what a test suite is *for*, not just what it covers, in
 a few concrete ways:
 
@@ -275,7 +275,7 @@ specifically so that latitude doesn't turn into unbounded AWS resource sprawl ac
   failure would surface it, too late to be useful. The fix is GraphQL codegen straight from
   `mootmaker-api/api/mootmaker.graphql`, but that's deferred until CI/CD pipelines exist, since
   codegen is most useful wired into a pipeline step rather than run ad hoc. Tracked in
-  [mootmaker's to-do list](README.md#to-do).
+  [mootmaker's to-do list](https://github.com/geoffweatherall/mootmaker/issues).
 - Everything under "planned" in each per-repo `testing-strategy.md` — this document only records
   the strategy; check each repo's own file for current build status.
 - ~~SCP update needed for real-email reading~~ — done 2026-08-15 (see [Reading Cognito's emails in

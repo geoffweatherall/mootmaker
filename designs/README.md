@@ -3,7 +3,7 @@
 **Started 2026-08-28.** This folder holds one design document per feature/change of any real size
 — written and refined *before* coding starts, then used as the actual prompt implementation begins
 from. `date-time-format-settings.md` is the first design written under this pattern; earlier
-feature docs (`../google-sign-in.md`, `../delete-my-account.md`, and their paired `-todo.md` files)
+feature docs (`archive/google-sign-in.md`, `archive/delete-my-account.md`, and their paired `-todo.md` files)
 predate it and used an ad hoc two-file shape — see "Migrating older docs" below.
 
 ## Why
@@ -31,12 +31,15 @@ needs re-opening) — the table above is the normal forward path, not a one-way 
 ## File naming and location
 
 - One file per feature: `designs/<kebab-case-feature-name>.md` (e.g. `date-time-format-settings.md`).
-- `designs/data-model.md` is not a feature doc — it's a standing, living reference for the
-  project's *current* domain data model (Cognito + DynamoDB both — see its own header). Every
+- [`../docs/reference/data-model.md`](../docs/reference/data-model.md) is not a feature doc — it's
+  a standing, living reference for the project's *current* domain data model (Cognito + DynamoDB
+  both — see its own header), which is why it lives under `docs/reference/` rather than here. Every
   design doc's "Changes to the domain data model" section describes the *delta* it proposes against
-  that reference, links to it rather than duplicating it, and `data-model.md` itself gets updated
+  that reference, links to it rather than duplicating it, and the reference itself gets updated
   once the design ships — it should always reflect what's actually deployed today, never a
   proposal.
+- `archive/` holds planning docs that have been superseded or shipped — kept for the record, not
+  maintained. Nothing in there should be treated as current.
 
 ## Section template
 
@@ -61,7 +64,7 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
    enough that "impacts on components" plus "trade-offs and decisions" together could brief a fresh
    implementer with no other context.
 8. **Changes to the domain data model and data storage models** — the delta against
-   `data-model.md` (Cognito attributes, DynamoDB tables/attributes/indexes, or both — most features
+   `../docs/reference/data-model.md` (Cognito attributes, DynamoDB tables/attributes/indexes, or both — most features
    that touch persisted state touch more than just DynamoDB, so check both explicitly rather than
    defaulting to "just the obvious database"). `N/A` for anything that's pure UI/display logic over
    already-existing data.
@@ -76,12 +79,13 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
 11. **Documentation impacts** — which READMEs/CLAUDE.md files/use-case catalogs need updating once
     this ships, and roughly what changes in each.
 12. **Rollout & migration** — how this reaches users safely: does it need a data migration/backfill
-    for existing records, a feature flag, a phased environment rollout (ephemeral → `test` →
-    `production`), or does it just deploy cleanly with no transition state to worry about?
+    for existing records, a feature flag, a phased rollout (ephemeral → `production` — there is no
+    longer a long-lived `test` environment), or does it just deploy cleanly with no transition
+    state to worry about?
 13. **Risks** — what could go wrong, and anything that would make this harder to reverse than a
     normal deploy (e.g. a change that's easy to ship but expensive to undo).
 14. **Implementation checklist** — an ordered, dependency-tracked task list, `[Geoff]`/`[Claude]`
-    tagged for manual-vs-implementation steps (mirroring `../google-sign-in-todo.md`'s style,
+    tagged for manual-vs-implementation steps (mirroring `archive/google-sign-in-todo.md`'s style,
     which predates this template but got the checklist shape right). Usually sparse or absent while
     Drafting, and filled in properly by the time a doc reaches Ready — it's what turns "Ready" into
     something Claude can actually start executing top-to-bottom.
@@ -103,16 +107,24 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
 4. An implementation session starts by reading the doc directly, moves Status to Building, and
    works through the Implementation checklist. The doc keeps being updated as reality diverges from
    plan (a design doc describes the *current* plan, not a frozen record of the first draft).
-5. Once Definition of done is actually met, Status moves to Shipped, and `data-model.md` (if
+5. Once Definition of done is actually met, Status moves to Shipped, and `../docs/reference/data-model.md` (if
    touched) gets updated to reflect the new current state.
 
 ## Migrating older docs
 
-`../delete-my-account.md`/`../delete-my-account-todo.md` and `../google-sign-in.md`/
-`../google-sign-in-todo.md` predate this pattern and used a two-file shape (a "design & decisions"
-doc plus a separate checklist doc). They're left as-is where they are — genuinely detailed planning
-notes, not worth rewriting just to fit a new template. `designs/google-sign-in.md` is a new,
-unified doc in this template's shape that supersedes them as the current source of truth; the old
-two files gained a one-line pointer to it and are otherwise unchanged. Any *other* older doc can be
-migrated the same way if it's picked up again for further work — no need to proactively rewrite
-everything at once.
+Some planning docs predate this pattern and used an ad hoc two-file shape (a "design & decisions"
+doc plus a separate `-todo.md` checklist). They now live in [`archive/`](archive/):
+
+| Archived | Superseded by |
+|---|---|
+| `archive/google-sign-in.md` + `-todo.md` | [`google-sign-in.md`](google-sign-in.md) — a unified doc in this template's shape |
+| `archive/delete-my-account.md` + `-todo.md` | Nothing yet — still the most detailed record of that feature's thinking |
+| `archive/meeting-picker-dropdowns-todo.md` | Shipped 2026-08-28; kept only for the record |
+
+They are **not rewritten to fit this template**. They are genuinely detailed planning notes, and
+reformatting them would risk losing content for no gain. The rule is: when an archived doc is
+picked up again for real work, write a new design in this folder under the current template and
+leave the archived original alone as history. That is what happened with `google-sign-in.md`, and
+what should happen to `delete-my-account` if it is ever revived.
+
+Nothing in `archive/` is maintained or should be treated as current.
