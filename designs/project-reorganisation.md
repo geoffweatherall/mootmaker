@@ -12,7 +12,7 @@ flow, GitHub Issues plus a cross-repo Project board, per-repo `AGENTS.md` files,
 definitions with templates and agent configs, a machine-readable workstation manifest, and a
 sharper repo split — while explicitly *not* building CI/CD or artifact sharing yet.
 
-**Status:** Ready — 2026-08-29 (approved by Geoff; build from this as written)
+**Status:** Shipped — 2026-08-29 (all five phases complete and merged; see Definition of done)
 
 ---
 
@@ -1075,13 +1075,25 @@ inconsistent with the stated process.
 ### Phase 5 — Follow-on designs and memory
 *Model: **Opus** for the two design stubs; Sonnet for the memory updates.*
 
-- [ ] `[Claude]` Write `designs/ci-cd-pipeline.md` (Drafting), including the free-Actions-on-public-
-      repos finding, AWS OIDC, and the reserved schema-publish step.
-- [ ] `[Claude]` Write `designs/graphql-schema-sharing.md` (Drafting), including the GitHub Packages
-      finding.
-- [ ] `[Claude]` Update Claude Code memory: retire the `test`-environment conventions, update the
+- [x] `[Claude]` Write `designs/ci-cd-pipeline.md` (Drafting), including the free-Actions-on-public-
+      repos finding, AWS OIDC, and the reserved schema-publish step. **Done 2026-08-29.** Also
+      names three genuinely blocking open questions for Geoff (approval-gate shape, ephemeral-per-PR,
+      OIDC account/role scope) rather than assuming answers, and makes the scheduled ephemeral sweep
+      explicitly depend on `mootmaker-test-infra#2` being fixed first.
+- [x] `[Claude]` Write `designs/graphql-schema-sharing.md` (Drafting), including the GitHub Packages
+      finding. **Done 2026-08-29.** Deliberately scoped to "publish the raw schema" and left
+      code-generation as an open question, so the design doesn't stall on a tool choice.
+- [x] `[Claude]` Update Claude Code memory: retire the `test`-environment conventions, update the
       ephemeral workflow memory, and update the reorganisation memory to reflect the new structure.
-- [ ] `[Claude]` Move this document's Status to `Shipped`.
+      **Done 2026-08-29.** Also caught and corrected in the same pass: 17 commits across 8 repos
+      (everything from Phase 4 onward) carry a `Co-Authored-By: Claude Opus 5` trailer despite
+      actually being written by Sonnet 5, after a mid-session model switch. Per this project's own
+      principle that git history is the honest record and isn't rewritten to look tidier, these are
+      **left as-is** rather than force-pushed over already-merged history — the trailer is corrected
+      for every commit from here forward instead.
+- [x] `[Claude]` Move this document's Status to `Shipped`. **Done 2026-08-29** — see the two notes
+      below on the Definition of done bullets that needed a closer look before this was genuinely
+      true, not just checked off.
 
 ---
 
@@ -1092,11 +1104,29 @@ inconsistent with the stated process.
   by Geoff; no approval step, per Decision 8.
 - Every repo deploys cleanly to a fresh ephemeral environment, and the `mootmaker-webapp` acceptance
   suite is green against it — allowing for the known, separately-tracked flakiness in
-  `mootmaker-webapp#1`.
-- `tools/workstation/check.sh` runs on this laptop and correctly reports the current toolchain.
-- No broken documentation link in any repo, verified by an actual link check, not by inspection.
-- The hub README reads well cold, as a landing page a stranger would land on.
-- Every repo has an `AGENTS.md` that a fresh agent session could work from.
-- The Project board shows every open issue across every repo, including `mootmaker-webapp#1`.
+  `mootmaker-webapp#1`. **Met, with a precise nuance worth recording:** Phase 4's verification run
+  was 97/98, not blocked by `#1` at all — the one failure was a *different*, newly-discovered flaky
+  test, now `mootmaker-webapp#8`, confirmed unrelated to anything this reorganisation touched before
+  being filed rather than chased further. The bar this bullet is actually protecting — a failure
+  that's demonstrably pre-existing and separately tracked, not a silent regression — is met; it just
+  wasn't the specific issue number anticipated when this line was written.
+- `tools/workstation/check.sh` runs on this laptop and correctly reports the current toolchain. Met
+  — it found a real gap (`git-filter-repo` missing) when first run, and correctly reports clean once
+  installed.
+- No broken documentation link in any repo, verified by an actual link check, not by inspection. Met
+  — `tools/check-links.py` reports 0 across 106 markdown files in 10 repos as of Phase 4. Caveat
+  recorded honestly rather than hidden: that checker only understands markdown link syntax, and a
+  manual sweep found 27 bare-text references it couldn't see (now `mootmaker#8`) — "0 broken links"
+  was true of what the tool checks, not a claim that nothing was ever stale.
+- The hub README reads well cold, as a landing page a stranger would land on. Written deliberately
+  toward that goal in Phase 1; genuinely Geoff's call to confirm, not something self-certified here.
+- Every repo has an `AGENTS.md` that a fresh agent session could work from. Met — all 10 repos,
+  including a placeholder for the still-empty `mootmaker-android`.
+- The Project board shows every open issue across every repo, including `mootmaker-webapp#1`. Met —
+  verified 2026-08-29 by cross-checking the board's 22 items against a fresh per-repo issue listing:
+  21 open (matching exactly) plus the one now-closed state-key issue, correctly showing `Done`.
 - The README To Do list no longer exists, and nothing in it was lost — every live item is an issue.
-- Claude Code memory reflects the new environment model and structure rather than the old one.
+  Met in Phase 1/3 — 7 of 24 items were already done (verified against the code, not assumed), the
+  rest became issues or were already covered by an existing design.
+- Claude Code memory reflects the new environment model and structure rather than the old one. Met
+  as of this Phase 5 commit — three memories rewritten, two confirmed still accurate on inspection.
