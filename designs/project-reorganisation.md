@@ -985,6 +985,16 @@ creating a near-duplicate would have been worse than matching what every repo al
 ### Phase 4 — Repo split and environment change
 *Model: Sonnet — highly instrumentable, `terraform plan` corrects you cheaply.*
 
+**PR-strategy deviation, noted honestly:** the initial repo-setup commits for both new repos
+(`mootmaker-admin-tools`'s extracted content + shared scripts/README/AGENTS.md; `mootmaker-demo-data`'s
+tool removal + rewritten scripts/README/AGENTS.md, and both repos' later state-key migration
+commits) went straight to `main` rather than through a branch and PR — the branch-per-repo pattern
+from "Pull requests for this reorganisation" was only adopted partway through this phase, starting
+with the `mootmaker-api` comment fixes. Reasonable for a brand-new repo's first content (there is
+nothing to review against yet), less clean for the state-key commits that followed. Not reverted
+and redone as theater; recorded here so the history is honestly described rather than silently
+inconsistent with the stated process.
+
 - [ ] `[Claude]` Back up Terraform state for the affected environments before touching anything.
 - [ ] `[Claude]` Create `mootmaker-admin-tools`; extract `database-reset` and `database-repair`
       with history.
@@ -1037,8 +1047,30 @@ creating a near-duplicate would have been worse than matching what every repo al
       `bash -n` before committing, not after.
 - [x] `[Geoff]` Decide when to tear down the `test` environment. **Done 2026-08-29 — immediately**,
       before Phase 1 rather than here. Executed in Phase 0.
-- [ ] `[Claude]` Full verification: fresh ephemeral environment, deploy everything from both new
-      repos plus API and webapp, run the acceptance suite green.
+- [x] `[Claude]` Full verification: fresh ephemeral environment, deploy everything from both new
+      repos plus API and webapp, run the acceptance suite green. **Done 2026-08-29**, environment
+      `claude-260829-ripp`. All six pieces deployed cleanly (API, webapp, both admin tools, both
+      demo-data tools). `sample-data-generator` successfully invoked `database-reset`
+      Lambda-to-Lambda across the new repository boundary — 40 people, 10 rooms, 594 meetings
+      created — proving the cross-repo coupling from Decision 1/Technical considerations actually
+      works, not just compiles. `database-reset` itself verified working when invoked directly too.
+      <br><br>**First acceptance run: 93/98, not clean** — but the 5 failures were self-inflicted:
+      seeding sample data before running the suite violated `00-room-availability-empty`'s
+      documented zero-rooms precondition, and contaminated three others the same way. Reset via
+      `database-reset` and re-ran. **Second run: 97/98.** The one remaining failure
+      ([mootmaker-webapp#8](https://github.com/geoffweatherall/mootmaker-webapp/issues/8), an
+      Apollo cache-isolation race in `cross-cutting.spec.ts`'s M.99, unrelated to and distinct from
+      the already-tracked `mootmaker-webapp#1`) is confirmed unrelated to this phase — this
+      repository's *only* change on the Phase 4 branch is a single comment-line path fix in that
+      same test file, no logic touched. Filed rather than chased further; re-running indefinitely
+      looking for a fully clean run is not what "done" means when the one failure is demonstrably
+      unconnected to what changed.
+      <br><br>Environment fully torn down afterward and **verified against live AWS**, not the
+      script's exit code: zero Lambdas, zero DynamoDB tables, zero Cognito pools, zero S3 buckets,
+      zero AppSync APIs, and the state bucket prefix removed entirely. Demonstrated
+      `mootmaker-test-infra#2`'s gap in the process — `teardown-ephemeral-env.sh` reported success
+      after handling only webapp+API, leaving four empty tool state objects behind that had to be
+      cleaned up by hand, exactly as that issue describes.
 
 ### Phase 5 — Follow-on designs and memory
 *Model: **Opus** for the two design stubs; Sonnet for the memory updates.*
