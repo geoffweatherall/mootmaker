@@ -384,11 +384,13 @@ front-loaded because they need their artifacts to exist first — see the Human 
 - **NB-4 — Should ephemeral environments be created automatically per PR?** Attractive, and a
   natural fit with Decision 3, but it has a real cost profile and belongs in the CI/CD design.
 - **NB-5 — Does `docs/reference/use-cases.md` need per-frontend tagging?** Its own header flags
-  this gap ("isn't yet tagged per-frontend"). Out of scope here; worth an issue.
+  this gap ("isn't yet tagged per-frontend"). Raised as
+  [`mootmaker#6`](https://github.com/geoffweatherall/mootmaker/issues/6).
 - **NB-6 — Where should the workspace-level `.claude/settings.local.json` live?** It is currently
   in `mootmaker-workspace/.claude/`, which is inside no repo and therefore unversioned and not
-  reproducible on another machine. Noted in Technical considerations; a fix is proposed but the
-  right long-term answer may be different.
+  reproducible on another machine. Raised as
+  [`mootmaker#5`](https://github.com/geoffweatherall/mootmaker/issues/5), including the open
+  question of whether a file named "local" should be shared at all.
 - **NB-7 — Does the AI-review experiment need a separate GitHub identity?** Tied to NB-3. A second
   agent leaving a PR review would also act as Geoff via `gh`, making it a self-review with the same
   block described in Decision 8 — so the reviewer would be indistinguishable from the author, which
@@ -953,17 +955,25 @@ its recommended model — see "Model selection per phase" above for the reasonin
 ### Phase 3 — Issues and the Project board
 *Model: **Opus** for the triage; Sonnet for issue and label creation.*
 
-- [ ] `[Claude]` Create the standard label set in every repo.
-- [ ] `[Claude]` Triage the captured README To Do list against reality: confirm which items are
+- [x] `[Claude]` Create the standard label set in every repo.
+- [x] `[Claude]` Triage the captured README To Do list against reality: confirm which items are
       already done, merge duplicates, and identify which repo each belongs to. Present the triage
       before creating anything.
-- [ ] `[Geoff]` Confirm the triage.
-- [ ] `[Claude]` Create issues from the triaged list in the correct repos.
-- [ ] `[Claude]` Raise issues for the gaps found while drafting this design: NB-5 (use-cases
+- [x] `[Geoff]` Confirm the triage.
+- [x] `[Claude]` Create issues from the triaged list in the correct repos.
+- [x] `[Claude]` Raise issues for the gaps found while drafting this design: NB-5 (use-cases
       per-frontend tagging), NB-6 (unversioned workspace `.claude/` config).
-- [ ] `[Claude]` Create the "Mootmaker" Project with the agreed fields; add all open issues,
+- [x] `[Claude]` Create the "Mootmaker" Project with the agreed fields; add all open issues,
       including `mootmaker-webapp#1`.
-- [ ] `[Claude]` Link the board from the hub README and `docs/process/issues-and-board.md`.
+- [x] `[Claude]` Link the board from the hub README and `docs/process/issues-and-board.md`.
+
+**Outcome.** 18 issues on [the Mootmaker board](https://github.com/users/geoffweatherall/projects/1),
+across six repositories. The triage found 7 of the 24 open todo items were already done (domain and
+Route 53, the live domain itself, auto-creating a Person on sign-up, webapp unit tests, both
+calendar views, and the branding), two pairs were duplicates, three are already covered by designs
+and were deliberately not duplicated as issues, and two were prompts rather than work items. That
+left 11 to create. The label set specified `docs`, but GitHub's default is `documentation` and
+creating a near-duplicate would have been worse than matching what every repo already had.
 
 ### Phase 4 — Repo split and environment change
 *Model: Sonnet — highly instrumentable, `terraform plan` corrects you cheaply.*
