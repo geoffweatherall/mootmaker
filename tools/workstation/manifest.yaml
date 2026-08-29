@@ -117,8 +117,10 @@ tools:
 
   - name: git-filter-repo
     why: >-
-      History-preserving extraction when splitting a repository. Needed by Phase 4 of the project
-      reorganisation, which splits mootmaker-tools by blast radius.
+      History-preserving extraction when splitting a repository. Used on 2026-08-29 to split
+      mootmaker-tools (now mootmaker-demo-data) into mootmaker-demo-data and
+      mootmaker-admin-tools by blast radius; kept installed for the next time a repository needs
+      splitting.
     check: command -v git-filter-repo
     install: sudo apt install -y git-filter-repo
     optional: true

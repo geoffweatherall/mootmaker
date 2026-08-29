@@ -577,11 +577,18 @@ content is unchanged.
   that tool to a different repo therefore changes nothing about the invocation. Only the deploy
   *order* dependency needs re-documenting, now as a cross-repo one.
 
-- **There is already precedent for the state-key drift, unresolved.** The key
-  `mootmaker-e2e-email/terraform.tfstate` still carries the *old* `mootmaker-e2e` repo name, which
-  was renamed to `mootmaker-test-infra`. The rename was done correctly at the GitHub and checkout
-  level and the state key was simply left behind — harmless, but empirical proof that this drift is
-  silent and permanent by default. Worth settling alongside `mootmaker-tools#1`.
+- **There was already precedent for the state-key drift — and it turned out to be a deliberate,
+  documented decision, not an oversight.** The key `mootmaker-e2e-email/terraform.tfstate` still
+  carries the old `mootmaker-e2e` repo name, from before the rename to `mootmaker-test-infra`.
+  Investigating it for Phase 4 found `deploy/terraform/backend.hcl`'s own comment already explains
+  why it was left alone: this is a fixed, flat key for one persistent shared pipeline (SES/SNS/SQS),
+  not a per-environment key, and moving it would either re-point Terraform at an empty state for
+  already-live resources or force a destroy/recreate of infrastructure other tests actively depend
+  on — explicitly flagged as "if it's ever wanted, do it as its own deliberate, explicitly-approved
+  step." **Decision: leave it as-is.** The `mootmaker-tools` case was safe to migrate because no
+  live resource name was ever derived from the repo name; this case is the opposite, and the
+  existing reasoning already correctly identifies that. Re-litigating a sound, documented decision
+  just to close a checklist item would have been the wrong instinct.
 - **Tech stack, as actually deployed today** (verified 2026-08-29, for `docs/process/principles.md`):
   Java 25 on Lambda (`maven.compiler.release` 25, runtime `java25`), AppSync GraphQL, DynamoDB,
   Cognito, S3 + CloudFront, Route 53, SES; Terraform with S3 remote state; React 19.2, TypeScript
@@ -978,6 +985,16 @@ creating a near-duplicate would have been worse than matching what every repo al
 ### Phase 4 — Repo split and environment change
 *Model: Sonnet — highly instrumentable, `terraform plan` corrects you cheaply.*
 
+**PR-strategy deviation, noted honestly:** the initial repo-setup commits for both new repos
+(`mootmaker-admin-tools`'s extracted content + shared scripts/README/AGENTS.md; `mootmaker-demo-data`'s
+tool removal + rewritten scripts/README/AGENTS.md, and both repos' later state-key migration
+commits) went straight to `main` rather than through a branch and PR — the branch-per-repo pattern
+from "Pull requests for this reorganisation" was only adopted partway through this phase, starting
+with the `mootmaker-api` comment fixes. Reasonable for a brand-new repo's first content (there is
+nothing to review against yet), less clean for the state-key commits that followed. Not reverted
+and redone as theater; recorded here so the history is honestly described rather than silently
+inconsistent with the stated process.
+
 - [ ] `[Claude]` Back up Terraform state for the affected environments before touching anything.
 - [ ] `[Claude]` Create `mootmaker-admin-tools`; extract `database-reset` and `database-repair`
       with history.
@@ -986,23 +1003,74 @@ creating a near-duplicate would have been worse than matching what every repo al
 - [x] `[Geoff]` Choose an option in
       [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1).
       **Done 2026-08-29 — option B**, migrate the keys to the new repo names.
-- [ ] `[Claude]` Apply option B: copy each state object from `<env>/mootmaker-tools-<tool>/` to
+- [x] `[Claude]` Apply option B: copy each state object from `<env>/mootmaker-tools-<tool>/` to
       `<env>/mootmaker-demo-data-<tool>/` or `<env>/mootmaker-admin-tools-<tool>/` as appropriate,
       update the `key=` literal in each `deploy.sh`, verify, then delete the old objects. Back up
       state first and require `terraform plan` to show **no changes** before any apply. Only
       `production` remains affected now that `test` is torn down. Close the issue with the
-      reasoning and a commit link.
-- [ ] `[Claude]` Settle the pre-existing `mootmaker-e2e-email` state-key mismatch the same way,
-      while this machinery is open.
+      reasoning and a commit link. **Done 2026-08-29.** All four objects backed up, copied,
+      verified with `terraform plan -detailed-exitcode` showing "No changes" against each new key,
+      then the old keys deleted. Two plans initially showed drift (a Lambda source-code-hash
+      mismatch on `sample-data-generator`, a `COGNITO_TEST_CLIENT_SECRET` mismatch on both
+      demo-data tools) — confirmed **unrelated to the migration** by planning the *old* key
+      side-by-side and getting an identical diff, so the drift is pre-existing. Filed as
+      [mootmaker-demo-data#3](https://github.com/geoffweatherall/mootmaker-demo-data/issues/3) and
+      [#4](https://github.com/geoffweatherall/mootmaker-demo-data/issues/4) rather than
+      investigated here — out of scope for a structural change, and **nobody should run
+      `sample-data-generator/deploy.sh production` or `sample-data-topup/deploy.sh production`
+      until those are understood**, since it would apply the drifted values for real.
+- [x] `[Claude]` Settle the pre-existing `mootmaker-e2e-email` state-key mismatch the same way,
+      while this machinery is open. **Done 2026-08-29 — decided to leave it.** Investigating found
+      `deploy/terraform/backend.hcl`'s own comment already explains this was a deliberate choice,
+      not an oversight: a fixed key for one persistent shared pipeline, where moving it risks
+      orphaning live state or forcing a destroy/recreate of infrastructure other tests depend on.
+      The `mootmaker-tools` case was safe to migrate because no resource name derived from the repo
+      name; this case is the opposite. See the corrected note in Technical considerations.
 - [ ] `[Claude]` Split `deploy-all.sh` / `undeploy-all.sh`; write both READMEs including the new
       cross-repo deploy-order dependency; add `AGENTS.md` to the new repo.
-- [ ] `[Claude]` Update every reference to `mootmaker-tools` across all repos.
-- [ ] `[Claude]` Write `docs/process/environments.md`'s production+ephemeral model; update every
-      script/doc referencing the `test` environment.
+- [x] `[Claude]` Update every reference to `mootmaker-tools` across all repos. **Done 2026-08-29.**
+      Fixed across `mootmaker`, `mootmaker-api`, `mootmaker-webapp`, `mootmaker-test-infra`,
+      `mootmaker-domain`, `mootmaker-bootstrap-aws-accounts`, and `mootmaker-admin-tools`'s own
+      cross-links — code comments, READMEs, Terraform comments, and the workstation manifest.
+      Verified with `tools/check-links.py` (0 broken across all 10 repos) plus a manual grep sweep
+      for bare-text mentions the checker can't see, which found 27 additional stale references to
+      `mootmaker/testing-strategy.md`/`use-cases.md`/etc. from before their Phase 1 move — that gap
+      in the checker itself is now [mootmaker#8](https://github.com/geoffweatherall/mootmaker/issues/8).
+- [x] `[Claude]` Write `docs/process/environments.md`'s production+ephemeral model; update every
+      script/doc referencing the `test` environment. **The model was already written in Phase 2**
+      (`docs/process/environments.md`); this item is about the *stale usages* left behind. Fixed
+      the `test`-as-example-environment in every `deploy.sh`/`undeploy.sh`/`verify.sh`/
+      `authenticate.sh` usage message across `mootmaker-api` and `mootmaker-webapp`, and the two
+      "must never reach 'test' or 'production'" safety-rail comments in
+      `teardown-ephemeral-env.sh` (now just "production", since `test` is retired). One fix
+      introduced a bash quoting bug (unescaped `"` inside a double-quoted string) — caught by
+      `bash -n` before committing, not after.
 - [x] `[Geoff]` Decide when to tear down the `test` environment. **Done 2026-08-29 — immediately**,
       before Phase 1 rather than here. Executed in Phase 0.
-- [ ] `[Claude]` Full verification: fresh ephemeral environment, deploy everything from both new
-      repos plus API and webapp, run the acceptance suite green.
+- [x] `[Claude]` Full verification: fresh ephemeral environment, deploy everything from both new
+      repos plus API and webapp, run the acceptance suite green. **Done 2026-08-29**, environment
+      `claude-260829-ripp`. All six pieces deployed cleanly (API, webapp, both admin tools, both
+      demo-data tools). `sample-data-generator` successfully invoked `database-reset`
+      Lambda-to-Lambda across the new repository boundary — 40 people, 10 rooms, 594 meetings
+      created — proving the cross-repo coupling from Decision 1/Technical considerations actually
+      works, not just compiles. `database-reset` itself verified working when invoked directly too.
+      <br><br>**First acceptance run: 93/98, not clean** — but the 5 failures were self-inflicted:
+      seeding sample data before running the suite violated `00-room-availability-empty`'s
+      documented zero-rooms precondition, and contaminated three others the same way. Reset via
+      `database-reset` and re-ran. **Second run: 97/98.** The one remaining failure
+      ([mootmaker-webapp#8](https://github.com/geoffweatherall/mootmaker-webapp/issues/8), an
+      Apollo cache-isolation race in `cross-cutting.spec.ts`'s M.99, unrelated to and distinct from
+      the already-tracked `mootmaker-webapp#1`) is confirmed unrelated to this phase — this
+      repository's *only* change on the Phase 4 branch is a single comment-line path fix in that
+      same test file, no logic touched. Filed rather than chased further; re-running indefinitely
+      looking for a fully clean run is not what "done" means when the one failure is demonstrably
+      unconnected to what changed.
+      <br><br>Environment fully torn down afterward and **verified against live AWS**, not the
+      script's exit code: zero Lambdas, zero DynamoDB tables, zero Cognito pools, zero S3 buckets,
+      zero AppSync APIs, and the state bucket prefix removed entirely. Demonstrated
+      `mootmaker-test-infra#2`'s gap in the process — `teardown-ephemeral-env.sh` reported success
+      after handling only webapp+API, leaving four empty tool state objects behind that had to be
+      cleaned up by hand, exactly as that issue describes.
 
 ### Phase 5 — Follow-on designs and memory
 *Model: **Opus** for the two design stubs; Sonnet for the memory updates.*

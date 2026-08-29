@@ -18,14 +18,16 @@ Every repository expects the others as **siblings in one directory**. Scripts re
 
 ```
 mootmaker-workspace/
-  mootmaker/          mootmaker-api/       mootmaker-webapp/
-  mootmaker-tools/    mootmaker-test-infra/ mootmaker-domain/
+  mootmaker/            mootmaker-api/           mootmaker-webapp/
+  mootmaker-android/    mootmaker-demo-data/     mootmaker-admin-tools/
+  mootmaker-test-infra/ mootmaker-domain/
   mootmaker-bootstrap-terraform/  mootmaker-bootstrap-aws-accounts/
 ```
 
 ```bash
 mkdir mootmaker-workspace && cd mootmaker-workspace
-for r in mootmaker mootmaker-api mootmaker-webapp mootmaker-tools \
+for r in mootmaker mootmaker-api mootmaker-webapp mootmaker-android \
+         mootmaker-demo-data mootmaker-admin-tools \
          mootmaker-test-infra mootmaker-domain \
          mootmaker-bootstrap-terraform mootmaker-bootstrap-aws-accounts; do
   git clone "https://github.com/geoffweatherall/$r.git"
@@ -49,10 +51,13 @@ cd mootmaker-api      && ./deploy.sh geoff-260829-a1b2
 cd ../mootmaker-webapp && ./deploy.sh geoff-260829-a1b2   # prints a site URL
 ```
 
-Optionally add the admin and demo-data tools, then seed it with realistic data:
+Optionally add the demo-data tools, then seed it with realistic data. `database-reset` (in
+`mootmaker-admin-tools`) must be deployed first — `sample-data-generator` invokes it
+Lambda-to-Lambda as the first step of every run:
 
 ```bash
-cd ../mootmaker-tools && ./deploy-all.sh geoff-260829-a1b2
+cd ../mootmaker-admin-tools && ./database-reset/deploy.sh geoff-260829-a1b2
+cd ../mootmaker-demo-data   && ./deploy-all.sh geoff-260829-a1b2
 ./sample-data-generator/run.sh geoff-260829-a1b2
 ```
 
@@ -64,7 +69,8 @@ cd ../mootmaker-test-infra && ./teardown-ephemeral-env.sh geoff-260829-a1b2
 ```
 
 Note the known gap: that script removes the webapp and API only. If you deployed the tools,
-undeploy them first with `mootmaker-tools/undeploy-all.sh`.
+undeploy them first: `mootmaker-demo-data/undeploy-all.sh`, then
+`mootmaker-admin-tools/database-reset/undeploy.sh` (deployed last, so undeployed last).
 
 ## 5. Run the tests
 

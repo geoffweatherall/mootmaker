@@ -101,7 +101,7 @@ by grepping for `formatLocalTime`/`formatLocalDate`/`DatePicker`/`TimePicker`/
   the `RoomError`/`PersonError`/`MeetingError` enum pattern — see Technical considerations). Likely
   still a full-item `PutItem` under the hood (same pattern `UpdatePersonHandler` already uses), just
   behind a new, narrower resolver rather than `UpdatePersonHandler` itself.
-- **`mootmaker-tools/sample-data-generator`** — creates people via `createPerson`, which is
+- **`mootmaker-demo-data/sample-data-generator`** — creates people via `createPerson`, which is
   untouched by this design (guest Persons never sign in, so never need a preferences mutation) — no
   changes needed here.
 

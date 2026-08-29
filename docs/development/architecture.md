@@ -32,7 +32,8 @@ constraint rather than a preference — see [`../process/principles.md`](../proc
 | `mootmaker-api` | GraphQL schema, Java Lambda handlers, DynamoDB tables, Cognito user pool |
 | `mootmaker-webapp` | React SPA, its S3 bucket and CloudFront distribution |
 | `mootmaker-android` | A second frontend on the same API. Not started. |
-| `mootmaker-tools` | Per-environment Lambdas: demo-data generation and destructive admin tooling |
+| `mootmaker-demo-data` | Per-environment Lambdas that seed and top up demo data — ships as part of the product |
+| `mootmaker-admin-tools` | Per-environment Lambdas that can destroy data — split from `mootmaker-demo-data` by blast radius, 2026-08-29 |
 | `mootmaker-test-infra` | Ephemeral environment lifecycle, and the SES pipeline that lets tests read real email |
 | `mootmaker-domain` | Route 53 zone, ACM certificate, SES domain identity. Shared across environments. |
 | `mootmaker-bootstrap-terraform` | The S3 bucket holding everyone's Terraform state |
@@ -88,8 +89,9 @@ Adding a case means changing both in step.
 3. `mootmaker-domain` — once, shared across environments
 4. `mootmaker-api` — per environment, first
 5. `mootmaker-webapp` — per environment, reads the API's outputs
-6. `mootmaker-tools` — per environment; `database-reset` before `sample-data-generator`, which
-   invokes it Lambda-to-Lambda
+6. `mootmaker-admin-tools`'s `database-reset` — per environment, before step 7
+7. `mootmaker-demo-data` — per environment; `sample-data-generator` invokes `database-reset`
+   Lambda-to-Lambda as the first step of every run, so step 6 must already exist
 
 ## Testing layers
 

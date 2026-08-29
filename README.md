@@ -53,7 +53,8 @@ condition, framed as transferable skills rather than a war story.
 | [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api) | GraphQL API — AppSync, Java 25 Lambdas, DynamoDB |
 | [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) | React SPA — TypeScript, MUI, Apollo Client, Vite |
 | [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) | Native Android app, a second frontend on the same API (not yet started) |
-| [mootmaker-tools](https://github.com/geoffweatherall/mootmaker-tools) | Per-environment admin and demo-data Lambdas |
+| [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data) | Per-environment Lambdas that seed the demo — ships as part of the product |
+| [mootmaker-admin-tools](https://github.com/geoffweatherall/mootmaker-admin-tools) | Per-environment Lambdas that can destroy data — split from the above by blast radius |
 | [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) | Ephemeral-environment lifecycle and the SES email-reading pipeline |
 | [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) | DNS and mail identity for `mootmaker.com` |
 | [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) | The shared S3 bucket holding Terraform remote state |

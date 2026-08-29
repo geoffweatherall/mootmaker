@@ -29,7 +29,8 @@ Security and privacy live here too, rather than in a hat of their own.
 | Terraform remote state | `mootmaker-bootstrap-terraform` |
 | DNS and mail identity | `mootmaker-domain` |
 | Environment lifecycle scripts | `mootmaker-test-infra` |
-| Admin and demo-data tooling | `mootmaker-tools` |
+| Demo-data tooling | `mootmaker-demo-data` |
+| Admin tooling (destructive) | `mootmaker-admin-tools` |
 | Privacy policy | [`../showcase/privacy-policy-draft.md`](../showcase/privacy-policy-draft.md) |
 
 ## Starting a session in this role
