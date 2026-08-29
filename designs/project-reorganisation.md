@@ -14,6 +14,23 @@ sharper repo split — while explicitly *not* building CI/CD or artifact sharing
 
 **Status:** Shipped — 2026-08-29 (all five phases complete and merged; see Definition of done)
 
+> **Post-completion note, 2026-08-29.** When this was first marked `Shipped`, **eleven checklist
+> items were still unticked** — every one of them work that had genuinely been done, but never
+> ticked. Verified individually afterwards (against S3, GitHub, the filesystem and the issue
+> tracker, not from memory) and ticked with evidence.
+>
+> Worth recording rather than quietly fixing, because this design's own "Working conventions"
+> section says exactly why it matters: *"Tick the checkbox in the same commit as the work it
+> describes. The checklist is the resume point; a tick that lands in a later commit than its work is
+> worse than no tick."* That convention was written here and then not followed here. A cold session
+> resuming mid-reorganisation would have re-done finished work, or concluded the design was
+> abandoned.
+>
+> The narrower failure is that Phase 5's "verified each Definition of done bullet" pass checked the
+> *bullets* but never the *checklist* — so the gap survived a review that felt thorough. Both are a
+> useful data point for the AI-collaboration notes: self-verification tends to check what it was
+> pointed at, not what it wasn't.
+
 ---
 
 ## Scope / non-goals
@@ -841,12 +858,16 @@ its recommended model — see "Model selection per phase" above for the reasonin
 - [x] `[Geoff]` Choose the `mootmaker-tools#1` state option. **Done 2026-08-29 — option B**
       (migrate keys to the new repo names). Applied in Phase 4.
 - [x] `[Geoff]` Decide when to tear down `test`. **Done 2026-08-29 — immediately**, before Phase 1.
-- [ ] `[Claude]` Tear down `test` (tools, then webapp, then API — `teardown-ephemeral-env.sh`
+- [x] `[Claude]` Tear down `test` (tools, then webapp, then API — `teardown-ephemeral-env.sh`
       refuses non-ephemeral names by design, so this is manual `undeploy.sh` calls). Confirm no
-      `test-` resources or state remain.
-- [ ] `[Claude]` Confirm `aws sso login` is valid before any AWS-touching step.
-- [ ] `[Claude]` Confirm `git filter-repo` availability; if missing, note it for the manifest and
-      plan the `git subtree split` fallback.
+      `test-` resources or state remain. **Done 2026-08-29** — 73 resources destroyed (18 tools, 10
+      webapp, 45 API), all stages exit 0, verified against live AWS: zero `test-` Lambdas, tables,
+      Cognito pools, AppSync APIs or buckets, and the six emptied state objects removed.
+- [x] `[Claude]` Confirm `aws sso login` is valid before any AWS-touching step. **Done** — checked
+      at the start of each AWS-touching phase; re-authenticated when it expired mid-session.
+- [x] `[Claude]` Confirm `git filter-repo` availability; if missing, note it for the manifest and
+      plan the `git subtree split` fallback. **Done** — found missing by `check.sh` (its first real
+      catch), added to the manifest, installed by Geoff before Phase 4 needed it.
 - [x] `[Geoff]` Approve tearing down the four leaked ephemeral environments
       (`claude-260828-006t`, `-2flz`, `-92oq`, `-u3ou`) — **confirmed 2026-08-29**, none still
       needed.
@@ -857,11 +878,15 @@ its recommended model — see "Model selection per phase" above for the reasonin
       exited 0. Verified against live AWS, not just the logs: zero remaining `claude-`-prefixed
       Lambdas, DynamoDB tables, Cognito user pools, AppSync APIs, or S3 buckets. State bucket now
       holds only `bootstrap`, `domain`, `mootmaker-e2e-email`, `production`, and `test`.
-- [ ] `[Claude]` Raise an issue in `mootmaker-test-infra` for the teardown-reliability gap, and one
+- [x] `[Claude]` Raise an issue in `mootmaker-test-infra` for the teardown-reliability gap, and one
       for `list-ephemeral-envs.sh` taking over two minutes to return (it timed out at 120s during
-      this investigation and had to be replaced with direct AWS queries).
-- [ ] `[Claude]` Raise an issue in `mootmaker-test-infra` for the teardown-completeness gap found
-      while doing the above — see "A gap in `teardown-ephemeral-env.sh`" under Decision 3.
+      this investigation and had to be replaced with direct AWS queries). **Done** —
+      [#4](https://github.com/geoffweatherall/mootmaker-test-infra/issues/4) and
+      [#3](https://github.com/geoffweatherall/mootmaker-test-infra/issues/3).
+- [x] `[Claude]` Raise an issue in `mootmaker-test-infra` for the teardown-completeness gap found
+      while doing the above — see "A gap in `teardown-ephemeral-env.sh`" under Decision 3. **Done** —
+      [#2](https://github.com/geoffweatherall/mootmaker-test-infra/issues/2), and demonstrated again
+      for real during Phase 4's verification teardown.
 
 ### Phase 1 — Hub restructure
 *Model: **Opus** for the README rewrite; Sonnet for the moves and link sweep.*
@@ -907,9 +932,10 @@ its recommended model — see "Model selection per phase" above for the reasonin
 - [x] `[Claude]` Write and run a link checker across all repos; fix anything it finds. No broken
       relative or GitHub links anywhere. **Done** — `tools/check-links.py`; 0 broken links across 58
       markdown files in all eight repos, down from 171 immediately after the moves.
-- [ ] `[Claude]` Commit as separate commits per piece of work; open the hub PR for this phase. Leave
+- [x] `[Claude]` Commit as separate commits per piece of work; open the hub PR for this phase. Leave
       satellite-repo branches open — they get one PR each at the end of Phase 2 (see "Pull requests
-      for this reorganisation").
+      for this reorganisation"). **Done** — hub PR #3, merged. Satellite branches were committed but
+      initially *not pushed*; caught and corrected when Geoff asked about PR shape.
 
 ### Phase 2 — Process, principles, roles, and agent instructions
 *Model: **Opus** throughout — this is the phase worth paying for.*
@@ -956,8 +982,10 @@ its recommended model — see "Model selection per phase" above for the reasonin
   - [x] `mootmaker-android` (placeholder — repo is empty)
 - [x] `[Claude]` Open the hub PR for this phase, and one PR per satellite repo covering all its
       reorganisation changes from Phases 1 and 2 together.
-- [ ] `[Geoff]` Sanity-check one `AGENTS.md` and the principles doc — these are the two documents
-      that most need to reflect what you actually think.
+- [x] `[Geoff]` Sanity-check one `AGENTS.md` and the principles doc — these are the two documents
+      that most need to reflect what you actually think. **Done** — both shipped in PR #4, which
+      Geoff merged on 2026-08-29. Per Decision 8, reading the diff *is* the review and merging *is*
+      the approval, so the merge satisfies this gate rather than a separate sign-off being needed.
 
 ### Phase 3 — Issues and the Project board
 *Model: **Opus** for the triage; Sonnet for issue and label creation.*
@@ -995,11 +1023,17 @@ nothing to review against yet), less clean for the state-key commits that follow
 and redone as theater; recorded here so the history is honestly described rather than silently
 inconsistent with the stated process.
 
-- [ ] `[Claude]` Back up Terraform state for the affected environments before touching anything.
-- [ ] `[Claude]` Create `mootmaker-admin-tools`; extract `database-reset` and `database-repair`
-      with history.
-- [ ] `[Claude]` Rename `mootmaker-tools` → `mootmaker-demo-data` on GitHub; update the local
-      checkout directory and remote; remove the admin tools from it.
+- [x] `[Claude]` Back up Terraform state for the affected environments before touching anything.
+      **Done** — five objects copied to `s3://remote-state-431071856068/backups/pre-phase4-260829/`
+      (the four tools plus `mootmaker-e2e-email`) before any migration step.
+- [x] `[Claude]` Create `mootmaker-admin-tools`; extract `database-reset` and `database-repair`
+      with history. **Done** — extracted via `git-filter-repo` in a disposable clone; each tool's own
+      commit history preserved (3 and 6 commits).
+- [x] `[Claude]` Rename `mootmaker-tools` → `mootmaker-demo-data` on GitHub; update the local
+      checkout directory and remote; remove the admin tools from it. **Done** — rename verified
+      (old name redirects), local directory and remote updated, admin tools removed. Removing them
+      also surfaced three stray untracked Terraform working directories, including an 837MB provider
+      binary, which is why both repos gained a `.gitignore` they had never had.
 - [x] `[Geoff]` Choose an option in
       [`mootmaker-tools#1`](https://github.com/geoffweatherall/mootmaker-tools/issues/1).
       **Done 2026-08-29 — option B**, migrate the keys to the new repo names.
@@ -1026,8 +1060,10 @@ inconsistent with the stated process.
       orphaning live state or forcing a destroy/recreate of infrastructure other tests depend on.
       The `mootmaker-tools` case was safe to migrate because no resource name derived from the repo
       name; this case is the opposite. See the corrected note in Technical considerations.
-- [ ] `[Claude]` Split `deploy-all.sh` / `undeploy-all.sh`; write both READMEs including the new
-      cross-repo deploy-order dependency; add `AGENTS.md` to the new repo.
+- [x] `[Claude]` Split `deploy-all.sh` / `undeploy-all.sh`; write both READMEs including the new
+      cross-repo deploy-order dependency; add `AGENTS.md` to the new repo. **Done** — verified
+      present in both repos, and the deploy-order dependency proven working end to end during
+      Phase 4's verification run.
 - [x] `[Claude]` Update every reference to `mootmaker-tools` across all repos. **Done 2026-08-29.**
       Fixed across `mootmaker`, `mootmaker-api`, `mootmaker-webapp`, `mootmaker-test-infra`,
       `mootmaker-domain`, `mootmaker-bootstrap-aws-accounts`, and `mootmaker-admin-tools`'s own
