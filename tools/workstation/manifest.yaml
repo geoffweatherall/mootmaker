@@ -133,3 +133,19 @@ tools:
     check: command -v curl
     version: curl --version 2>&1 | head -1
     install: sudo apt install -y curl
+
+  # Not a tool, but the same "is this machine set up correctly?" question, and the same failure
+  # mode if it isn't: silently different behaviour rather than a clear error. Checked here so a
+  # freshly-cloned machine is told, rather than discovering it through mysterious permission
+  # prompts (which is exactly how this was found on 2026-08-29).
+  - name: workspace-config-link
+    why: >-
+      Claude Code permission rules for this workspace are versioned in
+      mootmaker/workspace-config/settings.json and symlinked into the workspace root, because the
+      directory holding the checkouts is inside no git repository and so cannot version anything
+      itself. Without the link, this machine silently uses different rules from the other one.
+    check: test -L "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../../.." && pwd)/.claude/settings.json"
+    install: ./tools/install-workspace-config.sh
+    notes: >-
+      Run from the mootmaker checkout. Takes effect on the next Claude Code session, not the
+      current one. See docs/development/workstation.md.

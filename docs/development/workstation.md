@@ -35,6 +35,46 @@ part of that session's work.** Not as a follow-up — it will not happen.
 This applies to AI agents as much as to people. An agent that hits a missing tool, installs it, and
 moves on has fixed the symptom on one machine and left the next machine to rediscover it.
 
+## Workspace configuration (the second machine problem)
+
+Claude Code permission rules for this workspace are **versioned** in
+[`workspace-config/settings.json`](../../workspace-config/settings.json) and symlinked into the
+workspace root:
+
+```bash
+mootmaker/tools/install-workspace-config.sh          # link it
+mootmaker/tools/install-workspace-config.sh --list   # show what it would do
+```
+
+**Why a symlink rather than just a file in the right place:** the directory holding all the
+mootmaker checkouts is itself inside no git repository, so anything written to its `.claude/`
+folder is unversioned, invisible to review, and does not exist on your other machine. Keeping the
+real file in this repo and linking to it means one source of truth, and edits take effect
+immediately with no re-install step to forget. Same pattern as
+[`install-agents.sh`](../../tools/install-agents.sh) and the `CLAUDE.md` → `AGENTS.md` symlink in
+every repo.
+
+`check.sh` verifies the link exists, so a machine that has not run this is *told* rather than
+silently behaving differently — which is exactly how this problem was found in the first place
+(mysterious permission prompts on one machine and not the other).
+
+**What lives where**, deliberately:
+
+| File | Scope | Versioned? |
+|---|---|---|
+| `mootmaker/workspace-config/settings.json` | mootmaker permission rules, including `production` deploy guards | **Yes** — this repo |
+| `~/.claude/settings.json` | Genuinely global: destructive-git guards that should apply to *every* project, your model and notification preferences, `additionalDirectories` | No — machine-local by nature |
+| `<workspace>/.claude/settings.local.json` | Anything you want on this machine only | No — gitignored by Claude Code convention |
+
+Note that a rule in the global `ask` list still overrides a project-scoped `allow`. That is
+deliberate and load-bearing: it is what lets the universal git guards apply everywhere while
+mootmaker's own config stays permissive for routine work.
+
+**Never put a credential in any of these files.** Claude Code records approved one-off commands
+verbatim, so an approved `curl ... -H 'x-api-key: ...'` becomes a permanent, plaintext rule. Two
+such rules (a dead AppSync key and a test-account password) were found and removed on 2026-08-29 —
+before the file was versioned into a **public** repo, which would have published them.
+
 ## What it cannot check
 
 **Authentication.** A tool being installed says nothing about being logged in. Two that bite:

@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(terraform *)",
+      "Bash(aws *)",
+      "Bash(source authenticate.sh *)",
+      "Bash(./authenticate.sh *)",
+      "Bash(./deploy.sh *)",
+      "Bash(./undeploy.sh *)",
+      "Bash(./verify.sh *)",
+      "Bash(./deploy-all.sh *)",
+      "Bash(./undeploy-all.sh *)",
+      "Bash(./run.sh *)",
+      "Bash(mvn *)",
+      "Bash(java -version)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(python3 *)",
+      "Bash(bash -n *)",
+      "Bash(shellcheck *)",
+      "Bash(jq *)",
+      "Bash(chmod +x *)",
+      "Bash(export TF_DATA_DIR=*)",
+      "WebFetch(domain:aws.amazon.com)",
+      "WebFetch(domain:docs.aws.amazon.com)",
+      "WebFetch(domain:repost.aws)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:registry.terraform.io)",
+      "WebFetch(domain:repo1.maven.org)",
+      "WebFetch(domain:playwright.dev)",
+      "WebSearch",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)"
+    ],
+    "ask": [
+      "Bash(./deploy.sh production*)",
+      "Bash(./undeploy.sh production*)",
+      "Bash(./deploy-all.sh production*)",
+      "Bash(./undeploy-all.sh production*)",
+      "Bash(terraform *apply*production*)",
+      "Bash(terraform *destroy*production*)"
+    ]
+  }
+}
