@@ -172,6 +172,18 @@ against — that catalog is expected to be re-checked against changes here, not 
 98. <a id="uc-98"></a>Data edited in one place (e.g. a room renamed in Settings) is consistent everywhere it's cached (meeting lists, availability grid) without needing a manual refresh. *(webapp: [M.98](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/m-cross-cutting.md#tc-m98) · android: not yet automated)*
 99. <a id="uc-99"></a>Refreshing the page picks up any changes made outside the current session (cache reset). *(webapp: [M.99](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/m-cross-cutting.md#tc-m99) · android: not yet automated)*
 
+## N. Settings — Date and time format (all users)
+
+These are **display-only** preferences. The API always speaks ISO-8601; changing a format changes
+how this client writes and reads date/times for its own viewer, and nothing else.
+
+100. <a id="uc-100"></a>Change your date format → every date shown to you switches to it, and the change persists across a reload. *(webapp: [N.100](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n100) · android: not yet automated)*
+101. <a id="uc-101"></a>Change your time format → every time shown to you switches to it, and the change persists across a reload. *(webapp: [N.101](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n101) · android: not yet automated)*
+102. <a id="uc-102"></a>Both formats are saved together in one action, and a success message confirms it. *(webapp: [N.102](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n102) · android: not yet automated)*
+103. <a id="uc-103"></a>The Add Meeting date/time fields accept input in your own chosen format, and a meeting created that way stores the same instant a default-format account would have stored. *(webapp: [N.103](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n103) · android: not yet automated)*
+104. <a id="uc-104"></a>A shared view renders in the *viewer's* own format, not the format chosen by whoever created the data. *(webapp: [N.104](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n104) · android: not yet automated)*
+105. <a id="uc-105"></a>An account with no linked Person sees the section disabled with an explanation, rather than a save that fails. *(webapp: [N.105](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n105) · android: not yet automated)*
+
 ## Notes
 
 A few things worth flagging separately since they shape *how* you'd test rather than *what*:
