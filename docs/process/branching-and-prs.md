@@ -13,6 +13,23 @@ and lands via a pull request.
 | `docs/<name>` | Documentation-only changes | `docs/testing-strategy-refresh` |
 | `chore/<name>` | Tooling, dependencies, housekeeping | `chore/bump-playwright` |
 
+**A feature branch is named after the design it implements**, not after the part of it you happen
+to be doing. `designs/date-time-format-settings.md` is implemented on
+`feature/date-time-format-settings` — in every repository the design touches. See
+[Cross-repo changes](#cross-repo-changes).
+
+**Always cut a design's branches fresh from `main`. Never continue a design's work on a branch that
+already exists**, and never stack it on an unrelated in-flight branch. **Whatever branch a working
+copy happens to have checked out when you arrive is not a signal** — a checkout is left over from
+whatever was done last, it is not an instruction, and it carries no claim on the next piece of work.
+Check out `main`, pull, and branch from there, in each repository, before writing anything.
+
+This is not a judgement call and it is not worth asking about. Two pieces of work sharing a branch
+means neither can be reviewed or merged on its own, and one PR then carries a diff nobody asked for.
+The only exception is a design that genuinely *depends* on unmerged work in another branch — and
+then the dependency belongs in the design document and in both PR descriptions, stated explicitly,
+not left implicit in a branch point.
+
 **Branch protection is deliberately not enabled.** With one developer it would mostly obstruct.
 The discipline here is convention, and the review that matters is described below.
 
@@ -87,8 +104,15 @@ span repositories**, so one logical change becomes several PRs.
 **Every design must name the repositories it touches**, in its "Impacts on components" section.
 That list is what tells an implementer how many branches and PRs the work needs.
 
-**Use the same branch name in every repository** a change touches. It makes the set obvious and
-lets you find the siblings without a tracking document.
+**Create the branch in every repository the change touches, with the same name in each, before
+starting the implementation.** Take the name from the design (`feature/<design-doc-slug>`) and
+create one in each repository its "Impacts on components" section names — including repositories
+whose change is only a line of documentation. Do this up front rather than branch-by-branch as you
+reach each repo: it means the whole set is discoverable by name alone, with no tracking document,
+and it stops work landing on `main` in the repo you touched last and least deliberately.
+
+A repository that turns out to need no change after all is fine — delete its unused branch, or
+leave it; an empty branch costs nothing and its absence would be ambiguous.
 
 **Sequence merges by dependency.** If the API change must land before the webapp change works,
 merge in that order. If they must land together, say so in both PR descriptions — there is no
