@@ -99,3 +99,16 @@ issue rather than a design, but they are recorded here so they are not lost.
 - **No home for pre-design ideas until now.** The issue board's Backlog holds concrete issues and
   `designs/` starts at `Drafting`; there was no place for a thought that is not yet either. This
   file is that place, which means [`../docs/process/`](process/) does not describe it yet.
+- **The acceptance suite must run against a fresh environment, and nothing said so.** Re-running it
+  against a reused one produced ten failures that all read as real regressions (empty state, room
+  ranking, calendar contents) and none were. Now documented in
+  `mootmaker-webapp/acceptance/README.md`. **C:** the deeper point is that the failure mode points
+  at the code rather than at the environment, so the investigation goes to the wrong place. Worth
+  asking whether the suite could *detect* a dirty environment and say so — a preflight check on
+  `00-room-availability-empty`'s own precondition would have turned ten misleading failures into
+  one accurate message.
+- **E.35 looks flaky.** It failed once (room not appearing after creation) and then passed on every
+  subsequent run, including two clean full runs. Not reproduced since. **C:** worth watching rather
+  than chasing — but note the catalog already flags F.53/F.54/F.57 as intermittently failing, so
+  this may be a fourth instance of one underlying cause rather than its own thing. If a pattern
+  emerges across those four, that is a real issue rather than a set of separate flakes.
