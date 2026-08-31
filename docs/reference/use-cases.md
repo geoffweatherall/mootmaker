@@ -183,6 +183,7 @@ how this client writes and reads date/times for its own viewer, and nothing else
 103. <a id="uc-103"></a>The Add Meeting date/time fields accept input in your own chosen format, and a meeting created that way stores the same instant a default-format account would have stored. *(webapp: [N.103](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n103) · android: not yet automated)*
 104. <a id="uc-104"></a>A shared view renders in the *viewer's* own format, not the format chosen by whoever created the data. *(webapp: [N.104](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n104) · android: not yet automated)*
 105. <a id="uc-105"></a>An account with no linked Person sees the section disabled with an explanation, rather than a save that fails. *(webapp: [N.105](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n105) · android: not yet automated)*
+106. <a id="uc-106"></a>Time labels that are not part of any meeting - the Room Availability hour axis, and its "Showing business hours" caption - follow the format too. *(webapp: [N.106](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/n-date-time-format-settings.md#tc-n106) · android: not yet automated)*
 
 ## Notes
 
