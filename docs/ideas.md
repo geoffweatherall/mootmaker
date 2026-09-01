@@ -374,3 +374,57 @@ Geoff: suggest a changes, I want consistancy imposed, both in linting if possibl
   this may be a fourth instance of one underlying cause rather than its own thing. If a pattern
   emerges across those four, that is a real issue rather than a set of separate flakes.
   Geoff: raise it as an issue now.
+
+---
+
+## Discoveries
+
+Facts learned the hard way on 2026-08-31/09-01, none of which had an obvious home at the time.
+These are not ideas — they are things that are **true about this project right now** and cost real
+time to find out. Several belong in a repository's own docs eventually; where that is, it says so.
+
+- **Deploy scripts use `terraform apply -auto-approve`; undeploy scripts deliberately do not.**
+  `deploy.sh` runs unattended. `undeploy.sh` and `teardown-ephemeral-env.sh` prompt Terraform's
+  interactive confirmation, so they fail with `error asking for approval: EOF` when run from a
+  script or an agent with no stdin. That asymmetry is intentional and documented in the scripts'
+  own comments — but it means **any unattended teardown needs `yes yes | ...` or an explicit
+  authorisation from Geoff**, which is worth knowing before planning automation around them. It
+  also interacts with the "move from scripts to pipelines" idea above: a pipeline has no stdin
+  either.
+
+- **A destructive tool sits behind an innocuous-looking script name.**
+  `sample-data-generator/run.sh` **resets the database first** — it deletes all rooms, meetings and
+  unlinked people before repopulating. On production, which is itself a demo environment, that is
+  real data. Deploying the tool is safe; running it is not. The two were kept deliberately separate
+  when production was deployed on 2026-09-01. If the generator and topup merge (see above), this
+  distinction is the single most important thing the merged design has to get right.
+
+- **The Cognito webapp client allows only `ALLOW_USER_SRP_AUTH` and `ALLOW_REFRESH_TOKEN_AUTH`.**
+  There is no `USER_PASSWORD_AUTH` or `ADMIN_USER_PASSWORD_AUTH`, so **nothing can obtain a user's
+  access token programmatically without implementing SRP** (or using `amazon-cognito-identity-js`,
+  which does). This is why seeding a preset account on 2026-09-01 set its preference by writing to
+  DynamoDB directly rather than by calling the mutation. Any future tooling that wants to act *as a
+  user* rather than as the machine hits this wall. Worth remembering when designing reset's
+  "reinstate the default users" step.
+
+- **Business hours (08:00–17:00) are exactly the range sample-data fills**, so in a populated
+  environment **no time slot is free by construction**. `MeetingScheduler` uses
+  `BUSINESS_DAY_START_HOUR = 8` / `END_HOUR = 17`, and the webapp's own `businessHours.ts` agrees.
+  A test that needs a bookable slot cannot simply pick a time — it has to pick a room that happens
+  to be free, or retry across rooms. Each room gets only 0-2 generated meetings a day, so retrying
+  finds one almost immediately. *Belongs in `mootmaker-webapp/acceptance/README.md` eventually.*
+
+- **Playwright's `getByLabel` matches substrings, including on containers.**
+  Giving a Settings section `aria-label="Your name"` made `getByLabel('Name')` ambiguous, because it
+  matched both the Name field and the section. `aria-label="Date and time format"` would have
+  collided with `getByLabel('Time format')` the same way. **Adding an accessible name to a container
+  can break unrelated tests**, so scope by structure (`locator('section').filter({ has: heading })`)
+  rather than by naming the container. *Belongs in `mootmaker-webapp/acceptance/README.md`
+  eventually.*
+
+- **Piping a test run through `tail`, `grep` or `head` discards its exit code.**
+  A shell pipeline returns the *last* command's status, so `./run.sh | tail -60` reported success
+  for a run with ten failures, and the buffering meant no progress output for 31 minutes. Redirect
+  to a file and read it instead, or set `pipefail`. This cost more time tonight than any actual bug.
+  *Belongs in the repo-level agent guidance eventually — it is a trap for humans too, but agents hit
+  it constantly because they habitually pipe for brevity.*
