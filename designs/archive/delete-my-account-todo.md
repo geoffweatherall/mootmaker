@@ -1,12 +1,12 @@
 # Delete my account — to-do list
 
 See [delete-my-account.md](delete-my-account.md) for the reasoning behind every decision here.
-**This entire piece of work is a prerequisite for [google-sign-in-todo.md](google-sign-in-todo.md)
+**This entire piece of work is a prerequisite for [google-sign-in.md](../google-sign-in.md)
 — do not start that list until this one reaches production.**
 
 **Status as of 2026-08-28: DONE.** Implemented, deployed to `test` and `production` (full
 `deploy.sh` each time, both repos), and manually verified in both environments by Geoff. This
-piece of work is fully closed out — [google-sign-in-todo.md](google-sign-in-todo.md) is now
+piece of work is fully closed out — [google-sign-in.md](../google-sign-in.md) is now
 unblocked to start.
 
 Legend: **[Geoff]** = manual step. **[Claude]** = implementation step.
@@ -69,6 +69,6 @@ Legend: **[Geoff]** = manual step. **[Claude]** = implementation step.
 
 ## Then, and only then
 
-Move on to [google-sign-in-todo.md](google-sign-in-todo.md) — its manual GCP setup steps (1 onward)
+Move on to [google-sign-in.md](../google-sign-in.md) — its manual GCP setup steps (1 onward)
 have no dependency on this work and could technically start in parallel, but the sequencing
 decision was to do this first, so hold off unless Geoff says otherwise.

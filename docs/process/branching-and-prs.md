@@ -94,7 +94,7 @@ findings as a PR comment so there is a trail of what it caught.
 It is not mandatory because there is no evidence yet that it earns its cost, and mandating it would
 bake in an untested assumption. Note also that a second agent currently acts through the same GitHub
 account, so its review is indistinguishable from the author's — a genuine limitation, tracked as
-NB-7 in [`../../designs/project-reorganisation.md`](../../designs/project-reorganisation.md).
+NB-7 in [`../../designs/archive/project-reorganisation.md`](../../designs/archive/project-reorganisation.md).
 
 ## Cross-repo changes
 

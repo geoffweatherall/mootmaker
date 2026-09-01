@@ -5,7 +5,7 @@ Status: **planning only — no code changes made yet.**
 ## Why this exists, and why it comes first
 
 This is now a **prerequisite for Sign in with Google** (see
-[google-sign-in.md](google-sign-in.md)/[google-sign-in-todo.md](google-sign-in-todo.md)), decided
+[google-sign-in.md](../google-sign-in.md)), decided
 2026-08-28: self-service account deletion should exist before Google sign-in ships, rather than
 after. Two concrete reasons this ordering matters, beyond just "it's good to have":
 

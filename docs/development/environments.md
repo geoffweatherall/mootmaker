@@ -8,7 +8,7 @@ and tear down your own. Moved here from the project README during the 2026-08 re
 > environment described in the examples below has been retired. The mechanics on this page are
 > still accurate; only the set of long-lived environment names has changed. Examples using `test`
 > are updated in Phase 4 of
-> [`designs/project-reorganisation.md`](../../designs/project-reorganisation.md). For the *policy*
+> [`designs/archive/project-reorganisation.md`](../../designs/archive/project-reorganisation.md). For the *policy*
 > — which environments exist and why — see `../process/environments.md`.
 
 
