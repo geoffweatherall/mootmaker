@@ -166,12 +166,10 @@ string literals. That is a **third hand-maintained mirror of the contract**, alo
 that no longer matches the schema fails at runtime against a deployed environment rather than at
 compile time.
 
-What each Java consumer should *do* with the artifact is a smaller open question than it looks:
-generating typed operations (Apollo Kotlin, `graphql-java-codegen`) makes them compile-checked,
-while merely validating the existing hand-written strings against the schema at build time is far
-cheaper and catches the same class of failure. Worth deciding per consumer rather than globally —
-`mootmaker-api/verify` needs neither, since it lives in the same repository as the schema and can
-read the file directly.
+Every consumer generates typed, compile-checked operations from the schema rather than validating
+hand-written strings against it (decided 2026-09-01, see NB-5) — the mechanism is each consumer's
+own choice, the outcome is not. `mootmaker-api/verify` is the exception that needs no artifact: it
+lives in the same repository as the schema and can generate from the file directly.
 
 ### 7. Local development reads the sibling checkout
 
@@ -251,10 +249,22 @@ below need answers before it can move to `Ready`.
   is closer than this note assumed. See also Decision 5's revisit condition, which arrives first and
   is cheaper (`graphql-inspector` in CI).
 
-- **NB-5 — What should each Java consumer do with the artifact?** Generate typed operations, or
-  merely validate its existing hand-written operation strings against the schema at build time? The
-  second is far cheaper and catches the same class of failure. Worth deciding per consumer; see
-  Decision 6.
+- ~~**NB-5**~~ — **resolved 2026-09-01: codegen, for every consumer.** Validation-only was the
+  cheaper option and was rejected deliberately. Both catch a stale operation, but they report it
+  differently: validation fails a build step with a message about a schema mismatch, whereas codegen
+  makes it a **compiler error at the exact line that is wrong** — which is easier for a human to
+  spot and act on, and lands in the editor rather than in CI output. The mechanism each consumer
+  uses stays its own choice; the outcome (generated, compile-checked operations rather than string
+  literals) is common to all of them.
+
+  **Worth knowing before implementation:** the two sides are not equal work. TypeScript codegen from
+  a GraphQL schema is a well-trodden path (`graphql-code-generator`) and mostly replaces a file that
+  is already hand-maintained. The Java side is a larger change: `mootmaker-demo-data` currently
+  builds operations as string literals passed to its own `GraphQlClient`, so adopting generated
+  operations means changing how it talks to the API, not just where its types come from — and Java
+  GraphQL client codegen has fewer well-worn options than the TypeScript ecosystem. Worth sequencing
+  the webapp first, both because it is cheaper and because it proves the published artifact works
+  before a bigger consumer commits to it.
 
 ---
 
