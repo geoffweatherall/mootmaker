@@ -89,6 +89,136 @@ apart. Consistent with the CI/CD design's existing shape rather than inventing a
 
 ---
 
+### 4. The schema stays in `mootmaker-api`
+
+**Decision (2026-09-01):** the schema is not pulled into its own repository. `mootmaker-api` remains
+its home and publishes it; the webapp and Android consume the published package.
+
+**Reasoning:** the schema is the API's *interface*, not an independent artifact. `appsync.tf`
+reads it directly at deploy time (`schema = file(".../api/mootmaker.graphql")`), and adding a field
+without adding a resolver produces a field that resolves to nothing — so schema and API change
+together essentially always. A separate repository would create two repositories that must change
+in lockstep while claiming to decouple them, and would make an API deploy depend on a package
+registry being reachable to fetch its own contract.
+
+The webapp and Android are genuinely different: they are downstream, change *after* the schema, and
+can legitimately lag a version. That asymmetry is real, and a shared repository erases it by
+treating all three consumers as equals when only two of them are.
+
+**Revisit if** the schema starts changing without API changes, ownership of the contract separates
+from the API, or contract changes need their own review gate.
+
+### 5. Version: declared in the PR, enforced by registry immutability
+
+**Decision (2026-09-01):** `api/package.json` — sitting beside `mootmaker.graphql` — holds the
+version, and a human (or agent) bumps it in the same pull request that changes the schema. That
+file is the single source of truth; the Maven `pom.xml` is generated in CI from the same string, so
+one version means one thing in both registries.
+
+**What makes this safe without tooling:** package registries are immutable, so the failure mode you
+would most expect — changing the schema and forgetting to bump — cannot silently succeed:
+
+| Scenario | Outcome |
+|---|---|
+| Schema changed, version bumped | publishes |
+| Schema changed, version forgotten | **build fails** — that version already exists |
+| Schema unchanged | publish skipped; no spurious version |
+
+The pipeline should check for an existing version *explicitly* rather than letting `npm publish`
+throw, so the error reads "schema changed but package.json still says 1.4.0" instead of a raw 409.
+
+**What this deliberately does not do:** nothing verifies the *classification*. A breaking change
+published as a patch will publish happily, and a consumer on a caret range would take it
+automatically. Accepted knowingly at this scale — a 145-line schema with two consumers, where the
+pull request shows the schema diff and the version bump side by side. **Revisit when the schema
+stops being diffable by eye, or when whoever changes it is no longer the person reviewing the
+consumers — realistically when Android lands.** `graphql-inspector` in CI then slots into the
+existing existence-check step without changing anything else. This resolves **NB-3**.
+
+### 6. Consumers generate their own types; codegen lives in the consuming repo
+
+**Decision (2026-09-01):** the published artifact stays the raw `.graphql` file (Decision 2 stands),
+and each consumer runs its own code generation — `types.ts` in `mootmaker-webapp`, Kotlin in
+`mootmaker-android`. No generated-types package is published. This resolves **NB-1**.
+
+**Evidence this is needed rather than theoretical:** implementing `date-time-format-settings`
+required editing the schema, the Java model, *and* the hand-written `types.ts` mirror, with only
+discipline keeping them aligned. That is the second data point NB-1 was waiting for.
+
+Both npm and Maven artifacts are published from the start. This was originally justified only by
+Android getting a complete version history rather than starting mid-stream — but that undersold it.
+**The Maven artifact has a live consumer today**, which this design (and the discussion that
+produced it) had missed:
+
+| Consumer | Language | How it depends on the schema now | Gets the artifact via |
+|---|---|---|---|
+| `mootmaker-webapp` | TypeScript | hand-written `types.ts` mirror | npm |
+| `mootmaker-demo-data` (generator + topup) | Java | **8 hand-written GraphQL operation strings** | Maven |
+| `mootmaker-api/verify` | Java | 16+ operation strings across 8 acceptance-test classes | the local file — same repo |
+| `mootmaker-android` | Kotlin | does not exist yet | Maven |
+| `mootmaker-admin-tools` | Java | none — reaches DynamoDB directly | n/a |
+
+`mootmaker-demo-data` writes exclusively through the GraphQL API (it touches DynamoDB in zero Java
+files), building mutations like
+`"mutation CreatePerson($person: PersonInput!) { createPerson(person: $person) { id name } }"` as
+string literals. That is a **third hand-maintained mirror of the contract**, alongside the webapp's
+`types.ts` and the API's own Java models — and the worst of the three, because a string literal
+that no longer matches the schema fails at runtime against a deployed environment rather than at
+compile time.
+
+What each Java consumer should *do* with the artifact is a smaller open question than it looks:
+generating typed operations (Apollo Kotlin, `graphql-java-codegen`) makes them compile-checked,
+while merely validating the existing hand-written strings against the schema at build time is far
+cheaper and catches the same class of failure. Worth deciding per consumer rather than globally —
+`mootmaker-api/verify` needs neither, since it lives in the same repository as the schema and can
+read the file directly.
+
+### 7. Local development reads the sibling checkout
+
+**Decision (2026-09-01):** codegen resolves the schema from `../../mootmaker-api/api/mootmaker.graphql`
+locally and from `node_modules/@mootmaker/schema/` in CI — one differing config value.
+
+**Reasoning:** a CI runner checks out one repository, so the sibling path does not exist there and
+the published artifact is the only mechanism. Locally the reverse is true: the sibling layout is
+already mandated (`mootmaker/CLAUDE.md`, and `mootmaker-webapp/deploy.sh` resolves
+`../mootmaker-api` today), so a path needs no install step, no publish round trip, and no state
+outside the repository. `npm link` was considered and rejected for this: it is global machine state
+invisible to the repository, and any later `npm install` silently reverts it, so a developer can
+stop building against their local schema without noticing.
+
+The general principle: **published versions are for reproducible CI builds and pinning; the sibling
+path is for developing.** That is the same split Maven SNAPSHOTs provide, implemented with a path
+because the artifact is a single static file with no dependencies to resolve.
+
+### 8. One pipeline, and a deploy-time gate on the consumer
+
+**Decision (2026-09-01):** a single merge-to-`main` pipeline in `mootmaker-api` publishes the schema
+*only when `mootmaker.graphql` changed*, then deploys the API — so what production serves and what
+was published cannot drift.
+
+```
+merge to main
+  |- schema changed?  -> check version unused -> npm publish -> mvn deploy
+  |- always           -> deploy the API
+```
+
+**Consumer uptake** is by automated bump pull request (Dependabot or Renovate) against
+`mootmaker-webapp`: a publish opens a PR, CI runs codegen and the type check, and a green PR is
+evidence the change is additive and safe to take. A red one is the signal that the schema change
+needs webapp work. This is what makes a declared version workable end to end — without it the
+webapp's lockfile pins the old version indefinitely and nothing signals that the contract moved.
+
+**The webapp's pipeline verifies before deploying** that the target environment's API actually
+serves the schema it was built against (introspection, refuse on mismatch). Two independent
+pipelines have no ordering guarantee, and building against version 1.5 proves only that the webapp
+*compiles* — not that production serves 1.5. This is not hypothetical: during
+`date-time-format-settings`, `mootmaker-webapp#10` was merged before `mootmaker-api#8`, and the
+webapp's `myPerson` query selects fields that did not yet exist in the deployed schema. Because
+`AuthProvider` runs that query on load, the result would have been a broken sign-in rather than a
+degraded page. The gate turns that into a failed deploy.
+
+---
+
 ## Open questions
 
 ### Blocking
@@ -99,22 +229,32 @@ below need answers before it can move to `Ready`.
 
 ### Non-blocking
 
-- **NB-1 — Publish the raw `.graphql` file, or a codegen'd artifact per language, or both?**
-  Decision 2 picked "raw file" for a first version; whether to add generated TypeScript/Java types
-  later (and which tool — `graphql-code-generator` for TS, an existing Java GraphQL codegen plugin)
-  is open. Worth deciding once there's a second data point on how painful the hand-maintained
-  mirrors actually are to keep in sync with a raw-schema-only artifact in place.
+- ~~**NB-1**~~ — **resolved 2026-09-01, see Decision 6.** Raw file published; each consumer runs
+  its own codegen, in its own repository. The second data point it was waiting for arrived:
+  `date-time-format-settings` required hand-editing the schema, the Java model and `types.ts`
+  together.
 - **NB-2 — Does GitHub Packages' free tier have a real limitation worth knowing about up front**
   (storage caps, retention, bandwidth) for a project this size? Likely irrelevant at mootmaker's
   scale, but worth a five-minute check against GitHub's current published limits before
   implementation starts rather than assumed.
-- **NB-3 — Semantic versioning, or just the commit SHA?** A SHA-based version is simpler and always
-  traceable to an exact schema state; semver communicates breaking-vs-additive changes to consumers
-  at a glance but needs someone (or something) to actually classify each change correctly. Worth
-  deciding once there are real consumers to feel the difference.
+- ~~**NB-3**~~ — **resolved 2026-09-01, see Decision 5.** Semver, declared in the pull request.
+  A commit SHA was rejected for a reason not visible when this was written: SHA versions have no
+  ordering, so **no range expression is possible** and every consumer must pin exactly and bump by
+  hand on every schema change — replacing "hand-edit `types.ts`" with "hand-edit a version string".
+  Semver plus a caret range plus automated bump PRs is what removes the manual step, not the
+  human-readability of the number.
 - **NB-4 — Revisit the schema-registry option (Hive/Apollo Studio) if the consumer count grows.**
-  Two consumers (webapp, soon Android) don't obviously justify it; three or more with independent
-  release cadences might. Not a decision to make now, just a trigger condition worth remembering.
+  Written assuming two consumers; the real count is already **three** (webapp, `mootmaker-demo-data`,
+  and `mootmaker-api/verify` in-repo), with Android a fourth. That does not change the verdict yet —
+  the registry's value is breaking-change detection across consumers with independent release
+  cadences, and demo-data plus verify both currently release with the API. It does mean the trigger
+  is closer than this note assumed. See also Decision 5's revisit condition, which arrives first and
+  is cheaper (`graphql-inspector` in CI).
+
+- **NB-5 — What should each Java consumer do with the artifact?** Generate typed operations, or
+  merely validate its existing hand-written operation strings against the schema at build time? The
+  second is far cheaper and catches the same class of failure. Worth deciding per consumer; see
+  Decision 6.
 
 ---
 
