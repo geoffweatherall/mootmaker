@@ -105,6 +105,27 @@ Resolved directly with Geoff via upfront questions before drafting:
   site being briefly unreachable — a trade this project has made before for exactly this reason
   (`deploy.sh` itself calls `terraform apply -auto-approve` unattended because getting the trade-off
   wrong here doesn't cost anything real).
+- **Both Lambdas' timeout is set to 900 seconds — the AWS Lambda maximum — not the 300 s each tool
+  configures today.** There's no reason to guess a smaller number: the concurrency design in both
+  (`runInParallel`, bounded at 8) already exists specifically to stay "comfortably inside a Lambda
+  invocation's 15-minute hard ceiling as stored data volume grows" (both tools' own READMEs use
+  almost that exact phrase), so the real ceiling worth configuring against is the ceiling itself.
+  Raising the configured timeout costs nothing — Lambda bills for actual duration, not the timeout
+  setting — and removes a number (300s) that was never derived from an actual worst-case estimate.
+- **`database-repair`'s `--dry-run` is kept**, expressed the same way it already partly is in the
+  Lambda's own contract — an invoke payload field, `{"dryRun": true}` — rather than a script flag.
+  `aws lambda invoke --function-name <env>-mootmaker-database-repair --payload '{"dryRun": true}'
+  --cli-binary-format raw-in-base64-out out.json` replaces `./run.sh <environment> --dry-run`.
+- **`reset` logs the email address of every Cognito user it deletes**, not just a count — one line
+  per deletion, to CloudWatch, the same style `CreateMissingPersonsRepair` already uses for its own
+  per-user log lines (`"  demo@mootmaker.com -> creating Person 'demo'"`). This is what "say what it
+  deleted" (ideas.md) actually means for the highest-consequence deletion this Lambda does.
+- **`runInParallel`/`MAX_CONCURRENT_REQUESTS` gets merged into one shared helper inside
+  `mootmaker-api`**, used by both `reset` and `repair` once they're both handler classes in the same
+  module — the two copies becoming one is a direct consequence of them landing in the same repo, not
+  a new library. **`sample-data-generator`'s own copy in `mootmaker-demo-data` stays exactly as
+  duplicated as it is today** — that repo gets no dependency on `mootmaker-api`, matching the
+  storage-model decision above (no shared code *between* repos, only *within* one).
 
 ## Choices you had me make
 
@@ -144,19 +165,16 @@ reset/repair-specific paragraphs are struck).
 
 **Non-blocking** (fine to resolve during implementation):
 
-- Should `database-repair`'s `--dry-run` still exist? Nothing here forces dropping it — it becomes
-  `aws lambda invoke ... --payload '{"dryRun": true}' --cli-binary-format raw-in-base64-out` instead
-  of a `run.sh` flag — but worth confirming it's still wanted now invocation is one step less
-  convenient.
-- Should `reset`'s response summary report the Cognito deletions too (count of users removed), the
-  way it already reports DynamoDB deletion counts? Seems obviously yes, flagging only because "say
-  what it deleted" was explicit in ideas.md and is easy to under-scope to just the DynamoDB half.
-- The `runInParallel`/`MAX_CONCURRENT_REQUESTS` helper is currently duplicated identically across
-  `database-reset`, `database-repair`, and `sample-data-generator`. Moving the first two into `impl/`
-  is a natural moment to collapse *those two* copies into one shared package-private helper (the
-  third stays duplicated regardless, since `sample-data-generator` remains a separate repo with no
-  shared-code mechanism — see the storage-model decision above). Small enough to just do during
-  implementation rather than design here.
+- **Does `reset`'s JSON response payload also list the deleted emails, or just a count — CloudWatch
+  log only?** The DynamoDB counts (`roomsDeleted`, etc.) already go in the response; the Cognito
+  emails are decided to go to CloudWatch (see Trade-offs and decisions), but whether they *also*
+  belong in the response is genuinely open. Leaning toward count-only in the response (keeps it
+  small, and the full list is one `CloudWatch Logs` query away) — flagging rather than deciding
+  unilaterally since a caller wanting to assert on *which* accounts were removed (e.g. the new
+  acceptance test under Testing impacts) would rather read the response than parse logs.
+- Where the new shared `runInParallel` helper and its `MAX_CONCURRENT_REQUESTS` constant live —
+  a new small package (e.g. `com.mootmaker.concurrent`) alongside `handler`/`model`/`dynamo`, most
+  likely, but genuinely an implementation-time naming call rather than something worth blocking on.
 
 ## Impacts on components
 
@@ -167,6 +185,8 @@ reset/repair-specific paragraphs are struck).
   gains the actual logic (`DatabaseReset`, `CreateMissingPersonsRepair`,
   `RebuildMeetingParticipantsRepair`) — ported from `mootmaker-admin-tools`, adapted to import
   `com.mootmaker.model.Person`/`MeetingParticipant`/`MeetingRecord` instead of each tool's own copy.
+  A new shared package also gains the merged `runInParallel`/`MAX_CONCURRENT_REQUESTS` helper (see
+  Open questions for exact placement), used by both handlers instead of each keeping its own copy.
 - `impl/src/test/java/...` gains the corresponding test classes (`DatabaseResetTest`,
   `DatabaseResetHandlerConcurrencyTest`, `CreateMissingPersonsRepairTest`,
   `RebuildMeetingParticipantsRepairTest`, `DatabaseRepairHandlerConcurrencyTest`, plus fakes
@@ -175,9 +195,10 @@ reset/repair-specific paragraphs are struck).
   `UpdatePersonHandler`/`PostConfirmationCreatePersonHandler`), and so is `dynamodb`.
 - `deploy/terraform/` gains a new file (e.g. `admin-tools.tf`) with the two `aws_lambda_function`
   resources, their `aws_iam_role`/`aws_iam_role_policy` pairs, and the `ALLOW_COGNITO_WIPE` /
-  `RESERVED_ACCOUNT_EMAILS` env vars. No `aws_lambda_alias`/SnapStart needed — unlike the resolvers
-  and post-confirmation functions, nothing invokes these frequently enough for cold-start latency to
-  matter.
+  `RESERVED_ACCOUNT_EMAILS` env vars. Both get `timeout = 900` (the Lambda maximum — see Trade-offs
+  and decisions), up from the 300s each configures today. No `aws_lambda_alias`/SnapStart needed —
+  unlike the resolvers and post-confirmation functions, nothing invokes these frequently enough for
+  cold-start latency to matter.
 - `deploy.sh`/`undeploy.sh` need **no changes** — they already build the one jar and apply the one
   Terraform state; the new resources just come along for the ride.
 - `verify.sh`/`verify/.../DatabaseReset.java` — the function-name computation
@@ -200,7 +221,9 @@ Lambdas have been undeployed from every environment that has them — see Rollou
 — but their comments explicitly say "now in `../mootmaker-admin-tools`" and need updating to say
 `mootmaker-api` instead, and the README's "A dependency this split did not remove" section (in
 `mootmaker-admin-tools`, being deleted) has no new home unless it's folded into
-`mootmaker-demo-data`'s own README or `mootmaker-api`'s.
+`mootmaker-demo-data`'s own README or `mootmaker-api`'s. `DatabaseResetInvoker`'s `LambdaClient`
+also needs its client-side call timeout raised to match `database-reset`'s new 900s Lambda timeout
+(see Technical considerations) — a small, genuine code change, not just a doc-comment fix.
 
 **Hub repo (`mootmaker`):**
 
@@ -257,8 +280,19 @@ describes:
   functions can never disagree about which accounts are reserved.
 - **`sample-data-generator` must not be affected mid-migration.** Because its function-name
   computation is unchanged, it will start working again the moment `mootmaker-api`'s replacement
-  Lambda exists under the same name — no `mootmaker-demo-data` deploy or code change is needed as
-  part of this migration, only the doc-comment corrections noted above.
+  Lambda exists under the same name — no `mootmaker-demo-data` *deploy* is needed as part of this
+  migration, only the doc-comment corrections and the client-timeout change noted below.
+- **Raising the Lambda's own timeout to 900s only helps if every caller's *client-side* timeout is
+  raised to match, or a legitimately-long run gets reported as a failure while the Lambda quietly
+  keeps running (or even succeeds) in the background.** Three callers, three places to check: the
+  AWS CLI defaults `--cli-read-timeout` to 60s (needs raising, e.g. `--cli-read-timeout 900`, or `0`
+  for no timeout, in every documented example command); `verify/.../DatabaseReset.java`'s
+  `LambdaClient` needs an explicit `ClientOverrideConfiguration` with an `apiCallTimeout` of at least
+  900s (the SDK default is shorter); `sample-data-generator`'s own `DatabaseResetInvoker` needs the
+  same client-side timeout raised, a small addition to `mootmaker-demo-data` prompted by this
+  migration even though none of its invocation *logic* changes. Easy to overlook because the
+  failure it causes is confusing — a client-reported timeout for an invocation that actually
+  succeeded — rather than an obvious break.
 
 ## Testing impacts
 
@@ -267,8 +301,10 @@ describes:
   currently exercises real AWS, so none of this changes how they run, only where they live.
 - **New unit coverage needed** for the two behaviours that don't exist yet: the Cognito-wipe pass
   itself (deletes every non-reserved user, preserves the two reserved ones by email, works across
-  a paginated `ListUsers` result), and the environment-gated skip (`ALLOW_COGNITO_WIPE=false`
-  results in the DynamoDB-only, cognitoSub-presence-based cleanup path, not the Cognito-driven one).
+  a paginated `ListUsers` result, logs each deleted user's email), and the environment-gated skip
+  (`ALLOW_COGNITO_WIPE=false` results in the DynamoDB-only, cognitoSub-presence-based cleanup path,
+  not the Cognito-driven one). Also needs coverage for the merged `runInParallel` helper now serving
+  two callers instead of one each.
 - **`mootmaker-api`'s acceptance suite** (`verify/`) already resets via this Lambda before most
   tests — worth adding one acceptance test that specifically signs up a real (throwaway) user,
   invokes reset, and asserts that user's Person is gone and the demo/e2e accounts still work
@@ -282,8 +318,9 @@ describes:
 ## Documentation impacts
 
 - `mootmaker-api/README.md` — "Reset and real user accounts" section rewritten for the new Cognito
-  behaviour and the production guard; directory structure and "Build, test, deploy" sections gain
-  the two tools.
+  behaviour, the production guard, and that deletions are logged by email; directory structure and
+  "Build, test, deploy" sections gain the two tools, with an example `aws lambda invoke` command for
+  each (including `--cli-read-timeout` and, for `database-repair`, the `{"dryRun": true}` payload).
 - `mootmaker-api/CLAUDE.md`/`AGENTS.md` — short addition: these two Lambdas live here, invoked via
   raw `aws lambda invoke`, not a script.
 - `mootmaker-admin-tools/README.md`/`AGENTS.md` — deleted along with the rest of the repo.
@@ -357,9 +394,9 @@ rollout**:
 3. `[Claude]` Add the new unit tests called out under Testing impacts (wipe behaviour, gate behaviour).
 4. `[Claude]` Add the two `aws_lambda_function` + dedicated-role resources to
    `mootmaker-api/deploy/terraform/`, wired to `RESERVED_ACCOUNT_EMAILS` and `ALLOW_COGNITO_WIPE`.
-5. `[Claude]` Update `mootmaker-demo-data`'s doc comments/README cross-references; confirm
-   `sample-data-generator` still runs against a redeployed ephemeral environment without any change
-   on its side.
+5. `[Claude]` Update `mootmaker-demo-data`'s doc comments/README cross-references and raise
+   `DatabaseResetInvoker`'s client-side call timeout to match `database-reset`'s new 900s Lambda
+   timeout; confirm `sample-data-generator` still runs against a redeployed ephemeral environment.
 6. `[Claude]` Add the new acceptance test (sign up, reset, assert survivors) to `mootmaker-api/verify/`.
 7. `[Claude]` Update all documentation impacts listed above; run `tools/check-links.py`.
 8. `[Geoff]` Undeploy `production` entirely — `mootmaker-webapp`, then `mootmaker-api`, then both
@@ -379,6 +416,6 @@ rollout**:
 - `production` fully torn down and redeployed from scratch, confirmed working (site, demo/e2e
   logins, a manual `database-reset` invoke) by Geoff; `mootmaker-admin-tools` deleted entirely.
 - `mootmaker-demo-data/sample-data-generator` confirmed still working against a fresh ephemeral
-  environment with no code changes on its side.
+  environment, with only its client-side invoke timeout changed.
 - Every item under Documentation impacts actually edited, not just planned, and `tools/check-links.py`
   clean.
