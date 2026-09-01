@@ -3,8 +3,8 @@
 **Started 2026-08-28.** This folder holds one design document per feature/change of any real size
 — written and refined *before* coding starts, then used as the actual prompt implementation begins
 from. `date-time-format-settings.md` is the first design written under this pattern; earlier
-feature docs (`archive/google-sign-in.md`, `archive/delete-my-account.md`, and their paired `-todo.md` files)
-predate it and used an ad hoc two-file shape — see "Migrating older docs" below.
+feature docs (`archive/delete-my-account.md` and its paired `-todo.md`) predate it and used an ad
+hoc two-file shape — see "Migrating older docs" below.
 
 ## Why
 
@@ -38,8 +38,10 @@ needs re-opening) — the table above is the normal forward path, not a one-way 
   that reference, links to it rather than duplicating it, and the reference itself gets updated
   once the design ships — it should always reflect what's actually deployed today, never a
   proposal.
-- `archive/` holds planning docs that have been superseded or shipped — kept for the record, not
-  maintained. Nothing in there should be treated as current.
+- `archive/` holds designs that are **done** — shipped, or superseded by a newer doc — kept for the
+  record, not maintained. Nothing in there should be treated as current. Moving a design here when
+  it reaches Shipped is what keeps this folder a list of *pending* work: if it is in `designs/`,
+  it is still live.
 
 ## Section template
 
@@ -107,8 +109,9 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
 4. An implementation session starts by reading the doc directly, moves Status to Building, and
    works through the Implementation checklist. The doc keeps being updated as reality diverges from
    plan (a design doc describes the *current* plan, not a frozen record of the first draft).
-5. Once Definition of done is actually met, Status moves to Shipped, and `../docs/reference/data-model.md` (if
-   touched) gets updated to reflect the new current state.
+5. Once Definition of done is actually met, Status moves to Shipped, `../docs/reference/data-model.md` (if
+   touched) gets updated to reflect the new current state, and the design **moves to
+   [`archive/`](archive/)** — so `designs/` only ever lists work that is still pending.
 
 ## Migrating older docs
 
@@ -117,9 +120,14 @@ doc plus a separate `-todo.md` checklist). They now live in [`archive/`](archive
 
 | Archived | Superseded by |
 |---|---|
-| `archive/google-sign-in.md` + `-todo.md` | [`google-sign-in.md`](google-sign-in.md) — a unified doc in this template's shape |
 | `archive/delete-my-account.md` + `-todo.md` | Nothing yet — still the most detailed record of that feature's thinking |
 | `archive/meeting-picker-dropdowns-todo.md` | Shipped 2026-08-28; kept only for the record |
+
+The old `archive/google-sign-in.md` and its `-todo.md` were **deleted** on 2026-09-01 rather than
+kept: [`google-sign-in.md`](google-sign-in.md) fully supersedes them and is still unstarted, so
+having two competing docs for unbuilt work was a live source of confusion rather than a record of
+anything. Archiving is for work that is *done*; a superseded doc for work that never began is just
+a second answer to the same open question.
 
 They are **not rewritten to fit this template**. They are genuinely detailed planning notes, and
 reformatting them would risk losing content for no gain. The rule is: when an archived doc is

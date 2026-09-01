@@ -14,10 +14,15 @@ drafted in.
 
 ## Status
 
-**Building** — as of 2026-08-31. Moved from Drafting on Geoff's explicit approval, with
-implementation starting the same day. Every open question, blocking and non-blocking, was
-resolved in one upfront round beforehand (see Trade-offs and decisions); that round also
-turned up a wrong assumption in this doc's own Testing impacts section, corrected below.
+**Shipped** — as of 2026-09-01. Merged across `mootmaker`, `mootmaker-api` and
+`mootmaker-webapp`, and deployed to production. The full acceptance suite ran green on a freshly
+deployed environment (107 passed, 0 failed), and Geoff signed off after a manual pass on an
+ephemeral environment seeded with demo data and a second account preset to British + AM/PM.
+
+Two things were found after the design was written and are recorded above rather than quietly
+fixed: the Add Meeting pickers had always disagreed with the rest of the app (US-locale defaults
+against ISO displays), and the component list missed Room Availability's hour axis and
+business-hours caption because it was built by grepping for existing call sites.
 
 ## Scope / non-goals
 
@@ -205,7 +210,7 @@ by grepping for `formatLocalTime`/`formatLocalDate`/`DatePicker`/`TimePicker`/
 
 ## Changes to the domain data model and data storage models
 
-See [`data-model.md`](../docs/reference/data-model.md) for the current state. This design adds two new fields to the
+See [`data-model.md`](../../docs/reference/data-model.md) for the current state. This design adds two new fields to the
 `Person` domain concept — `timeFormat` (enum: `TwentyFourHour` | `AmPm`) and `dateFormat` (enum:
 `Usa` | `British` | `Iso`) — both **mandatory** at the domain level: a Person always has exactly one
 of each, and the pair defaults to `Iso`/`TwentyFourHour` for any Person that has never set them
@@ -300,7 +305,7 @@ scales:
 
 ## Documentation impacts
 
-- [`docs/reference/use-cases.md`](../docs/reference/use-cases.md) — add the two new settings as
+- [`docs/reference/use-cases.md`](../../docs/reference/use-cases.md) — add the two new settings as
   use cases, plus "a rendered date/time reflects the *viewer's* own format preference regardless
   of whose data it is" as an explicit cross-cutting use case (the kind of rule
   `m-cross-cutting.md` already exists to hold) — this is the resolved "whose preference wins"
@@ -310,7 +315,7 @@ scales:
   Settings page section list.
 - `mootmaker-api/README.md` — a new section documenting the `updateMyPreferences` mutation
   alongside the existing `updatePerson`/`createPerson` documentation.
-- [`docs/reference/data-model.md`](../docs/reference/data-model.md) — update once shipped, per this
+- [`docs/reference/data-model.md`](../../docs/reference/data-model.md) — update once shipped, per this
   folder's own process.
 
 ## Rollout & migration

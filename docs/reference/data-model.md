@@ -120,7 +120,7 @@ time).
 | `organiserId` | S | FK → People. |
 | `attendeeIds` | List\<S\> | FKs → People. |
 | `subject` | S | Meeting subject/title. |
-| `startTime` | S | Canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss`, no time-zone offset — see [date-time-format-settings.md](../../designs/date-time-format-settings.md)'s Technical considerations for why the webapp treats this as naive local time, never UTC. |
+| `startTime` | S | Canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss`, no time-zone offset — see [date-time-format-settings.md](../../designs/archive/date-time-format-settings.md)'s Technical considerations for why the webapp treats this as naive local time, never UTC. |
 | `endTime` | S | Same format as `startTime`. |
 
 **GSIs**:
