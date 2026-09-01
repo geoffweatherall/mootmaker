@@ -27,6 +27,11 @@ name convention (`<env>-mootmaker-database-reset`) that is written out separatel
 a shell script and a Terraform config. Whatever packaging story gets chosen has to say something
 about that, because it constrains how independently the two repos can be released.
 
+**Geoff Response**
+i want to move the database reset function and database repair to be lambdas that are deployed as part of the api.  They will only ever be invoked via a lambda invoke, so IAM credentials protect them from missuse.  These tools have migrated from being run on a workstation with cognitio credentials to their current state, and so things like the scripts to support them authenticate.
+
+I also want to configure them on deployment to find the resources they need via lambda environment variables.  I don't see any need for terraform output to use used for this (I think this is historic left over from when this was an api call).  So now anyone who wants to reset a database (either an acceptance test or Claude while developing) just invoke the lambda.  Consider the costs and benefits of making this a sync or async process.
+
 ---
 
 ## Merge sample-data-generator and sample-data-topup into one Lambda
@@ -80,6 +85,16 @@ full-window mode, rather than carrying its own copy of the scheduler.
 **Open, for Geoff:** what does "top up users" count against — total people, or only unlinked demo
 people? And should reset live inside the merged Lambda at all, or stay a separate tool it calls?
 
+**Geoff Response**
+The topup tool will never reset the database.  It's indended usage will be to create some data in a freshly deployed ephemeral environment, or to keep production toped up with test data.  If for some reason the developer wants to clear and repopulate a database they will run the database reset and then populate as two distinct manual steps.
+
+The data topup tool should become a first class deployable component alongside the api and the webapp.  We need to consider our deployment process as well, might be time to move from scripts to pipelines.  But we want to make it easy for Claude to deploy emphemerial environments.  Maybe an optional commandline para to the deploy script to say whether to deploy demo data.  But undeploy would need to pick up whether it had been deployed to get a clean undeploy in all cases.  Consider testing needed for the data topup tool.  Remember that demo is a core part of mootmaker, not just a sideline for testing.
+
+---
+
+** graphql sharing **
+I want to share the graphql schema between the api and webapp (and later Android) by some more explicit and standard means.   We have a design for this.  I also want to share the storage model/ cognito database shape (come up with a name for this) between the api and the demo data tool.  I guess this means a java library project that publishes versions into somewhere.  Suggest this somewhere I think the schema design says there are GitHub options.  I'd also want to both have build pipelines publish new versions, but when developing be able to use snapshot versions to have changes to both the storage model and other repos before cutting versions.  I'd want the storage model (or whatever we call it) to be it's own repo, rather than having demo data repo depend on the api.  Consider versioning for this, for breaking and non-breaking, and the conventions that would need to be documented so Claude   
+
 ---
 
 ## Loose threads
@@ -93,12 +108,16 @@ issue rather than a design, but they are recorded here so they are not lost.
   acceptance specs already do not match it. **C:** this is not hypothetical — running a bare
   `npx prettier --write` on two files during the date/time work silently rewrote them to double
   quotes and semicolons, matching nothing around them, because there was no config to read.
+Geoff: suggest a changes, I want consistancy imposed, both in linting if possible so a human and claude are constrained.
+
 - **Empty leftover directories from the repo split.** `mootmaker-demo-data/database-reset/` and
   `mootmaker-demo-data/database-repair/` exist on this workstation with zero files and zero git
   entries. Harmless, but they make it look as though those tools live in both repos.
+  Geoff: clean up left overs likes this, it's ok to delete empty directory locally.
 - **No home for pre-design ideas until now.** The issue board's Backlog holds concrete issues and
   `designs/` starts at `Drafting`; there was no place for a thought that is not yet either. This
   file is that place, which means [`../docs/process/`](process/) does not describe it yet.
+  Geoff: lets keep trying this and come up with a formalised process after we have leant what works and what does not a little more.
 - **The acceptance suite must run against a fresh environment, and nothing said so.** Re-running it
   against a reused one produced ten failures that all read as real regressions (empty state, room
   ranking, calendar contents) and none were. Now documented in
@@ -107,8 +126,10 @@ issue rather than a design, but they are recorded here so they are not lost.
   asking whether the suite could *detect* a dirty environment and say so — a preflight check on
   `00-room-availability-empty`'s own precondition would have turned ten misleading failures into
   one accurate message.
+  Geoff: what counts as dirty?  Would running the database reset Lambda before running acceptance tools be enough?  Remember we have data in Cognito as well.  Maybe reset should clean up the user pool (and insert the required default users)?
 - **E.35 looks flaky.** It failed once (room not appearing after creation) and then passed on every
   subsequent run, including two clean full runs. Not reproduced since. **C:** worth watching rather
   than chasing — but note the catalog already flags F.53/F.54/F.57 as intermittently failing, so
   this may be a fourth instance of one underlying cause rather than its own thing. If a pattern
   emerges across those four, that is a real issue rather than a set of separate flakes.
+  Geoff: raise it as an issue now.
