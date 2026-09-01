@@ -168,7 +168,18 @@ implementation started, precisely because implementation would then run unattend
 
 ## Impacts on components
 
-All in `mootmaker-webapp` unless noted. Exactly five page files touch a date/time today (confirmed
+All in `mootmaker-webapp` unless noted.
+
+**A caveat this list earned the hard way:** it was built by grepping for existing
+`formatLocalTime`/`formatLocalDate` call sites, which finds every place a *meeting's* date or time
+is rendered — and misses every place a time is rendered from something else. Room Availability's
+hour axis and its "Showing business hours" caption both format a plain hour out of the
+business-hours constants, so neither matched the grep, and both shipped in the wrong format until
+Geoff noticed. The rule the list should have been built on is *any time shown to a human*,
+regardless of where its digits came from. A sweep on 2026-09-01 for the remaining cases found no
+others (see the note on deliberate exclusions below).
+
+Exactly five page files touch a date/time today (confirmed
 by grepping for `formatLocalTime`/`formatLocalDate`/`DatePicker`/`TimePicker`/
 `toLocaleDateString`/`Intl.DateTimeFormat`/raw `new Date(...)` across `pages/*.tsx` and
 `components/*.tsx` — nothing else does):
@@ -178,7 +189,11 @@ by grepping for `formatLocalTime`/`formatLocalDate`/`DatePicker`/`TimePicker`/
   a lookup table mapping enum values to dayjs format strings.
 - **`webapp/src/pages/HomePage.tsx`** — `formatLocalTime` for each agenda row's start–end range.
 - **`webapp/src/pages/RoomAvailabilityPage.tsx`** — the day-navigation `DatePicker` (see open
-  question above) and `formatLocalTime` for each meeting block's tooltip range.
+  question above), `formatLocalTime` for each meeting block's tooltip range, and — added
+  2026-09-01, after Geoff spotted them — the grid's **hour-axis labels** and its **"Showing
+  business hours" caption**. Both render a whole hour taken from the business-hours constants
+  rather than from any meeting, via a new `formatHourOfDay` sharing its implementation with
+  `formatLocalTime` so an axis label and a meeting starting on that hour cannot disagree.
 - **`webapp/src/pages/PersonCalendarPage.tsx`** — `formatLocalTime` for each meeting row's range.
 - **`webapp/src/pages/MeetingDetailsPage.tsx`** — `formatLocalDate` for the "Date" row,
   `formatLocalTime` for the "Time" row's range.
@@ -199,6 +214,14 @@ by grepping for `formatLocalTime`/`formatLocalDate`/`DatePicker`/`TimePicker`/
   Technical considerations). Likely
   still a full-item `PutItem` under the hood (same pattern `UpdatePersonHandler` already uses), just
   behind a new, narrower resolver rather than `UpdatePersonHandler` itself.
+**Deliberately excluded, confirmed by a sweep on 2026-09-01.** `PersonCalendarPage`'s week-range
+(`D MMM` – `D MMM YYYY`) and day-cell (`D MMM`) labels stay word-based, on the same reasoning as
+the day-navigation `DatePicker`: they are navigation aids, not the record of when a meeting is, and
+"5 Jan" has no USA/British/ISO ordering to respect. Route parameters
+(`/rooms/2026-07-01/availability`, built by `MenuContent`) and `AddMeetingPage`'s ISO submission
+string are addresses and wire format respectively, never displays, and must stay ISO regardless of
+anyone's preference.
+
 - **`mootmaker-demo-data/sample-data-generator`** — creates people via `createPerson`, which is
   untouched by this design (guest Persons never sign in, so never need a preferences mutation) — no
   changes needed here.
