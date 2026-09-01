@@ -66,6 +66,26 @@ coupling entirely; the second keeps admin tooling out of the product repo but le
 that must be released together. I lean to the first for reset specifically — it is infrastructure
 for the API's own data, not a general admin tool.
 
+### Decided 2026-09-01
+
+- **Demo scale.** Reset stays synchronous, no batching, no paging, no completion signalling.
+  Revisit only if data volume ever stops being demo-shaped.
+- **Reset and repair move into `mootmaker-api`.** Not merely deployed by its Terraform — the code
+  moves. This removes the cross-repo release coupling entirely, and has a second effect worth
+  noticing: it merges the two duplicate `Person.java` models (see the storage-model note below).
+- **Wiping the Cognito user pool becomes part of reset**, contrary to my recommendation of keeping
+  it separate. Geoff's call, and the payoff is real — one operation makes an environment
+  genuinely indistinguishable from a fresh deploy, which is what lets the acceptance suite reuse
+  an environment. Since it is now reachable casually, the guard has to be load-bearing rather than
+  advisory. Minimum bar for the design:
+  - **Refuse `production` outright**, the way `deploy.sh` already refuses anything starting with
+    `prod` that is not exactly `production`. A check that can be passed by argument alone is not
+    enough; this should be structurally impossible, not merely discouraged.
+  - **Reinstate the default users** as part of the same operation, or the environment is not
+    "fresh" but broken: the demo user, and the e2e user which deliberately has *no* linked Person
+    because several specs depend on that. Their passwords need a reproducible source.
+  - **Say what it deleted.** A silent pool wipe is the worst version of this.
+
 ---
 
 ## Merge sample-data-generator and sample-data-topup into one Lambda
@@ -157,6 +177,23 @@ scheduler claims to enforce, so the test is meaningful rather than a restatement
 **Q3:** is there any environment where you would *not* want the demo tooling deployed? If the
 answer is none, that settles the flag question immediately.
 
+### Decided 2026-09-01
+
+**The flag stays; teardown gets fixed properly.** Also contrary to my recommendation — I argued
+the flag manufactures the detection problem, Geoff kept it and asked for the underlying bug fixed
+instead. That is the more thorough answer: discovery-based teardown is worth having regardless,
+because the current failure mode is silent. Today's teardown removed api and webapp state and left
+`database-reset` and `sample-data-generator` state orphaned in S3, reporting success throughout.
+
+What the design needs to specify:
+- **Teardown discovers components** by listing the environment's state prefix, rather than
+  iterating a hardcoded list of two. Then a component nobody remembered is still torn down.
+- **`list-ephemeral-envs.sh` already does this correctly** — it found all four components today,
+  including the two the teardown script does not know about. So the discovery logic exists and
+  just needs to be the thing teardown drives from.
+- **An environment is only "gone" when its state prefix is empty.** That is the check worth
+  asserting at the end, rather than trusting that the right scripts were called.
+
 ---
 
 ** graphql sharing **
@@ -213,6 +250,39 @@ duplication is served by a shared utility library and a `mvn install` workflow, 
 contract means versioned releases, compatibility rules, and accepting that a version bump is
 sometimes a multi-repo change. The second is more work and buys real safety once Android exists.
 
+### Decided 2026-09-01 — and one factual correction
+
+**The storage-model library is dropped.** The premise did not survive checking: `mootmaker-demo-data`
+uses DynamoDB in **zero** Java files. It writes exclusively through the GraphQL API
+(`createPerson`, `createRoom`, `createMeeting`, authenticated with OAuth2 client credentials), so
+it consumes the *API* model, not the storage model. The real duplicate `Person.java` is between
+`mootmaker-api` and `mootmaker-admin-tools/database-repair` — and moving reset and repair into
+`mootmaker-api` (decided above) merges those two into one file in one repo.
+
+So there is no second consumer left, and therefore nothing to share, version, or give a repo to.
+The name `mootmaker-data-contract` is parked rather than needed.
+
+**Worth keeping in view:** demo-data going through the API is a feature, not an accident — it means
+generated demo data is proof the API's own validation accepts it. Moving demo-data to direct
+DynamoDB writes would be faster and would let it construct states the API rejects, but it would
+also let it generate data the API would never have allowed. If that trade is ever made, the
+storage-model library comes straight back.
+
+**The GraphQL half is already designed.** [`../designs/graphql-schema-sharing.md`](../designs/graphql-schema-sharing.md)
+(Drafting, 2026-08-29) settles the distribution mechanism — GitHub Packages, hosting npm and Maven
+from one account, chosen over versioned S3 objects, Release assets and a schema registry — and
+decides to publish the raw `.graphql` file rather than generated types **for a first version**.
+My "publish the schema, let each client generate" suggestion is its **NB-1**, deliberately left
+open pending evidence of how painful the hand-maintained mirror is with a raw-schema artifact in
+place. This feature is that evidence: adding two fields meant editing the schema, the Java model
+*and* the TypeScript mirror by hand, with only discipline keeping them aligned.
+
+Its **NB-3** (semver versus commit SHA) is the versioning question raised here, also left open
+pending real consumers. Two notes for whoever picks it up: the design assumes the CI/CD pipeline
+design lands first, since publishing is a pipeline step; and this feature's non-null
+`dateFormat`/`timeFormat` would have been a major bump under semver, which is a useful test that
+the classification rules are drawn in the right place.
+
 *Found it, so Q5 withdrawn:* [`../designs/graphql-schema-sharing.md`](../designs/graphql-schema-sharing.md)
 (Status `Drafting`, 2026-08-29). Worth reading before either half of this becomes its own design —
 if it already settles the publishing question, the storage-model half may just need to follow the
@@ -247,6 +317,10 @@ Geoff: suggest a changes, I want consistancy imposed, both in linting if possibl
 
   **Q6:** hook, CI, or both? A hook is the one that actually constrains Claude, since I commit
   from this machine; CI is the one that constrains anything else.
+
+  **Decided 2026-09-01: both.** Pre-commit hook for instant feedback and to constrain Claude
+  directly, CI as the backstop that `--no-verify` cannot bypass. Note the hook needs an install
+  step that a fresh clone actually runs, or it silently protects nobody.
 
 - **Empty leftover directories from the repo split.** `mootmaker-demo-data/database-reset/` and
   `mootmaker-demo-data/database-repair/` exist on this workstation with zero files and zero git
