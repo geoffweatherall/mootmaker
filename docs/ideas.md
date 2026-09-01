@@ -16,25 +16,30 @@ something more confident than it was.
 
 *Raised 2026-08-31. Not yet explored.*
 
-The general shape: how `mootmaker-admin-tools` and `mootmaker-demo-data` are packaged, deployed
-and versioned.
+**Superseded 2026-09-02** by [`../designs/admin-tools-into-api.md`](../designs/admin-tools-into-api.md)
+for everything below about `database-reset`/`database-repair` specifically — struck through rather
+than deleted, since the design doesn't cover the `mootmaker-demo-data` packaging/versioning question
+this entry was originally raised for. That half stays live.
 
-**C:** One concrete thing to design around, found while confirming how reset/repair run:
+~~The general shape: how `mootmaker-admin-tools` and `mootmaker-demo-data` are packaged, deployed
+and versioned.~~
+
+~~**C:** One concrete thing to design around, found while confirming how reset/repair run:
 `mootmaker-demo-data`'s sample-data-generator invokes the `database-reset` Lambda *directly*
 (`DatabaseResetInvoker`, AWS SDK, IAM auth), and that Lambda is owned and deployed by
 `mootmaker-admin-tools`. So there is a live cross-repo runtime dependency, coupled by a function
 name convention (`<env>-mootmaker-database-reset`) that is written out separately in a Java class,
 a shell script and a Terraform config. Whatever packaging story gets chosen has to say something
-about that, because it constrains how independently the two repos can be released.
+about that, because it constrains how independently the two repos can be released.~~
 
-**Geoff Response**
-i want to move the database reset function and database repair to be lambdas that are deployed as part of the api.  They will only ever be invoked via a lambda invoke, so IAM credentials protect them from missuse.  These tools have migrated from being run on a workstation with cognitio credentials to their current state, and so things like the scripts to support them authenticate.
+~~**Geoff Response**
+i want to move the database reset function and database repair to be lambdas that are deployed as part of the api.  They will only ever be invoked via a lambda invoke, so IAM credentials protect them from missuse.  These tools have migrated from being run on a workstation with cognitio credentials to their current state, and so things like the scripts to support them authenticate.~~
 
-I also want to configure them on deployment to find the resources they need via lambda environment variables.  I don't see any need for terraform output to use used for this (I think this is historic left over from when this was an api call).  So now anyone who wants to reset a database (either an acceptance test or Claude while developing) just invoke the lambda.  Consider the costs and benefits of making this a sync or async process.
+~~I also want to configure them on deployment to find the resources they need via lambda environment variables.  I don't see any need for terraform output to use used for this (I think this is historic left over from when this was an api call).  So now anyone who wants to reset a database (either an acceptance test or Claude while developing) just invoke the lambda.  Consider the costs and benefits of making this a sync or async process.~~
 
-**C:** Agreed on all of it, with one correction and one real trade-off.
+~~**C:** Agreed on all of it, with one correction and one real trade-off.~~
 
-*The correction:* the Lambdas already read their tables from their own environment variables —
+~~*The correction:* the Lambdas already read their tables from their own environment variables —
 `database-reset/run.sh` says so explicitly, and sources `authenticate.sh` only for `AWS_REGION`.
 The terraform-output dependency you are remembering lives in the *scripts around* them (the
 acceptance suite and sample-data-generator resolving `GRAPHQL_API_URL`, Cognito ids and so on),
@@ -42,49 +47,49 @@ not in the Lambdas. So this part is mostly already where you want it; what movin
 API deployment actually buys is that **every environment that has an API automatically has a
 reset**, which removes the deploy-order coupling that bit us today: seeding this session's
 environment meant deploying `mootmaker-admin-tools/database-reset` first, purely because
-`sample-data-generator` invokes it.
+`sample-data-generator` invokes it.~~
 
-*Sync vs async.* Recommend **synchronous**, and I think it is close to clear-cut:
+~~*Sync vs async.* Recommend **synchronous**, and I think it is close to clear-cut:~~
 
-- Every caller needs to know reset *finished* before doing anything else — an acceptance run
+- ~~Every caller needs to know reset *finished* before doing anything else — an acceptance run
   seeding data, or a developer repopulating. Async turns that into a completion-signalling
-  problem (poll a status, or a second "is it done" call) invented to solve nothing.
-- The current run takes seconds at demo scale. The 15-minute Lambda ceiling is the only real
-  argument for async, and it is nowhere near.
-- Sync keeps errors attached to the invocation. Async means a failed reset is discovered later,
-  by something else, with no obvious owner.
+  problem (poll a status, or a second "is it done" call) invented to solve nothing.~~
+- ~~The current run takes seconds at demo scale. The 15-minute Lambda ceiling is the only real
+  argument for async, and it is nowhere near.~~
+- ~~Sync keeps errors attached to the invocation. Async means a failed reset is discovered later,
+  by something else, with no obvious owner.~~
 
-Async only earns its place if reset ever has to handle production-scale data. Which raises:
+~~Async only earns its place if reset ever has to handle production-scale data. Which raises:~~
 
-**Q1:** is reset only ever expected to run against demo-scale data (hundreds of meetings), or
+~~**Q1:** is reset only ever expected to run against demo-scale data (hundreds of meetings), or
 should it be designed for a production table that has grown large? That single answer decides
-sync vs async, and whether it needs paging/batching at all.
+sync vs async, and whether it needs paging/batching at all.~~
 
-**Q2:** does "deployed as part of the api" mean *in the mootmaker-api repo*, or deployed by the
+~~**Q2:** does "deployed as part of the api" mean *in the mootmaker-api repo*, or deployed by the
 api's Terraform while living in `mootmaker-admin-tools`? The first removes the cross-repo
 coupling entirely; the second keeps admin tooling out of the product repo but leaves two repos
 that must be released together. I lean to the first for reset specifically — it is infrastructure
-for the API's own data, not a general admin tool.
+for the API's own data, not a general admin tool.~~
 
 ### Decided 2026-09-01
 
-- **Demo scale.** Reset stays synchronous, no batching, no paging, no completion signalling.
-  Revisit only if data volume ever stops being demo-shaped.
-- **Reset and repair move into `mootmaker-api`.** Not merely deployed by its Terraform — the code
+~~- **Demo scale.** Reset stays synchronous, no batching, no paging, no completion signalling.
+  Revisit only if data volume ever stops being demo-shaped.~~
+~~- **Reset and repair move into `mootmaker-api`.** Not merely deployed by its Terraform — the code
   moves. This removes the cross-repo release coupling entirely, and has a second effect worth
-  noticing: it merges the two duplicate `Person.java` models (see the storage-model note below).
-- **Wiping the Cognito user pool becomes part of reset**, contrary to my recommendation of keeping
+  noticing: it merges the two duplicate `Person.java` models (see the storage-model note below).~~
+~~- **Wiping the Cognito user pool becomes part of reset**, contrary to my recommendation of keeping
   it separate. Geoff's call, and the payoff is real — one operation makes an environment
   genuinely indistinguishable from a fresh deploy, which is what lets the acceptance suite reuse
   an environment. Since it is now reachable casually, the guard has to be load-bearing rather than
-  advisory. Minimum bar for the design:
-  - **Refuse `production` outright**, the way `deploy.sh` already refuses anything starting with
+  advisory. Minimum bar for the design:~~
+  - ~~**Refuse `production` outright**, the way `deploy.sh` already refuses anything starting with
     `prod` that is not exactly `production`. A check that can be passed by argument alone is not
-    enough; this should be structurally impossible, not merely discouraged.
-  - **Reinstate the default users** as part of the same operation, or the environment is not
+    enough; this should be structurally impossible, not merely discouraged.~~
+  - ~~**Reinstate the default users** as part of the same operation, or the environment is not
     "fresh" but broken: the demo user, and the e2e user which deliberately has *no* linked Person
-    because several specs depend on that. Their passwords need a reproducible source.
-  - **Say what it deleted.** A silent pool wipe is the worst version of this.
+    because several specs depend on that. Their passwords need a reproducible source.~~
+  - ~~**Say what it deleted.** A silent pool wipe is the worst version of this.~~
 
 ---
 
@@ -355,19 +360,27 @@ Geoff: suggest a changes, I want consistancy imposed, both in linting if possibl
 
   So yes: reset cleaning the user pool and reinserting the defaults would close it. Three things
   that need deciding if you go there:
-  - **A hard production guard.** Deleting Cognito users is the most destructive thing in this
+  - ~~**A hard production guard.** Deleting Cognito users is the most destructive thing in this
     codebase. Reset currently protects Cognito-linked Persons precisely because they represent
     real people. Wiping the pool must be impossible against `production`, not merely discouraged.
-    Arguably it should be a separate operation from reset, so nobody can reach it by accident.
-  - **What "required default users" means** — the demo user certainly, the e2e user (which
+    Arguably it should be a separate operation from reset, so nobody can reach it by accident.~~
+    **Settled by [`../designs/admin-tools-into-api.md`](../designs/admin-tools-into-api.md):** the
+    guard is structural (a Terraform-computed env var, not a runtime check), and pool-wiping stays
+    *part of* reset rather than a separate operation — see Q7 below.
+  - ~~**What "required default users" means** — the demo user certainly, the e2e user (which
     deliberately has *no* linked Person, and several specs depend on that), and their passwords
-    have to come from somewhere reproducible.
+    have to come from somewhere reproducible.~~ **Settled, differently than framed here:** the design
+    doesn't reinstate/recreate the default users at all — it never deletes them in the first place
+    (preserved by email, alongside every other non-reserved user being removed), which sidesteps the
+    password-reproducibility problem entirely rather than solving it.
   - **Whether the suite should verify cleanliness rather than assume it.** Even with a good reset,
     a preflight assertion would have turned today's ten misleading failures into one accurate
-    message. That is worth having regardless of how the environment got clean.
+    message. That is worth having regardless of how the environment got clean. *Still open — not
+    covered by the design above, which only makes reset itself Cognito-aware.*
 
-  **Q7:** should pool-wiping be part of `reset`, or its own operation that reset does not call?
-  I lean to separate: reset is run casually, and this is the one action with no undo.
+  ~~**Q7:** should pool-wiping be part of `reset`, or its own operation that reset does not call?
+  I lean to separate: reset is run casually, and this is the one action with no undo.~~ **Decided
+  (both here on 2026-09-01 and again in the design): part of `reset`.**
 - **E.35 looks flaky.** It failed once (room not appearing after creation) and then passed on every
   subsequent run, including two clean full runs. Not reproduced since. **C:** worth watching rather
   than chasing — but note the catalog already flags F.53/F.54/F.57 as intermittently failing, so
@@ -404,8 +417,10 @@ time to find out. Several belong in a repository's own docs eventually; where th
   access token programmatically without implementing SRP** (or using `amazon-cognito-identity-js`,
   which does). This is why seeding a preset account on 2026-09-01 set its preference by writing to
   DynamoDB directly rather than by calling the mutation. Any future tooling that wants to act *as a
-  user* rather than as the machine hits this wall. Worth remembering when designing reset's
-  "reinstate the default users" step.
+  user* rather than as the machine hits this wall. ~~Worth remembering when designing reset's
+  "reinstate the default users" step.~~ Turned out not to matter there —
+  [`../designs/admin-tools-into-api.md`](../designs/admin-tools-into-api.md) has reset *preserve*
+  the demo/e2e accounts rather than delete-and-recreate them, so this constraint is never hit.
 
 - **Business hours (08:00–17:00) are exactly the range sample-data fills**, so in a populated
   environment **no time slot is free by construction**. `MeetingScheduler` uses
