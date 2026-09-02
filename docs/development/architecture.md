@@ -70,11 +70,17 @@ This is why `mootmaker-api` must be a sibling checkout, and why it must be deplo
 
 ## Contract between API and frontends
 
-`mootmaker-api/api/mootmaker.graphql` is the source of truth for the schema.
-`mootmaker-webapp/webapp/src/graphql/types.ts` is a **hand-maintained mirror** of it.
+`mootmaker-api/api/mootmaker.graphql` is the source of truth for the schema, and is published as
+`@mootmaker/schema` (npmjs.com) and `com.mootmaker:mootmaker-schema` (GitHub Packages) whenever it
+changes on `main`.
 
-Nothing prevents those drifting, and `mootmaker-android` will need the same schema a third time.
-Sharing it as a versioned artifact is designed but not built — see
+`mootmaker-webapp` **generates** its types and operations from it (`npm run codegen`), reading the
+sibling `mootmaker-api` checkout locally and the published package in CI — so a field that no longer
+exists is a compile error rather than a runtime surprise. Its deploy additionally refuses to ship
+against an API that does not serve the schema the build expects, since the two deploy independently.
+
+`mootmaker-demo-data` and `mootmaker-api/verify` still build GraphQL operations as hand-written
+strings; converting them is deliberately later work. See
 `../../designs/graphql-schema-sharing.md`.
 
 Error handling follows a deliberate pattern: the GraphQL schema defines an error enum per entity

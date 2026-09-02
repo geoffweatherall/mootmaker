@@ -9,7 +9,11 @@ that they agree, and `mootmaker-android` will need the same schema a third time.
 proposes publishing the schema as a versioned artifact — npm via npmjs.com, Maven via GitHub
 Packages — so every consumer reads one file instead of re-typing it.
 
-**Status:** Drafting — 2026-08-29
+**Status:** Building — 2026-09-02
+
+*(Promoted straight from `Drafting` to `Building` on Geoff's instruction to implement. The `Ready`
+stamp was never applied — noted rather than glossed over, since `Ready` is the one human-gated
+transition in the lifecycle. Every blocking question had already been answered on 2026-09-02.)*
 
 ---
 
