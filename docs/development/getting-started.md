@@ -51,15 +51,19 @@ cd mootmaker-api      && ./deploy.sh geoff-260829-a1b2
 cd ../mootmaker-webapp && ./deploy.sh geoff-260829-a1b2   # prints a site URL
 ```
 
-Optionally add the demo-data tools, then seed it with realistic data. `database-reset` is part of
-`mootmaker-api`'s own deployment (the first command above already deployed it), so
-`sample-data-generator` — which invokes it Lambda-to-Lambda as the first step of every run — needs
-no separate step for that:
+Optionally add demo data. Deploying it does not populate anything — the Lambda only runs when
+invoked — so seeding is a second, deliberate step:
 
 ```bash
-cd ../mootmaker-demo-data && ./deploy-all.sh geoff-260829-a1b2
-./sample-data-generator/run.sh geoff-260829-a1b2
+cd ../mootmaker-demo-data && ./deploy.sh geoff-260829-a1b2
+aws lambda invoke --function-name geoff-260829-a1b2-mootmaker-demo-data \
+  --cli-read-timeout 900 --payload '{}' /dev/stdout
 ```
+
+`--cli-read-timeout 900` matters: the function's ceiling is 900 seconds and the CLI defaults to 60,
+so without it a full seed is reported to you as a failure while the Lambda finishes regardless.
+
+(`create-ephemeral-env.sh claude --with-demo-data` does all of the above in one command.)
 
 **Tear it down when you are done. This is not optional** — see
 [`../process/environments.md`](../process/environments.md).
@@ -68,9 +72,9 @@ cd ../mootmaker-demo-data && ./deploy-all.sh geoff-260829-a1b2
 cd ../mootmaker-test-infra && ./teardown-ephemeral-env.sh geoff-260829-a1b2
 ```
 
-Note the known gap: that script removes the webapp and API only (which also removes
-`database-reset`/`database-repair`, since they're part of the API's own Terraform). If you deployed
-the demo-data tools, undeploy them first: `mootmaker-demo-data/undeploy-all.sh`.
+That script discovers what is actually deployed from the environment's Terraform state prefix, so
+it tears down demo-data too if you deployed it, and refuses to finish quietly if anything is left
+behind.
 
 ## 5. Run the tests
 

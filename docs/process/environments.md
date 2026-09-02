@@ -9,7 +9,7 @@ This replaced an earlier model that also had a standing `test` environment, reti
 The public demo at [www.mootmaker.com](https://www.mootmaker.com). The only long-lived environment.
 
 It is a demo, not a business: sign-in details for a shared account are published on the home page,
-the password policy is deliberately loose, and the data is disposable — `sample-data-topup` refills
+the password policy is deliberately loose, and the data is disposable — `mootmaker-demo-data` refills
 it weekly on a schedule. Shipping something imperfect here is cheap, which is the point.
 
 It is still the thing a prospective employer will look at, so it should work.
@@ -45,17 +45,22 @@ or not anyone remembers what it was for. Nothing enforces this yet; a scheduled 
 requirement handed to the CI/CD design.
 
 ```bash
+mootmaker-test-infra/create-ephemeral-env.sh claude [--with-demo-data]
 mootmaker-test-infra/teardown-ephemeral-env.sh <name>
 mootmaker-test-infra/cleanup-stale-envs.sh          # find what has been left behind
 ```
 
-**Known gap — `teardown-ephemeral-env.sh` does not tear down everything.** It undeploys
-`mootmaker-webapp` and `mootmaker-api` only, and deliberately removes only those two state objects.
-Its caution is correct: deleting a state object it did not itself destroy would orphan live
-infrastructure with nothing tracking it. But the consequence is that **an environment with tools
-deployed is not fully torn down by the script named "tear down this environment"** — the tools must
-be undeployed separately first, and their emptied state objects removed by hand. Tracked as an issue
-in `mootmaker-test-infra`.
+`--with-demo-data` also deploys `mootmaker-demo-data` and seeds the environment with it. It is
+opt-in here and always-on in `production`: demo is a core part of MootMaker, but most ephemeral work
+does not need ~500 generated meetings. Teardown needs no matching flag — it discovers what is there.
+
+`teardown-ephemeral-env.sh` **discovers** what is deployed by listing the environment's own state
+prefix in S3, rather than assuming a fixed set of components, and asserts at the end that the prefix
+is empty. A component it does not recognise stops it, loudly, rather than being silently skipped —
+carrying on would delete the state it does know about while leaving real infrastructure running with
+nothing tracking it. (Until 2026-09-02 it knew only about `mootmaker-webapp` and `mootmaker-api`, so
+an environment with demo tooling deployed was not fully torn down by the script named "tear down
+this environment", and said so nowhere.)
 
 After any teardown, verify against live AWS rather than trusting the script's exit code:
 

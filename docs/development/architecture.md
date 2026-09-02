@@ -89,8 +89,8 @@ Adding a case means changing both in step.
 4. `mootmaker-api` — per environment, first; its own Terraform includes `database-reset`, so nothing
    further needs deploying before the next step depends on it
 5. `mootmaker-webapp` — per environment, reads the API's outputs
-6. `mootmaker-demo-data` — per environment; `sample-data-generator` invokes `database-reset`
-   Lambda-to-Lambda as the first step of every run, so step 4 must already exist
+6. `mootmaker-demo-data` — per environment, optional outside `production`; reads its credentials
+   from SSM parameters created by step 4, so that must already exist
 
 ## Testing layers
 

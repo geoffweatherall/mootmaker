@@ -40,7 +40,7 @@ back here rather than duplicating it; this file gets updated once a design ships
   OAuth2 `client_credentials` flow only, scoped to two custom resource-server scopes (`execute`,
   `admin` — via `aws_cognito_resource_server.api`). No Cognito user or JWT `sub` involved at all;
   used by `mootmaker-api/verify`'s own acceptance tests and other machine-to-machine tooling
-  (`sample-data-generator`). `Identity.hasAdminScope` checks the `admin` scope the same way
+  (`mootmaker-demo-data`). `Identity.hasAdminScope` checks the `admin` scope the same way
   `Identity.isAdmin` checks `custom:class`.
 - A hosted domain (`aws_cognito_user_pool_domain.this`) exists only to expose the OAuth2 token
   endpoint the client_credentials flow needs.

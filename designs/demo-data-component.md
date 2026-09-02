@@ -13,8 +13,8 @@ satisfy rather than exact values.
 
 ## Status
 
-**Ready** — 2026-09-02. Promoted by Geoff after the open questions were answered; no
-blocking questions remain.
+**Building** — 2026-09-02. Promoted to Ready by Geoff (no blocking questions remain), and an
+implementation session picked it up the same day.
 
 ## Scope / non-goals
 
@@ -259,6 +259,19 @@ See [`../docs/reference/data-model.md`](../docs/reference/data-model.md) for the
 
 ## Technical considerations
 
+- **The account guardrails had to be widened first — this was not foreseen.** Neither `ssm` nor
+  `kms` was on the service allowlist shared by `scp-guardrails.yaml` and `identity-center.yaml` in
+  `mootmaker-bootstrap-aws-accounts`, so the very first `mootmaker-api` deploy under this design
+  failed with `AccessDeniedException` on `ssm:PutParameter`. Both templates now grant the parameter
+  and tag actions Terraform needs, plus `kms:Encrypt`/`Decrypt`/`DescribeKey` for SecureString
+  against the AWS-managed key — narrower than the `service:*` style used for every other entry,
+  because `ssm:*` would also grant Session Manager and Run Command, and `kms:*` would allow
+  `kms:CreateKey` and its standing $1/month charge. **Those two CloudFormation stacks must be
+  deployed in the management account before any environment can be stood up under this design.**
+  The alternative considered at the time — having demo-data read its own client secret straight from
+  Cognito via `DescribeUserPoolClient`, since `cognito-idp:*` was already allowed — would have needed
+  no guardrail change at all; Geoff chose to widen the guardrails instead, on the grounds that SSM
+  should be available to this account anyway.
 - **Fetch the M2M token once per run, not per request.** Cognito M2M token requests are billed with
   no free tier (see below). One token per run is ~$0.81/year; one per GraphQL call would be ~600×
   that on a seed run. `GraphQlClient.fromEnvironment()` already gets this right — the merged class
@@ -347,6 +360,9 @@ unaffected — it uses its own app client, and this design stops demo-data borro
 
 No data migration and no transition state — this replaces tooling, not stored data.
 
+0. **Deploy the two guardrail stacks first** (`scp-guardrails`, `identity-center`, both in the
+   management account). Nothing else in this list can work until they are applied — see "Technical
+   considerations".
 1. **Ephemeral first.** Stand up an environment, deploy api + demo-data from the feature branches,
    run the new acceptance suite. This is the real test of the merge, the new app client and the SSM
    secret path together.
@@ -382,7 +398,9 @@ only after the new component is confirmed working.
 
 *(Sparse while Drafting — filled in properly before Ready, per the process.)*
 
-1. `[Claude]` `mootmaker-api`: add the `demo-data` app client and the two SSM SecureString
+0. `[Geoff]` Deploy the `scp-guardrails` and `identity-center` CloudFormation stacks in the
+   management account, granting the ssm/kms actions. Blocks everything below.
+1. `[Claude]` `mootmaker-api`: add the `demo-data` app client and the SSM SecureString
    parameters; deploy to an ephemeral environment and confirm the parameters resolve.
 2. `[Claude]` `mootmaker-demo-data`: restructure to the api-mirroring layout; merge the two impls
    into one, deduplicating `GraphQlClient`/`MeetingScheduler`/`SampleData`; delete the reset path.
