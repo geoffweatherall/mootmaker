@@ -13,7 +13,7 @@ so a reset environment is genuinely indistinguishable from a freshly deployed on
 
 ## Status
 
-**Drafting** — 2026-09-02.
+**Ready** — 2026-09-02.
 
 ## Scope / non-goals
 
