@@ -30,7 +30,7 @@ Security and privacy live here too, rather than in a hat of their own.
 | DNS and mail identity | `mootmaker-domain` |
 | Environment lifecycle scripts | `mootmaker-test-infra` |
 | Demo-data tooling | `mootmaker-demo-data` |
-| Admin tooling (destructive) | `mootmaker-admin-tools` |
+| Admin tooling (destructive) | `mootmaker-api` (`database-reset`/`database-repair` Lambdas) |
 | Privacy policy | [`../showcase/privacy-policy-draft.md`](../showcase/privacy-policy-draft.md) |
 
 ## Starting a session in this role

@@ -31,9 +31,9 @@ public repositories.
 
 ### Non-goals
 
-- **Deploying `mootmaker-tools`' successors, `mootmaker-domain`, or the bootstrap repos through this
-  pipeline in its first version.** `mootmaker-demo-data`/`mootmaker-admin-tools` could follow the
-  same pattern once `mootmaker-api`/`mootmaker-webapp` prove it out; `mootmaker-domain` and the
+- **Deploying `mootmaker-tools`' successor, `mootmaker-domain`, or the bootstrap repos through this
+  pipeline in its first version.** `mootmaker-demo-data` could follow the same pattern once
+  `mootmaker-api`/`mootmaker-webapp` prove it out; `mootmaker-domain` and the
   bootstrap repos deploy rarely enough that automating them is low value. Named as a likely fast
   follow, not built here.
 - **Ephemeral-environment-per-PR.** Attractive (see NB-4 in the reorganisation design) but a real
@@ -123,7 +123,7 @@ way that issue describes (silently leaving tool state behind while reporting suc
 
 ## Choices you had me make
 
-1. **Named `mootmaker-demo-data`/`mootmaker-admin-tools`, `mootmaker-domain`, and the bootstrap
+1. **Named `mootmaker-demo-data`, `mootmaker-domain`, and the bootstrap
    repos as a deliberate non-goal for v1**, rather than trying to cover every deployable repo at
    once. Flagged as a likely fast follow rather than scoped in, to keep this design reviewable.
 2. **Chose "redeploy the previous commit" as the rollback mechanism** over a more elaborate

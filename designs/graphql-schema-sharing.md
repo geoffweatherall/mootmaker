@@ -156,7 +156,6 @@ produced it) had missed:
 | `mootmaker-demo-data` (generator + topup) | Java | **8 hand-written GraphQL operation strings** | Maven |
 | `mootmaker-api/verify` | Java | 16+ operation strings across 8 acceptance-test classes | the local file — same repo |
 | `mootmaker-android` | Kotlin | does not exist yet | Maven |
-| `mootmaker-admin-tools` | Java | none — reaches DynamoDB directly | n/a |
 
 `mootmaker-demo-data` writes exclusively through the GraphQL API (it touches DynamoDB in zero Java
 files), building mutations like
