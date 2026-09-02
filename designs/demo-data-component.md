@@ -13,8 +13,8 @@ satisfy rather than exact values.
 
 ## Status
 
-**Ready** — 2026-09-02. Promoted by Geoff after the open questions were answered; no
-blocking questions remain.
+**Building** — 2026-09-02. Promoted to Ready by Geoff (no blocking questions remain), and an
+implementation session picked it up the same day.
 
 ## Scope / non-goals
 
