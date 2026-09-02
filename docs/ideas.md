@@ -95,7 +95,10 @@ for the API's own data, not a general admin tool.~~
 
 ## Merge sample-data-generator and sample-data-topup into one Lambda
 
-*Raised 2026-08-31.* **Now being designed** in [`../designs/archive/demo-data-component.md`](../designs/archive/demo-data-component.md) (Drafting, 2026-09-02) — the decisions recorded below are carried into it, so refine them there rather than here.
+*Raised 2026-08-31.* **Shipped 2026-09-02** as
+[`../designs/archive/demo-data-component.md`](../designs/archive/demo-data-component.md) — the
+decisions recorded below were carried into it and are now live in `production`. Kept for the
+record; nothing here is outstanding.
 
 One Lambda, run daily on a schedule or ad hoc, with logic to top up:
 
@@ -191,13 +194,16 @@ because the current failure mode is silent. Today's teardown removed api and web
 `database-reset` and `sample-data-generator` state orphaned in S3, reporting success throughout.
 
 What the design needs to specify:
-- **Teardown discovers components** by listing the environment's state prefix, rather than
-  iterating a hardcoded list of two. Then a component nobody remembered is still torn down.
-- **`list-ephemeral-envs.sh` already does this correctly** — it found all four components today,
-  including the two the teardown script does not know about. So the discovery logic exists and
-  just needs to be the thing teardown drives from.
-- **An environment is only "gone" when its state prefix is empty.** That is the check worth
-  asserting at the end, rather than trusting that the right scripts were called.
+- ~~**Teardown discovers components** by listing the environment's state prefix, rather than
+  iterating a hardcoded list of two.~~ **Done** — and a component it does not recognise now stops
+  it rather than being silently skipped.
+- ~~**`list-ephemeral-envs.sh` already does this correctly.**~~ That discovery logic is what
+  teardown now drives from.
+- ~~**An environment is only "gone" when its state prefix is empty.**~~ **Done** — asserted at the
+  end of every teardown, and it fails rather than warns.
+
+  All three shipped with `../designs/archive/demo-data-component.md`, closing
+  `mootmaker-test-infra#2`.
 
 ---
 
