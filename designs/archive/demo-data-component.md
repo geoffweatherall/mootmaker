@@ -13,8 +13,15 @@ satisfy rather than exact values.
 
 ## Status
 
-**Building** — 2026-09-02. Promoted to Ready by Geoff (no blocking questions remain), and an
-implementation session picked it up the same day.
+**Shipped** — 2026-09-02. Drafted, promoted to Ready, built, and deployed to `production` the
+same day. Production now runs one `production-mootmaker-demo-data` Lambda on a daily schedule; the
+two tools it replaces are undeployed and their Terraform state objects removed, leaving exactly
+three state prefixes in the production bucket — `mootmaker-api`, `mootmaker-webapp`,
+`mootmaker-demo-data`.
+
+Its first production invocation was a complete no-op (`0` people, rooms, weekdays and meetings),
+which is the idempotency guard proving itself against real data: production already satisfied every
+target, including the seven backfilled past days.
 
 ## Scope / non-goals
 
@@ -24,18 +31,18 @@ giving demo-data its own M2M app client and a secret-delivery mechanism that kee
 Terraform state and Lambda environment variables; adding a `verify/` acceptance suite; making
 demo-data the third component in `create-ephemeral-env.sh` (opt-in) and
 `teardown-ephemeral-env.sh` (discovery-driven, per the [2026-09-01 decision in
-`../docs/ideas.md`](../docs/ideas.md)).
+`../docs/ideas.md`](../../docs/ideas.md)).
 
 Explicitly **not** in scope:
 
 - **Reset, in any form.** Settled by Geoff on 2026-09-01: the merged tool will never reset the
   database. `DatabaseResetInvoker` and its test are deleted outright, not carried over. Clearing and
   repopulating an environment stays two deliberate manual steps — invoke `database-reset` (now in
-  `mootmaker-api`, see [`archive/admin-tools-into-api.md`](archive/admin-tools-into-api.md)), then
+  `mootmaker-api`, see [`archive/admin-tools-into-api.md`](admin-tools-into-api.md)), then
   invoke demo-data. This removes the single most dangerous property either tool has today: that
   `sample-data-generator/run.sh`, an innocuously-named script, destroys data as its first action.
 - **Moving deployment into pipelines.** Raised alongside this in `ideas.md` and worth doing, but it
-  is [`ci-cd-pipeline.md`](ci-cd-pipeline.md)'s problem. This design keeps scripts as the primitive
+  is [`ci-cd-pipeline.md`](../ci-cd-pipeline.md)'s problem. This design keeps scripts as the primitive
   so a pipeline can later call them — it does not pre-empt that decision.
 - **A shared Java library between demo-data and the api.** Dropped on 2026-09-01 after checking:
   demo-data touches DynamoDB in zero Java files. It writes exclusively through the GraphQL API, so
@@ -109,7 +116,7 @@ days never re-open once populated.
 ### Invocation and cadence
 
 **No `run.sh` wrapper** — the README documents `aws lambda invoke` directly, following the precedent
-[`archive/admin-tools-into-api.md`](archive/admin-tools-into-api.md) set when it retired its own
+[`archive/admin-tools-into-api.md`](admin-tools-into-api.md) set when it retired its own
 wrappers. Put to Geoff explicitly on 2026-09-02, since this tool gets run casually against ephemeral
 environments in a way the admin tools do not, and confirmed: one less script to keep in sync with the
 payload shape.
@@ -205,12 +212,12 @@ itself be half-torn-down. It can be enabled deliberately for a test.
 
 None — the one blocking question (what "top up people" counts against) was answered on 2026-09-02
 and is recorded under "Trade-offs and decisions" above. This design is build-from-able as it stands;
-promoting it to `Ready` is Geoff's call, per [`README.md`](README.md)'s lifecycle.
+promoting it to `Ready` is Geoff's call, per [`README.md`](../README.md)'s lifecycle.
 
 **Non-blocking**
 
 1. **Where does demo-data's acceptance suite run in a future pipeline?** It needs a deployed api, so
-   it cannot run on every push cheaply. Deferred to [`ci-cd-pipeline.md`](ci-cd-pipeline.md).
+   it cannot run on every push cheaply. Deferred to [`ci-cd-pipeline.md`](../ci-cd-pipeline.md).
 2. **Should the past-window depth be a deployment variable rather than a constant?** `DAYS_IN_PAST`
    is fixed at 7 for now, matching what `sample-data-generator` seeds today. If an ephemeral
    environment ever wants a different depth from `production`, promoting it to a Terraform variable
@@ -254,7 +261,7 @@ persisted thing is two SSM parameters, which are configuration, not domain data.
 
 Worth stating explicitly because it is load-bearing for the blocking open question above: this design
 **relies on** the existing property that `Person` has no publicly-exposed link to a Cognito account.
-See [`../docs/reference/data-model.md`](../docs/reference/data-model.md) for the storage-level
+See [`../docs/reference/data-model.md`](../../docs/reference/data-model.md) for the storage-level
 `cognitoSub` attribute that is deliberately not surfaced in the schema.
 
 ## Technical considerations
