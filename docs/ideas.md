@@ -95,7 +95,7 @@ for the API's own data, not a general admin tool.~~
 
 ## Merge sample-data-generator and sample-data-topup into one Lambda
 
-*Raised 2026-08-31.* **Now being designed** in [`../designs/demo-data-component.md`](../designs/demo-data-component.md) (Drafting, 2026-09-02) — the decisions recorded below are carried into it, so refine them there rather than here.
+*Raised 2026-08-31.* **Now being designed** in [`../designs/archive/demo-data-component.md`](../designs/archive/demo-data-component.md) (Drafting, 2026-09-02) — the decisions recorded below are carried into it, so refine them there rather than here.
 
 One Lambda, run daily on a schedule or ad hoc, with logic to top up:
 
