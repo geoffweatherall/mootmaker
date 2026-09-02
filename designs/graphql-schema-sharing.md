@@ -379,6 +379,15 @@ persisted data.
   provides to its own repository's workflows automatically) or a PAT with `read:packages` in
   `~/.m2/settings.xml` locally. Because the Maven consumers are all this project's own repositories,
   nobody outside the project ever needs a credential.
+- **Not every schema description reaches the generated TypeScript.** Measured 2026-09-03 against
+  the client preset: descriptions on **input-type fields** come through as JSDoc, but those on
+  **Query fields and output-object fields do not** — the preset generates operation result types
+  from selection sets, which are anonymous inline objects with nowhere to attach a field comment.
+  So schema documentation is worth writing for the schema's own sake (introspection, GraphQL
+  tooling, anyone reading the contract), but writing it expecting an editor tooltip in the webapp
+  will disappoint for two of the three cases. Surfacing them would mean emitting the full schema
+  types alongside the operation types, which is a larger output for a modest gain — not done, and
+  worth revisiting only if someone actually misses them.
 - **A cross-repository Maven consumer needs the package granted access to it.** A workflow's
   automatic `GITHUB_TOKEN` is scoped to its own repository, so `mootmaker-demo-data` reading a
   package published from `mootmaker-api` needs that repository added under the package's own access
