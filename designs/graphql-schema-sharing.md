@@ -388,10 +388,19 @@ persisted data.
   will disappoint for two of the three cases. Surfacing them would mean emitting the full schema
   types alongside the operation types, which is a larger output for a modest gain — not done, and
   worth revisiting only if someone actually misses them.
-- **A cross-repository Maven consumer needs the package granted access to it.** A workflow's
-  automatic `GITHUB_TOKEN` is scoped to its own repository, so `mootmaker-demo-data` reading a
-  package published from `mootmaker-api` needs that repository added under the package's own access
-  settings. Cheap, but invisible until it 404s.
+- **There is no per-repository access to grant on the Maven package — that was wrong when written,
+  corrected 2026-09-03.** The Apache Maven and Gradle registries are **repository-scoped**: a
+  package inherits the visibility and permissions of the repository it was published from and has no
+  settings of its own. Only the Container, npm, NuGet and RubyGems registries support the granular
+  per-package access control ("Manage Actions access") this bullet assumed existed — which is why
+  that option is simply absent from the package's settings page.
+
+  `mootmaker-api` is public, so `com.mootmaker:mootmaker-schema` is public. What a future Java
+  consumer will still need is **credentials**, since GitHub Packages requires a token to read even a
+  public package (Decision 1): a `~/.m2/settings.xml` entry with a PAT carrying `read:packages`
+  locally. Whether a workflow's own `GITHUB_TOKEN` suffices cross-repository is not settled by the
+  docs — they recommend a PAT — so treat it as something to establish empirically when the first
+  Java consumer adopts codegen, not a step that can be done in advance.
 - **The schema is small today (145 lines).** Whatever mechanism is chosen should stay simple in
   proportion — this is explicitly why Decision 2 deferred codegen rather than building a heavier
   pipeline for a contract this size.
@@ -455,7 +464,7 @@ history.
 | Risk | Severity | Mitigation |
 |---|---|---|
 | **This sits at `Drafting` indefinitely and the hand-maintained mirrors keep drifting in the meantime.** | Low–Medium | The underlying pain (schema/mirror drift) is exactly what the existing testing strategy already partially catches via integration tests against the real schema shape; this design reduces but isn't the only defense against drift in the meantime. |
-| ~~**GitHub Packages authentication friction turns out to be worse than expected**~~ | — | **Materialised, and was worse than expected**: a token is required to install even a public package. Caught by NB-2's check before `Ready`, which is what the risk existed to do. Mitigated by moving the npm artifact to npmjs.com (Decision 1); the residual risk is that a Maven consumer 404s until the package is granted access to its repository. |
+| ~~**GitHub Packages authentication friction turns out to be worse than expected**~~ | — | **Materialised, and was worse than expected**: a token is required to install even a public package. Caught by NB-2's check before `Ready`, which is what the risk existed to do. Mitigated by moving the npm artifact to npmjs.com (Decision 1); the residual risk is that a Maven consumer needs credentials configured before it can resolve the artifact — there is no access grant to make, Maven packages being repository-scoped. |
 
 ---
 
@@ -496,9 +505,10 @@ Ordered; each step depends on the one before it.
    credentials configured** (the anonymous-install property Decision 1 exists for), and a Maven
    resolve with a token. Then prove the workflow's own OIDC publish works by shipping `1.0.1`
    through it, since the hand-published `1.0.0` proves nothing about the automated path.
-6. `[Geoff]` Grant `mootmaker-demo-data` and, later, `mootmaker-android` read access to the Maven
-   package under its own package settings — a workflow's `GITHUB_TOKEN` is scoped to its own
-   repository.
+6. ~~`[Geoff]` Grant `mootmaker-demo-data` read access to the Maven package~~ **Withdrawn
+   2026-09-03: no such step exists.** Maven packages are repository-scoped and inherit
+   `mootmaker-api`'s permissions, so there is nothing to grant. Configuring credentials for a Java
+   consumer belongs to the later work that adopts codegen there — see "Technical considerations".
 
 **Webapp adoption (Decision 9)**
 
