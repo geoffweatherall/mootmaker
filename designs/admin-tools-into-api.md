@@ -125,7 +125,12 @@ Resolved directly with Geoff via upfront questions before drafting:
   module — the two copies becoming one is a direct consequence of them landing in the same repo, not
   a new library. **`sample-data-generator`'s own copy in `mootmaker-demo-data` stays exactly as
   duplicated as it is today** — that repo gets no dependency on `mootmaker-api`, matching the
-  storage-model decision above (no shared code *between* repos, only *within* one).
+  storage-model decision above (no shared code *between* repos, only *within* one). Lives in a new
+  package, `com.mootmaker.concurrent`, alongside `handler`/`model`/`dynamo`/`cognito`.
+- **`reset`'s JSON response reports a count of deleted Cognito users, not the full email list.**
+  Keeps the response shape consistent with the existing DynamoDB counts (`roomsDeleted`, etc.); the
+  full list stays a CloudWatch Logs query away for anyone who needs to know exactly which accounts
+  were removed.
 
 ## Choices you had me make
 
@@ -156,25 +161,13 @@ Resolved directly with Geoff via upfront questions before drafting:
 
 ## Open questions
 
-No blocking open questions remain — the two that existed while drafting (`mootmaker-admin-tools`'s
-fate, and what to do with the superseded parts of `docs/ideas.md`) are both resolved above and in
-`docs/ideas.md` itself (struck through with a pointer back to this doc, rather than deleted outright,
-since the surrounding "Packaging of the tools and sample data generation" entry also covers
-`mootmaker-demo-data` packaging/versioning questions this design doesn't touch — only the
-reset/repair-specific paragraphs are struck).
-
-**Non-blocking** (fine to resolve during implementation):
-
-- **Does `reset`'s JSON response payload also list the deleted emails, or just a count — CloudWatch
-  log only?** The DynamoDB counts (`roomsDeleted`, etc.) already go in the response; the Cognito
-  emails are decided to go to CloudWatch (see Trade-offs and decisions), but whether they *also*
-  belong in the response is genuinely open. Leaning toward count-only in the response (keeps it
-  small, and the full list is one `CloudWatch Logs` query away) — flagging rather than deciding
-  unilaterally since a caller wanting to assert on *which* accounts were removed (e.g. the new
-  acceptance test under Testing impacts) would rather read the response than parse logs.
-- Where the new shared `runInParallel` helper and its `MAX_CONCURRENT_REQUESTS` constant live —
-  a new small package (e.g. `com.mootmaker.concurrent`) alongside `handler`/`model`/`dynamo`, most
-  likely, but genuinely an implementation-time naming call rather than something worth blocking on.
+None remain, blocking or non-blocking. The two blocking questions that existed while drafting
+(`mootmaker-admin-tools`'s fate, and what to do with the superseded parts of `docs/ideas.md`) are
+resolved above and in `docs/ideas.md` itself (struck through with a pointer back to this doc, rather
+than deleted outright, since the surrounding "Packaging of the tools and sample data generation"
+entry also covers `mootmaker-demo-data` packaging/versioning questions this design doesn't touch).
+The two non-blocking questions raised afterward (whether `reset`'s response lists deleted emails,
+and where the merged concurrency helper lives) are resolved in Trade-offs and decisions above.
 
 ## Impacts on components
 
@@ -185,8 +178,8 @@ reset/repair-specific paragraphs are struck).
   gains the actual logic (`DatabaseReset`, `CreateMissingPersonsRepair`,
   `RebuildMeetingParticipantsRepair`) — ported from `mootmaker-admin-tools`, adapted to import
   `com.mootmaker.model.Person`/`MeetingParticipant`/`MeetingRecord` instead of each tool's own copy.
-  A new shared package also gains the merged `runInParallel`/`MAX_CONCURRENT_REQUESTS` helper (see
-  Open questions for exact placement), used by both handlers instead of each keeping its own copy.
+  A new `com.mootmaker.concurrent` package gains the merged `runInParallel`/`MAX_CONCURRENT_REQUESTS`
+  helper (see Trade-offs and decisions), used by both handlers instead of each keeping its own copy.
 - `impl/src/test/java/...` gains the corresponding test classes (`DatabaseResetTest`,
   `DatabaseResetHandlerConcurrencyTest`, `CreateMissingPersonsRepairTest`,
   `RebuildMeetingParticipantsRepairTest`, `DatabaseRepairHandlerConcurrencyTest`, plus fakes
