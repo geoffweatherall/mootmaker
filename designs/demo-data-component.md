@@ -76,10 +76,46 @@ exercised path becomes the continuously-tested one.
 |---|---|---|
 | People | `TARGET_PEOPLE` (default 40) | Create `max(0, target - current)`. No-op once at target. |
 | Rooms | `TARGET_ROOMS` (default 10) | Create `max(0, target - current)`. No-op once at target. |
-| Meetings | every weekday in `WEEKS_AHEAD` (default 6) | A day with any existing meeting is skipped — today's rule, unchanged. |
+| Meetings | every weekday from `DAYS_IN_PAST` (default 7) behind today to `WEEKS_AHEAD` (default 6) ahead | A day with any existing meeting is skipped — today's rule, applied over a window that now extends backwards. |
 
 Each is independently toggleable via the invoke payload (`{"people": false}`), all defaulting to
 enabled, so a scheduled run with an empty payload does all three.
+
+### The people target counts total people, and the window reaches into the past
+
+Both **confirmed by Geoff on 2026-09-02**, closing this design's only blocking question and its
+main non-blocking one.
+
+**People are counted against the total**, not against "unlinked demo people" as `ideas.md`
+originally framed it. That framing turned out not to be implementable: `Person` exposes no
+`cognitoSub` or linked/unlinked indicator in the GraphQL schema, and demo-data reaches the system
+only through GraphQL, so distinguishing demo people from real ones would need either a new schema
+field — publishing account linkage for a demo tool's benefit — or direct DynamoDB access, which
+resurrects the shared-storage-model problem deliberately dropped on 2026-09-01. Counting the total
+needs neither, and its failure mode is benign: in an environment where real sign-ups have pushed the
+count past the target, demo people simply are not created, because there are already enough bookable
+people. The consequence accepted alongside it is that real signed-up users continue to appear as
+participants in generated demo meetings — already true today, since `query { people { id } }`
+returns everyone, so this preserves current behaviour rather than introducing it.
+
+**The window backfills 7 days of history**, keeping `sample-data-generator`'s `DAYS_IN_PAST = 7`
+rather than adopting topup's forward-only window. A freshly-seeded environment therefore has a
+calendar with a past, which is what a demo should look like when someone scrolls back — the
+forward-only alternative would have been simpler but visibly emptier. Idempotency is unaffected: the
+"this day has no meetings" guard applies to a past day exactly as it does to a future one, and past
+days never re-open once populated.
+
+### Invocation and cadence
+
+**No `run.sh` wrapper** — the README documents `aws lambda invoke` directly, following the precedent
+[`archive/admin-tools-into-api.md`](archive/admin-tools-into-api.md) set when it retired its own
+wrappers. Put to Geoff explicitly on 2026-09-02, since this tool gets run casually against ephemeral
+environments in a way the admin tools do not, and confirmed: one less script to keep in sync with the
+payload shape.
+
+**Daily schedule** (`cron(0 6 * * ? *)`), up from today's weekly. Confirmed 2026-09-02. The cost
+difference is about six cents a year, so this is a data-freshness decision rather than an economic
+one — a daily run keeps the far edge of the window filling evenly instead of in five-day steps.
 
 ### Concurrency is handled structurally, not in code
 
@@ -156,15 +192,6 @@ itself be half-torn-down. It can be enabled deliberately for a test.
 - **Component name and resource prefix: `mootmaker-demo-data`**, so the Lambda is
   `<env>-mootmaker-demo-data` and the state key `<env>/mootmaker-demo-data/terraform.tfstate`. Three
   components, three repo names, three state keys, all matching. Cheap to change now, annoying later.
-- **`run.sh` wrappers are retired** in favour of documented `aws lambda invoke` commands in the
-  README — following the precedent
-  [`archive/admin-tools-into-api.md`](archive/admin-tools-into-api.md) set for the same reason. This
-  is the choice most worth overriding if you disagree: a `run.sh <environment>` is genuinely handier
-  here than it was for the admin tools, because this is a thing you will run casually against
-  ephemeral environments.
-- **Daily schedule, not weekly** (`cron(0 6 * * ? *)`). The cost difference is about six cents a year
-  (see below), so this is a data-freshness decision, not an economic one — and a daily run keeps the
-  far edge of the 6-week window populated more evenly.
 - **Targets are Terraform variables, not payload fields.** Keeping `TARGET_PEOPLE`/`TARGET_ROOMS` out
   of the invoke payload means a mistyped ad hoc invoke cannot create 4,000 people. Toggles are in the
   payload; magnitudes are in the deployment.
@@ -175,29 +202,18 @@ itself be half-torn-down. It can be enabled deliberately for a test.
 
 **Blocking**
 
-1. **What does "top up people" count against?** `ideas.md` raised this and it is still open — but
-   checking the schema turned it from a preference into a constraint. **`Person` does not expose
-   `cognitoSub` or any linked/unlinked indicator**, and demo-data reaches the system only through
-   GraphQL. So "top up to 40 *unlinked demo* people" is not implementable as things stand; it would
-   need either a new schema field (exposing account-linkage publicly, for a demo tool's benefit) or
-   direct DynamoDB access (which resurrects the shared-storage-model problem deliberately dropped on
-   2026-09-01).
-
-   **My recommendation: count total people.** No schema change, no DynamoDB access, and the failure
-   mode is benign — in an environment where real sign-ups have pushed the count past 40, demo people
-   are not needed, because there are already enough bookable people. The consequence to accept is
-   that on `production`, real signed-up users are already booked into generated demo meetings today
-   (`query { people { id } }` returns everyone), and this keeps that true. If that is not acceptable,
-   the answer changes to a schema field and this becomes a bigger design.
+None — the one blocking question (what "top up people" counts against) was answered on 2026-09-02
+and is recorded under "Trade-offs and decisions" above. This design is build-from-able as it stands;
+promoting it to `Ready` is Geoff's call, per [`README.md`](README.md)'s lifecycle.
 
 **Non-blocking**
 
-2. **Should `WEEKS_AHEAD` also backfill the past?** The generator seeds 7 days of history
-   (`DAYS_IN_PAST = 7`); topup is forward-only. A freshly-seeded environment under the merged tool
-   would have an empty past, which changes what the webapp's calendar looks like on day one. Easy to
-   add as a fourth concern; needs deciding before the acceptance suite asserts either way.
-3. **Where does demo-data's acceptance suite run in a future pipeline?** It needs a deployed api, so
+1. **Where does demo-data's acceptance suite run in a future pipeline?** It needs a deployed api, so
    it cannot run on every push cheaply. Deferred to [`ci-cd-pipeline.md`](ci-cd-pipeline.md).
+2. **Should the past-window depth be a deployment variable rather than a constant?** `DAYS_IN_PAST`
+   is fixed at 7 for now, matching what `sample-data-generator` seeds today. If an ephemeral
+   environment ever wants a different depth from `production`, promoting it to a Terraform variable
+   is a one-line change — not worth deciding before there is a second opinion about the value.
 
 ## Impacts on components
 
@@ -252,6 +268,10 @@ See [`../docs/reference/data-model.md`](../docs/reference/data-model.md) for the
 - **Business hours are 08:00–17:00, exactly the range generated data fills**, so in a populated
   environment no slot is free by construction. Relevant to any acceptance assertion about
   availability — assert over a room that happens to be free, never a fixed time.
+- **A past day is topped up exactly once.** The `DAYS_IN_PAST` backfill relies on the same "this day
+  has no meetings" guard as the future window, so a day that has scrolled into the past keeps the
+  meetings it already had and is never re-populated. The window sliding forward one day at a time is
+  what makes a daily run cheap.
 - **The Lambda timeout must exceed a full-window seed.** Today's topup is 300s at 512MB; a seed
   creating ~600 meetings at 8-way concurrency fits comfortably, but follow `admin-tools.tf`'s
   precedent and set the AWS maximum (900s) rather than a guessed number — Lambda bills actual
@@ -272,7 +292,8 @@ over-target cases) and for payload toggle parsing, including the default-everyth
 identified what it should assert: **invariants, not exact values**. Against a freshly-deployed
 environment, seeded by one real invocation of the Lambda:
 
-- every business day in the window has at least one meeting;
+- every business day in the window — the 7 backfilled days behind today as well as the 6 weeks
+  ahead — has at least one meeting;
 - no room is double-booked;
 - no person is in two overlapping meetings;
 - no meeting falls outside 08:00–17:00, and none on a Saturday or Sunday;
@@ -392,8 +413,8 @@ all, so it is the only cost that exists from the first invocation. At one token 
 ~$0.81/year; the discipline that keeps it there is fetching the token once per run rather than per
 GraphQL call.
 
-Daily versus weekly is a difference of roughly **six cents a year**. Choose the cadence on data
-freshness, not cost.
+Daily versus weekly is a difference of roughly **six cents a year**, which is why the cadence was
+chosen on data freshness rather than cost (decided 2026-09-02).
 
 ### Per ephemeral environment (opt-in)
 
@@ -401,7 +422,9 @@ freshness, not cost.
 demo-data adds nothing to the cost of a leaked environment, which remains driven by the api's and
 webapp's DynamoDB tables, CloudFront distribution and AppSync API.
 
-A one-off full seed is ~650 AppSync operations plus one token — under a cent. The real cost of the
+A one-off full seed spans ~35 business days (7 backfilled behind today plus 6 weeks ahead), so
+roughly 500 meetings, 40 people and 10 rooms — about 550 AppSync operations plus one token, under a
+cent. The real cost of the
 new acceptance suite is **time, not money**: it needs a deployed api, so a run is a ~15–20 minute
 stand-up. That is the argument for pointing `verify.sh` at an existing environment rather than
 creating one per run.
