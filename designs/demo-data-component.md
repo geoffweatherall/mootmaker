@@ -13,7 +13,8 @@ satisfy rather than exact values.
 
 ## Status
 
-**Drafting** — 2026-09-02.
+**Ready** — 2026-09-02. Promoted by Geoff after the open questions were answered; no
+blocking questions remain.
 
 ## Scope / non-goals
 
