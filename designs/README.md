@@ -105,7 +105,10 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
    "Choices you had me make" / "Open questions" split for how the rest gets handled.
 2. Geoff and Claude refine it together — this can mean several rounds; the doc keeps being edited in
    place, not superseded by a new file.
-3. Geoff moves Status to Ready when it's genuinely build-from-able.
+3. Geoff moves Status to Ready when it's genuinely build-from-able. Like every other edit to this
+   file, that happens on the design's own `design/<name>` branch and lands on `main` via a PR — see
+   [`../docs/process/branching-and-prs.md`](../docs/process/branching-and-prs.md) — not a direct
+   push, even though it's a one-line change.
 4. An implementation session starts by reading the doc directly, moves Status to Building, and
    works through the Implementation checklist. The doc keeps being updated as reality diverges from
    plan (a design doc describes the *current* plan, not a frozen record of the first draft).

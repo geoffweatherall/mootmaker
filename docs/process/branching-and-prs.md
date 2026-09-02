@@ -18,6 +18,12 @@ to be doing. `designs/date-time-format-settings.md` is implemented on
 `feature/date-time-format-settings` — in every repository the design touches. See
 [Cross-repo changes](#cross-repo-changes).
 
+**A design document's own edits — drafting, refining, and the `Status:` promotion itself — go
+through a `design/<name>` branch and a PR, same as any other change, never a direct push to
+`main`.** Promoting Status to `Ready` is a one-line edit, but it's still a commit; being the one
+human-gated transition in the lifecycle (see [`../../designs/README.md`](../../designs/README.md))
+makes it *more* worth a reviewable diff and a normal merge, not an exception to skip one for.
+
 **Always cut a design's branches fresh from `main`. Never continue a design's work on a branch that
 already exists**, and never stack it on an unrelated in-flight branch. **Whatever branch a working
 copy happens to have checked out when you arrive is not a signal** — a checkout is left over from
