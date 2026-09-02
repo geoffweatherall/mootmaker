@@ -9,7 +9,11 @@ that they agree, and `mootmaker-android` will need the same schema a third time.
 proposes publishing the schema as a versioned artifact — npm via npmjs.com, Maven via GitHub
 Packages — so every consumer reads one file instead of re-typing it.
 
-**Status:** Drafting — 2026-08-29
+**Status:** Building — 2026-09-02
+
+*(Promoted straight from `Drafting` to `Building` on Geoff's instruction to implement. The `Ready`
+stamp was never applied — noted rather than glossed over, since `Ready` is the one human-gated
+transition in the lifecycle. Every blocking question had already been answered on 2026-09-02.)*
 
 ---
 
@@ -375,6 +379,15 @@ persisted data.
   provides to its own repository's workflows automatically) or a PAT with `read:packages` in
   `~/.m2/settings.xml` locally. Because the Maven consumers are all this project's own repositories,
   nobody outside the project ever needs a credential.
+- **Not every schema description reaches the generated TypeScript.** Measured 2026-09-03 against
+  the client preset: descriptions on **input-type fields** come through as JSDoc, but those on
+  **Query fields and output-object fields do not** — the preset generates operation result types
+  from selection sets, which are anonymous inline objects with nowhere to attach a field comment.
+  So schema documentation is worth writing for the schema's own sake (introspection, GraphQL
+  tooling, anyone reading the contract), but writing it expecting an editor tooltip in the webapp
+  will disappoint for two of the three cases. Surfacing them would mean emitting the full schema
+  types alongside the operation types, which is a larger output for a modest gain — not done, and
+  worth revisiting only if someone actually misses them.
 - **A cross-repository Maven consumer needs the package granted access to it.** A workflow's
   automatic `GITHUB_TOKEN` is scoped to its own repository, so `mootmaker-demo-data` reading a
   package published from `mootmaker-api` needs that repository added under the package's own access
@@ -452,10 +465,23 @@ Ordered; each step depends on the one before it.
 
 **Prerequisites — Geoff, before anything else can run**
 
-1. `[Geoff]` Create a free npm organisation named **`mootmaker`** on npmjs.com (free orgs allow
-   unlimited public packages). `@mootmaker/schema` is unclaimed as of 2026-09-02.
-2. `[Geoff]` Generate an npm **automation** token (not a publish token requiring 2FA on every
-   publish) and add it to `mootmaker-api` as the repository secret `NPM_TOKEN`.
+1. `[Geoff]` ~~Create a free npm organisation~~ **Done 2026-09-03** — `mootmaker` was created as a
+   npm *user* rather than an organisation, which works identically for this: every npm user owns
+   the scope matching their username, so `@mootmaker/schema` is publishable as declared. The only
+   difference is team management, which a solo project does not need.
+2. `[Geoff]` ~~Generate an npm automation token and add it as `NPM_TOKEN`~~ **Superseded
+   2026-09-03 — no token at all.** npm revoked classic tokens on 2025-12-09, and the granular
+   tokens that replaced them are capped at 90 days for write access and stop working for publishing
+   in January 2027. Instead: **OIDC trusted publishing**, where the workflow authenticates as
+   itself. Nothing to store, nothing to rotate, and the package gets a provenance attestation.
+
+   Because npm requires a package to exist before a trusted publisher can be attached to it (unlike
+   PyPI), this splits into:
+
+   - 2a. `[Geoff]` Publish `1.0.0` once by hand: `npm login` as `mootmaker`, then
+     `npm publish` from `mootmaker-api/api/`.
+   - 2b. `[Geoff]` On npmjs.com → `@mootmaker/schema` → Settings, add a trusted publisher for
+     `geoffweatherall/mootmaker-api`, workflow `publish-schema.yml`.
 
 **Publishing**
 
@@ -466,9 +492,10 @@ Ordered; each step depends on the one before it.
    `api/mootmaker.graphql` changed — check the declared version is unused, fail with a readable
    message if it is not (Decision 5), then `npm publish` to npmjs.com and `mvn deploy` to GitHub
    Packages with a `pom.xml` generated from the same version string.
-5. `[Claude]` Publish `1.0.0` and verify both halves: `npm install @mootmaker/schema` from a clean
-   directory **with no credentials configured** (the anonymous-install property Decision 1 exists
-   for), and a Maven resolve with a token.
+5. `[Claude]` Verify both halves: `npm install @mootmaker/schema` from a clean directory **with no
+   credentials configured** (the anonymous-install property Decision 1 exists for), and a Maven
+   resolve with a token. Then prove the workflow's own OIDC publish works by shipping `1.0.1`
+   through it, since the hand-published `1.0.0` proves nothing about the automated path.
 6. `[Geoff]` Grant `mootmaker-demo-data` and, later, `mootmaker-android` read access to the Maven
    package under its own package settings — a workflow's `GITHUB_TOKEN` is scoped to its own
    repository.
