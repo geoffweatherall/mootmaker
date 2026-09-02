@@ -29,11 +29,10 @@ constraint rather than a preference — see [`../process/principles.md`](../proc
 | Repository | Owns |
 |---|---|
 | `mootmaker` | Designs, process, reference docs, showcase. No deployed code. |
-| `mootmaker-api` | GraphQL schema, Java Lambda handlers, DynamoDB tables, Cognito user pool |
+| `mootmaker-api` | GraphQL schema, Java Lambda handlers, DynamoDB tables, Cognito user pool, and the `database-reset`/`database-repair` admin Lambdas (destructive — see [operator.md](../roles/operator.md)) |
 | `mootmaker-webapp` | React SPA, its S3 bucket and CloudFront distribution |
 | `mootmaker-android` | A second frontend on the same API. Not started. |
 | `mootmaker-demo-data` | Per-environment Lambdas that seed and top up demo data — ships as part of the product |
-| `mootmaker-admin-tools` | Per-environment Lambdas that can destroy data — split from `mootmaker-demo-data` by blast radius, 2026-08-29 |
 | `mootmaker-test-infra` | Ephemeral environment lifecycle, and the SES pipeline that lets tests read real email |
 | `mootmaker-domain` | Route 53 zone, ACM certificate, SES domain identity. Shared across environments. |
 | `mootmaker-bootstrap-terraform` | The S3 bucket holding everyone's Terraform state |
@@ -87,11 +86,11 @@ Adding a case means changing both in step.
 1. `mootmaker-bootstrap-terraform` — once per AWS account, creates the state bucket
 2. `mootmaker-bootstrap-aws-accounts` — once per account, the guardrails
 3. `mootmaker-domain` — once, shared across environments
-4. `mootmaker-api` — per environment, first
+4. `mootmaker-api` — per environment, first; its own Terraform includes `database-reset`, so nothing
+   further needs deploying before the next step depends on it
 5. `mootmaker-webapp` — per environment, reads the API's outputs
-6. `mootmaker-admin-tools`'s `database-reset` — per environment, before step 7
-7. `mootmaker-demo-data` — per environment; `sample-data-generator` invokes `database-reset`
-   Lambda-to-Lambda as the first step of every run, so step 6 must already exist
+6. `mootmaker-demo-data` — per environment; `sample-data-generator` invokes `database-reset`
+   Lambda-to-Lambda as the first step of every run, so step 4 must already exist
 
 ## Testing layers
 

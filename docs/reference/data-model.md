@@ -146,9 +146,9 @@ One row per (meeting, organiser-or-attendee) pair. Written in the same `Transact
 the meeting itself at creation, and kept consistent on deletion/attendee-removal
 (`DeleteMyAccountHandler`) — **consistency is maintained purely by application code** (transactional
 writes at write/delete time), not a DB-level constraint or event-driven trigger.
-`mootmaker-admin-tools/database-repair`'s `RebuildMeetingParticipantsRepair` can fully regenerate this
-table from Meetings on demand — used for backfilling pre-existing meetings when the table was
-introduced, and as a drift safety net; it's invoked manually (`run.sh`), not event-driven.
+`mootmaker-api`'s `database-repair` Lambda (`RebuildMeetingParticipantsRepair`) can fully regenerate
+this table from Meetings on demand — used for backfilling pre-existing meetings when the table was
+introduced, and as a drift safety net; it's invoked manually (`aws lambda invoke`), not event-driven.
 
 ## Cross-references between Cognito and DynamoDB
 
@@ -166,6 +166,14 @@ introduced, and as a drift safety net; it's invoked manually (`run.sh`), not eve
   `AdminUpdateUserAttributes` using `cognitoSub` as the username (this works because
   username == `sub` in this pool). Best-effort — a failure there doesn't fail the rename mutation
   itself, since `Person.name` (DynamoDB) is the actual source of truth.
-- **Known gap**: a stray `Person` record with a dangling `cognitoSub` (the Cognito user was deleted
-  or recreated independently) is not detected or cleaned by either `database-repair` or
-  `database-reset` today.
+- **Stray `Person` records with a dangling `cognitoSub`** (the Cognito user was deleted or recreated
+  independently) are closed going forward, in every environment except `production`: `database-reset`
+  determines which People survive from Cognito's *actual current* user list (`ListUsers`, matched
+  against the two Terraform-managed reserved accounts), not from whether a `Person`'s `cognitoSub`
+  attribute happens to be present — so a Person whose Cognito account is gone no longer survives just
+  because the attribute wasn't cleared. In `production`, where the Cognito wipe is refused outright,
+  the original narrower rule still applies (any non-null `cognitoSub` survives), so a stray Person
+  there is unaffected by reset and still has to be deleted directly via DynamoDB. `database-repair`
+  has no repair for this case either way — see
+  [mootmaker-api's README](https://github.com/geoffweatherall/mootmaker-api#reset-and-real-user-accounts)
+  and [designs/admin-tools-into-api.md](../../designs/admin-tools-into-api.md) (archived once shipped).

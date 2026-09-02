@@ -79,7 +79,7 @@ Going forward, this file is the source of truth for what the system does. New fu
 
 - The Settings screen, reached from a shortcut at the bottom of the main navigation menu (see [Design and User Experience](#design-and-user-experience)), is where every account manages its own name. Administrators see two additional sections on the same screen: a list of every room, with the ability to edit a room's name/capacity or add a new one, and a list of every person, with the ability to edit anyone's name or add a new person (including a guest with no account of their own — see [People](#people)). Standard users see only the name section.
 - There is still no separate reporting or usage-metrics dashboard.
-- A data-reset function exists that erases all rooms and meetings, and every person without a linked account. It is intended for testing purposes, and is not reachable by any user of the product — it's an operational tool (`mootmaker-admin-tools/database-reset`) invoked directly with AWS credentials, not part of the API surface at all.
+- A data-reset function exists that erases all rooms and meetings, and (outside `production`) wipes the Cognito user pool down to the two Terraform-managed reserved accounts. It is intended for testing purposes, and is not reachable by any user of the product — it's an operational tool (`mootmaker-api`'s `database-reset` Lambda) invoked directly with AWS credentials, not part of the API surface at all.
 
 ## Not Yet Implemented
 
