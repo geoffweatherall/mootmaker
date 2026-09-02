@@ -176,4 +176,4 @@ introduced, and as a drift safety net; it's invoked manually (`aws lambda invoke
   there is unaffected by reset and still has to be deleted directly via DynamoDB. `database-repair`
   has no repair for this case either way — see
   [mootmaker-api's README](https://github.com/geoffweatherall/mootmaker-api#reset-and-real-user-accounts)
-  and [designs/admin-tools-into-api.md](../../designs/admin-tools-into-api.md) (archived once shipped).
+  and [designs/admin-tools-into-api.md](../../designs/archive/admin-tools-into-api.md) (archived once shipped).
