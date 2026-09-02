@@ -16,7 +16,7 @@ something more confident than it was.
 
 *Raised 2026-08-31. Not yet explored.*
 
-**Superseded 2026-09-02** by [`../designs/admin-tools-into-api.md`](../designs/admin-tools-into-api.md)
+**Superseded 2026-09-02** by [`../designs/archive/admin-tools-into-api.md`](../designs/archive/admin-tools-into-api.md)
 for everything below about `database-reset`/`database-repair` specifically — struck through rather
 than deleted, since the design doesn't cover the `mootmaker-demo-data` packaging/versioning question
 this entry was originally raised for. That half stays live.
@@ -364,7 +364,7 @@ Geoff: suggest a changes, I want consistancy imposed, both in linting if possibl
     codebase. Reset currently protects Cognito-linked Persons precisely because they represent
     real people. Wiping the pool must be impossible against `production`, not merely discouraged.
     Arguably it should be a separate operation from reset, so nobody can reach it by accident.~~
-    **Settled by [`../designs/admin-tools-into-api.md`](../designs/admin-tools-into-api.md):** the
+    **Settled by [`../designs/archive/admin-tools-into-api.md`](../designs/archive/admin-tools-into-api.md):** the
     guard is structural (a Terraform-computed env var, not a runtime check), and pool-wiping stays
     *part of* reset rather than a separate operation — see Q7 below.
   - ~~**What "required default users" means** — the demo user certainly, the e2e user (which
@@ -419,7 +419,7 @@ time to find out. Several belong in a repository's own docs eventually; where th
   DynamoDB directly rather than by calling the mutation. Any future tooling that wants to act *as a
   user* rather than as the machine hits this wall. ~~Worth remembering when designing reset's
   "reinstate the default users" step.~~ Turned out not to matter there —
-  [`../designs/admin-tools-into-api.md`](../designs/admin-tools-into-api.md) has reset *preserve*
+  [`../designs/archive/admin-tools-into-api.md`](../designs/archive/admin-tools-into-api.md) has reset *preserve*
   the demo/e2e accounts rather than delete-and-recreate them, so this constraint is never hit.
 
 - **Business hours (08:00–17:00) are exactly the range sample-data fills**, so in a populated

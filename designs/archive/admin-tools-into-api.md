@@ -13,7 +13,30 @@ so a reset environment is genuinely indistinguishable from a freshly deployed on
 
 ## Status
 
-**Ready** — 2026-09-02.
+**Shipped** — 2026-09-02. Merged across `mootmaker-api`, `mootmaker-demo-data`, and `mootmaker`;
+`production` fully torn down and redeployed, `mootmaker-admin-tools` deleted. The full acceptance
+suite ran green on a freshly deployed ephemeral environment (40/40, including the new
+`DatabaseResetCognitoWipeAcceptanceIT`), and `mootmaker-demo-data/sample-data-generator` ran
+successfully against `production` afterward.
+
+Two things were found after the design was written and are recorded here rather than quietly
+fixed:
+
+- **Both new handlers initially used the shared `DynamoDbClientProvider`/
+  `CognitoIdentityProviderClientProvider` singletons**, the ones the resolvers/post-confirmation
+  functions use to prime a connection ahead of a SnapStart snapshot. That priming call needs
+  `dynamodb:DescribeTable`, which neither Lambda's own dedicated IAM role grants — deliberately,
+  since neither uses SnapStart and neither needed that action for anything it actually does. Every
+  real `database-reset` invocation failed with an `AccessDenied` on `DescribeTable` until this was
+  caught deploying to `production` and fixed by building plain, unshared clients instead (matching
+  what the original standalone `mootmaker-admin-tools` Lambdas already did correctly).
+- **Tearing down and recreating `production`'s Cognito user pool broke `mootmaker-demo-data`**,
+  which wasn't in this design's scope to change but was still holding the *old* pool's OAuth2
+  `client_credentials` app-client id/secret baked into its already-deployed Lambda environment
+  variables. `sample-data-generator` failed with `invalid_client` until `mootmaker-demo-data`'s own
+  `deploy-all.sh production` was re-run to pick up the new pool's credentials. Worth remembering for
+  any future full Cognito-pool recreate: every already-deployed `client_credentials` consumer of
+  that pool needs redeploying, not just the repos actually being migrated.
 
 ## Scope / non-goals
 
