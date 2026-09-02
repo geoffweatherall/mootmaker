@@ -272,10 +272,21 @@ See [`../docs/reference/data-model.md`](../docs/reference/data-model.md) for the
   has no meetings" guard as the future window, so a day that has scrolled into the past keeps the
   meetings it already had and is never re-populated. The window sliding forward one day at a time is
   what makes a daily run cheap.
-- **The Lambda timeout must exceed a full-window seed.** Today's topup is 300s at 512MB; a seed
-  creating ~600 meetings at 8-way concurrency fits comfortably, but follow `admin-tools.tf`'s
-  precedent and set the AWS maximum (900s) rather than a guessed number — Lambda bills actual
-  duration, so a high ceiling costs nothing.
+- **The Lambda timeout is set to the AWS maximum, 900 seconds — not a guessed number.** Today's
+  topup uses 300s at 512MB, which fits a full-window seed at 8-way concurrency comfortably, but the
+  right ceiling is the highest one available: **Lambda bills actual execution duration, so a high
+  timeout costs nothing when runs are short**, and the number only matters on the day a run is
+  legitimately slow. This follows `mootmaker-api`'s `admin-tools.tf`, which sets 900s on both
+  `database-reset` and `database-repair` for the same reason. The thing that actually keeps a run
+  inside the ceiling as data volume grows is the bounded parallelism
+  (`MAX_CONCURRENT_REQUESTS = 8`), not a lower timeout.
+- **Every caller's own client-side timeout has to match the 900s ceiling**, or a legitimately long
+  run gets reported as a failure while the Lambda keeps running and completes regardless — leaving
+  the caller with a false error and the environment in a state nobody trusts. Concretely, the AWS
+  CLI defaults to a 60-second read timeout, so the documented invoke command needs
+  `--cli-read-timeout 900` (and, for a synchronous invoke, `--invocation-type RequestResponse`).
+  The acceptance suite's own HTTP/SDK client needs the same treatment. This bit `database-reset`
+  in exactly this way, which is why `admin-tools.tf` carries the same warning.
 - **`terraform destroy` still evaluates `lambda_jar_hash`**, hence the existing
   `fileexists(...) ? ... : null` guard. Carry it over; `undeploy.sh` must work without a built jar.
 - **`TF_DATA_DIR=".terraform-${environment}"` isolation** is load-bearing for concurrent deploys from
@@ -317,7 +328,8 @@ unaffected — it uses its own app client, and this design stops demo-data borro
 ## Documentation impacts
 
 - `mootmaker-demo-data/README.md` — rewritten: one component, one Lambda, no reset, `aws lambda
-  invoke` examples, the M2M/SSM auth model, and an explicit "this tool never destroys data" statement
+  invoke` examples **carrying `--cli-read-timeout 900`** so a copy-pasted command cannot report a
+  false failure on a long seed, the M2M/SSM auth model, and an explicit "this tool never destroys data" statement
   to replace today's buried warning that `run.sh` resets first.
 - `mootmaker-demo-data/AGENTS.md` — new structure and the three-component picture.
 - `mootmaker-demo-data/testing-strategy.md` — new file, mirroring `mootmaker-api/testing-strategy.md`.
@@ -373,7 +385,8 @@ only after the new component is confirmed working.
    parameters; deploy to an ephemeral environment and confirm the parameters resolve.
 2. `[Claude]` `mootmaker-demo-data`: restructure to the api-mirroring layout; merge the two impls
    into one, deduplicating `GraphQlClient`/`MeetingScheduler`/`SampleData`; delete the reset path.
-3. `[Claude]` Add the people/rooms top-up concerns, the payload toggles, and reserved concurrency 1.
+3. `[Claude]` Add the people/rooms top-up concerns, the payload toggles, reserved concurrency 1, and
+   the 900s function timeout; confirm every documented caller sets a matching client-side timeout.
 4. `[Claude]` Port and deduplicate the unit tests; add the new arithmetic/toggle coverage.
 5. `[Claude]` Write `verify/` and `verify.sh`; get a green run against a fresh ephemeral environment.
 6. `[Claude]` `mootmaker-test-infra`: `--with-demo-data`, discovery-based teardown, empty-prefix
