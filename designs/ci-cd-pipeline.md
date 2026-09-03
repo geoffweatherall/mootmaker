@@ -661,6 +661,34 @@ design (tag push, deploy, rollback). It isn't a "deployable component" the same 
 are — a different, lighter check would fit it better than duplicating this one — and isn't scoped
 in here.
 
+**Bring-up specifics for required status checks (added 2026-09-03, so none of this gets discovered
+against an already-locked repository):**
+
+- **Enable protection only after the check has reported at least once.** Branch protection matches a
+  required check by its exact context name, and naming one that has never run leaves every PR stuck
+  on "Expected — waiting for status" with no way to merge. Order it: merge `pr-checks.yml` while
+  `main` is still unprotected, let it run, read the exact name from `gh pr checks`, then enable
+  protection with that string copied verbatim, never hand-typed. Once protection references a job's
+  `name:`, that name is frozen — renaming it later reproduces the same lock-out.
+- **`enforce_admins: false`.** This decision's "cannot be merged, full stop, including by Claude" is
+  honoured by behaviour — Claude never passes `--admin` — rather than by configuration. Chosen over
+  `enforce_admins: true` so that a stuck required check cannot lock the repository for Geoff too,
+  recoverable only by editing protection under pressure. The weaker guarantee is accepted knowingly;
+  revisit if self-merge discipline ever slips.
+- **No required pull-request reviews.** This decision asks for status checks only. On a
+  solo-developer repository a required review is unsatisfiable — Geoff cannot approve his own PR —
+  and would block `main` permanently. It is easy to tick by accident in the UI, so it is named here.
+- **Enable repository auto-merge** (`allow_auto_merge`, verified `false` on all three components as
+  of 2026-09-03) so Claude can use `gh pr merge --squash --auto`: GitHub queues the merge and
+  completes it when checks pass, instead of an unattended run either failing on "checks pending" or
+  busy-waiting through a multi-minute Maven or Playwright job. Set `delete_branch_on_merge: true` at
+  the same time (also currently `false` everywhere) so branch cleanup needs no extra command.
+- **Tag pushes are unaffected by branch protection**, so Decision 3's PAT tagging flow keeps working.
+  Do not add *tag* protection rules — that would break it.
+- All three component repositories are **public**, so branch protection and Actions minutes are both
+  free and no plan constraint applies — consistent with Decision 2's finding that the binding
+  constraint is AWS spend, not Actions minutes.
+
 ---
 
 ## Choices you had me make
@@ -855,6 +883,54 @@ default of confirming before hard-to-reverse or production-affecting actions:
 - If you are a session picking this work up fresh (possibly on a different machine, per Geoff's own
   note that local classifier/permission settings are machine-specific) — this is standing
   authorization to act on, not something to re-derive or ask Geoff to repeat.
+
+### Local tooling permissions granted for unattended runs
+
+**Added 2026-09-03**, after a dry run established that the previous configuration would have stalled
+an unattended session. Verified empirically rather than assumed: `gh pr merge` was refused by Claude
+Code's auto-mode classifier on three of four attempts before the change, and merged without a prompt
+after it.
+
+Geoff has granted the following on his development machine (user scope, `~/.claude/settings.json`,
+`permissions.allow`) so Claude does not stop to ask mid-build:
+
+- `gh pr:*`, `gh workflow:*`, `gh run:*`, `gh release:*`, `gh api:*`, `gh repo view:*`,
+  `gh secret list:*` — opening, merging and closing PRs, triggering and watching release runs,
+  publishing GitHub Releases, and setting branch protection.
+- `git:*` — including `rebase`, `clean`, `restore` and `branch -D`. The last matters: `git branch -d`
+  refuses a squash-merged branch, so ordinary post-merge hygiene needs `-D`.
+- `terraform:*`, `aws:*`, `mvn:*`, `npm:*`, `npx:*` — component builds and environment work.
+- `rm:*`, `mkdir:*`, `mv:*`, `cp:*` — ordinary file manipulation.
+
+**Why allow rules rather than classifier guidance:** `permissions.allow` short-circuits the auto-mode
+classifier deterministically, whereas `permissions.autoMode.allow` only advises it and proved
+context-sensitive under test — the same `gh pr merge` invocation was permitted once and refused three
+times. An unattended run needs the deterministic form. The `autoMode.allow`/`soft_deny`/`hard_deny`
+block is still set and still governs anything the allow rules do not name.
+
+**Deliberately still gated** (`permissions.ask` — these prompt, and will stall an unattended run,
+which is the intent): `git push --force`, `git push -f`, `git reset --hard`, `git commit --amend`,
+`git commit --no-verify`. A step that genuinely needs one of these is a signal to stop and think, not
+to widen the rules.
+
+**Not overridden by any of this:** the `RELEASE_TAG_PAT` value still never passes through a Claude
+session (also recorded as a `hard_deny`), and hand-deploying or destroying `test`/`production` from a
+developer machine remains a `soft_deny` — those environments change through the release pipeline.
+
+**Scope caveat, accepted knowingly:** these are user-scope rules, so they apply to every project on
+that machine, not only mootmaker. The narrower option was unavailable — the workspace-scope
+`mootmaker-workspace/.claude/settings.json` allow list was found not to be applied at all, because
+the workspace root is not a git repository. That is why its `Bash(gh *)`, `Bash(terraform *)` and
+`Bash(aws *)` entries never took effect and every such command was falling through to the classifier.
+Anyone reading that file should not trust it to be in force.
+
+**Python is required too.** This repository's own link check — `python3 tools/check-links.py ..`, see
+[`CLAUDE.md`](../CLAUDE.md) — is mandatory before committing prose changes, and several build-out
+steps need small scripts. `Bash(python3:*)` and `Bash(python:*)` therefore belong in the same
+user-scope allow list. Noted explicitly because a bare `python3` is a broader grant than the others
+here: unlike `git` or `terraform`, it executes arbitrary code, so it is the one entry on this list
+that widens what Claude can do rather than just which known tool it may reach. Accepted as the cost
+of an unattended run that can satisfy this repository's own documented pre-commit step.
 
 ---
 
