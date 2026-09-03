@@ -393,7 +393,7 @@ see Decision 1 and Technical considerations, not this list.
 | `mootmaker` (hub) | No `release.yml` here (Decision 1, revised) — impact is docs-only. `docs/process/principles.md`'s "`test` was retired... could not justify its standing cost" line needs rewriting to reflect Decision 6's reasoning, not deleting the history but adding the reversal and why. `docs/process/environments.md`'s "exactly two kinds" becomes three. |
 | `mootmaker-release` (new repo) | Gains `release.yml` (the orchestrator, `workflow_dispatch`-triggered), the PAT secret (OQ-3), the cross-component smoke-test suites (OQ-1, tentatively), and publishes the GitHub Release (Decision 5). Scaffolded 2026-09-03; `release.yml` itself not yet built. |
 | `mootmaker-api` | Gains a reusable `release-build.yml` (`on: workflow_call`) doing build + unit test + acceptance-against-fresh-ephemeral + artifact upload, called by `mootmaker-release`'s `release.yml` per release. |
-| `mootmaker-webapp` | Same shape as `mootmaker-api`. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17), not yet merged), unblocking Decision 8. Possibly gains `smoke/` (OQ-1). |
+| `mootmaker-webapp` | Same shape as `mootmaker-api`. Its PR checks additionally run **`npm run codegen:check`** — see Technical considerations; "build and unit tests" does not cover it. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17), not yet merged), unblocking Decision 8. Possibly gains `smoke/` (OQ-1). |
 | `mootmaker-demo-data` | Same shape as the other two — first time it's included in an automated pipeline. |
 | `mootmaker-ephemeral-envs` (renamed from `mootmaker-test-infra` 2026-09-03) | `create-ephemeral-env.sh`/`teardown-ephemeral-env.sh` unchanged in mechanism; docs updated to describe `test` as a second protected, standing name (the scripts already treat it as one, per Decision 6). |
 | `mootmaker-email-testing` (split from `mootmaker-test-infra` 2026-09-03) | No direct pipeline changes — the standing `test` environment's smoke test reads from its persistent SQS queue the same way `mootmaker-webapp`'s existing `e2e`/`acceptance` suites already do. |
@@ -409,6 +409,23 @@ see Decision 1 and Technical considerations, not this list.
 
 ## Technical considerations
 
+- **`mootmaker-webapp`'s PR checks need `npm run codegen:check`, which is neither a build nor a unit
+  test.** Since `designs/archive/graphql-schema-sharing.md` shipped, `webapp/src/graphql/generated/`
+  is generated from the API's schema and committed. Codegen reads the **sibling `mootmaker-api`
+  checkout when present** and the published `@mootmaker/schema` package otherwise — which is what
+  makes local development against an unpublished schema work, and is also what lets `main` go
+  inconsistent without anything noticing.
+
+  The failure mode is concrete. A coordinated schema change is developed locally, so the committed
+  generated code reflects the *new* schema while `package.json` still pins the *old* published
+  version. Merge that and anyone cloning fresh — no sibling checkout — regenerates from the pinned
+  version, gets a diff, and `tsc` fails on fields that no longer exist. `codegen:check` regenerates
+  and fails on any diff, which catches exactly this; today nothing runs it, so it depends on a human
+  remembering.
+
+  Ordering matters within the check: `codegen:check` before `tsc`, so a drift failure reports "the
+  generated types are stale" rather than a pile of downstream type errors that do not name the
+  cause.
 - **`workflow_call` across repos needs no PAT for public repos** — `uses:
   owner/repo/.github/workflows/file.yml@ref` runs with the caller's own token; only the tag push
   (Decision 3) needs one.
