@@ -289,10 +289,13 @@ output — it does not also ship to CloudWatch (Decision 11).** Considered and d
 not an oversight: Decision 11's whole reason for existing is that a release's summary (Decision 5)
 needs durable, queryable detail behind it once a version has actually been claimed. Stage 1 runs
 *before* any tag exists — a failed Stage 1 attempt claims no version at all, so there is nothing
-for its logs to be *the detail behind*. The same reasoning extends to the ephemeral environment's
-own Lambda/AppSync logs from this stage — they are not pulled out and shipped anywhere before
-teardown; whatever `verify`/`acceptance` output already captures as a workflow artifact is
-sufficient for a stage this transient.
+for its logs to be *the detail behind*. The same reasoning extends to **everything else this stage
+produces**, confirmed the same day: the ephemeral environment's own Lambda/AppSync logs, and the
+Terraform apply/destroy output that stands the environment up and tears it down in the first
+place — none of it is pulled out and shipped to CloudWatch. Whatever `verify`/`acceptance` output
+already captures as a workflow artifact is sufficient for a stage this transient; the "every
+Terraform stage" language in Decision 11 means every stage *after* a version is tagged, not
+literally every `terraform apply` anywhere in the pipeline.
 
 **Reasoning:** this stage is answering a different question than `test` is ("does this component
 work at all, in isolation, right now") and doesn't need persistence to answer it — a fresh
@@ -401,7 +404,9 @@ the smoke test's assertions) has no durable home. `mootmaker-release` gains one 
 Group (e.g. `/mootmaker/release-pipeline`) — its first real piece of Terraform, deployed once,
 persistent, no environment argument, the same shape `mootmaker-domain` already uses for shared
 infra. Every stage that produces meaningful output ships it there in **structured** form, not raw
-console text: `terraform apply -json` for every Terraform stage, Playwright's JSON reporter for the
+console text: `terraform apply -json` for every Terraform stage *after a version is tagged*
+(deploy-to-`test`, deploy-to-`production`, the rollback redeploy — not Stage 1's own ephemeral
+create/destroy, see Decision 7), Playwright's JSON reporter for the
 smoke tests, and each component's Stage 1 build-and-unit-test output (Maven's Surefire reports for
 `mootmaker-api`/`mootmaker-demo-data`, Vitest's own structured output for `mootmaker-webapp`) —
 this last one **only for the release pipeline's own `release-build.yml` run, never for PR checks**
@@ -411,11 +416,41 @@ nothing to correlate it against. Consistent fields across everything shipped (`v
 `component`, `outcome`) are what make this queryable rather than just archived.
 
 **Deliberately not shipped here, confirmed 2026-09-03: Stage 1's *acceptance*-test output** (as
-opposed to its unit-test output, which is shipped) **and the ephemeral build environment's own
-Lambda/AppSync logs** — same underlying reason as excluding PR checks, not a separate exception.
-Stage 1 runs before any tag exists; if it fails, no version was ever claimed, so there's no release
-for this detail to sit behind. A GitHub Actions artifact (Decision 7) is the right, and final, home
-for it.
+opposed to its unit-test output, which is shipped), **the ephemeral build environment's own
+Lambda/AppSync logs, and the Terraform apply/destroy that stands it up and tears it down** — same
+underlying reason as excluding PR checks, not a separate exception. Stage 1 runs before any tag
+exists; if it fails, no version was ever claimed, so there's no release for this detail to sit
+behind. A GitHub Actions artifact (Decision 7) is the right, and final, home for it.
+
+**Other AWS services surveyed and deliberately left out (confirmed 2026-09-03), so their absence
+reads as a decision, not a gap found later:**
+
+- **SNS delivery-status logging** (`mootmaker-email-testing`'s topic) — opt-in, off today; the
+  SQS-consumption path it would corroborate is already exercised by the e2e/acceptance suites
+  separately.
+- **S3/CloudFront access logs** (`mootmaker-webapp`'s site bucket/distribution) — a genuinely
+  different destination (S3 or Kinesis, not CloudWatch Logs), out of step with this design's whole
+  Logs-Insights-centric approach; would need a separate pipeline, not a tag/discovery tweak.
+- **Route53 Resolver query logging** — opt-in, DNS resolution activity is not useful signal for
+  release troubleshooting specifically.
+- **CloudTrail** (the account-wide API-call audit log) — considered and left fully out of scope: a
+  security/audit-trail concern, not a release-troubleshooting one, and account-wide rather than
+  release-scoped. A different design's job if ever wanted.
+- **DynamoDB and Cognito** — checked, not applicable rather than excluded: neither has a native
+  CloudWatch Logs group the way Lambda/AppSync do (DynamoDB exposes metrics/streams only; Cognito
+  user-pool operations have no equivalent log group). Auth outcomes already surface indirectly
+  through AppSync's own logs.
+- **The scheduled ephemeral sweep's own `terraform destroy` output** (a separate, periodic
+  workflow, not part of any one release run) — same reasoning as excluding PR checks: no release
+  version to tag it with.
+
+**If the shipping step itself fails (confirmed 2026-09-03): non-fatal.** A `aws logs put-log-events`
+call that errors (a transient throttle, a permission gap) should not fail the release stage it's
+attached to — logging is diagnostic infrastructure, not the release's actual purpose, and a release
+that deployed cleanly and passed its smoke tests shouldn't be blocked or rolled back because a log
+call hiccupped. Each shipping step should be written so a failure there is caught and reported (not
+silently swallowed — that would defeat troubleshooting a genuinely broken shipping path) without
+propagating to the stage's own exit code.
 
 **Mechanism, since GitHub Actions has no native path into CloudWatch on its own:** a step at the
 end of each job — `if: always()`, so a failure ships too, not just a pass — uses the same
@@ -461,7 +496,13 @@ entirely on the auto-created default, with no retention set either way, which th
 tagged consistently (e.g. `mootmaker:release-logs = "true"`). `mootmaker-release`'s Terraform
 discovers them dynamically via `data "aws_resourcegroupstaggingapi_resources"` filtered on that
 tag, rather than listing names anywhere — self-updating as Lambdas are added, removed, or renamed,
-and staying consistent with this project's existing loose-coupling preference. Needs one small IAM
+and staying consistent with this project's existing loose-coupling preference. **Worth being
+explicit rather than assumed: `test` and `production` each get their own tagged log group per
+Lambda** (different names — `test-mootmaker-resolvers` vs. `production-mootmaker-resolvers`, since
+the function names themselves are environment-prefixed) — this falls out naturally from declaring
+the `aws_cloudwatch_log_group` resource in the same per-environment Terraform the Lambda itself is
+in, applied once per environment as that Terraform already is; it is not one shared resource, and
+needs no separate work beyond what's already planned. Needs one small IAM
 addition to the OIDC deploy role: `tag:GetResources`, alongside the `logs:*` write access the
 pipeline's own shipped logs need — same incremental-growth pattern as every other addition to that
 role's policy so far.
