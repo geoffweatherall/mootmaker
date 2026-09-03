@@ -440,9 +440,50 @@ session with plain `aws logs start-query`/`get-query-results` CLI access, nothin
 lands straight in the relevant slice of logs instead of hunting through Actions history.
 
 **Cost:** negligible at this project's volume — CloudWatch Logs ingestion/storage pricing is small
-per GB, and a handful of releases a month producing a few MB each doesn't approach a dollar.
-Retention on the new log group should still be set explicitly (e.g. a year) rather than left on
-whatever the default happens to be.
+per GB, and a handful of releases a month producing a few MB each doesn't approach a dollar. Bounded
+further, and deliberately, by the retention policy below.
+
+**Every log group this design creates or adopts gets an explicit retention — 120 days, to start
+(added 2026-09-03, per the project's scale-to-zero principle: nothing accumulates forever, logs
+included).** No exceptions, and no relying on CloudWatch's own default (which is "never expire"
+unless set — the same gap already found and being fixed for the Lambda log groups applies to every
+log group named in this Decision):
+
+- `mootmaker-release`'s own `/mootmaker/release-pipeline` group.
+- `mootmaker-api`'s Lambda log groups — **all four** (`resolvers`, `post_confirmation_create_person`,
+  `database_reset`, `database_repair`), not just the two a smoke test actually invokes. Retention is
+  a blanket commitment now; the `mootmaker:release-logs` *discovery* tag (which log groups the
+  saved query pulls in) stays scoped to what's actually relevant to a smoke test — a query that
+  found zero matching lines in a tagged-but-irrelevant group would cost nothing to include, but
+  there's no reason to widen the query's scope just because retention widened.
+- `mootmaker-api`'s new AppSync log group.
+- `mootmaker-demo-data`'s Lambda log group.
+
+Each repo's own Terraform declares its own retention value (`var.log_retention_days`, default
+`120`) rather than any single shared source — this project has no cross-repo Terraform variable
+mechanism without reintroducing the coupling Decision 11 already rejected once (the
+`terraform_remote_state` discussion above), so "the same starting number, set independently in each
+repo, tunable independently later" is the honest shape, not a shared config file pretending
+otherwise.
+
+**Implication worth stating plainly: Decision 11's logs are not actually permanent, only
+longer-lived than GitHub's.** 120 days is a deliberate ~30-day buffer past GitHub Actions' own
+90-day default, not an accident — but it means troubleshooting a release from five months ago will
+find the GitHub Release (Decision 5) — version, SHAs, pass/fail per stage — genuinely forever, while
+the CloudWatch detail behind it is already gone. That asymmetry is accepted, not a gap: Decision 5's
+summary is cheap to keep forever (a handful of GitHub Releases, not GBs of log data); Decision 11's
+detail trades permanence for being useful *now*, close to when a release actually happened, which is
+when troubleshooting it is overwhelmingly likely to happen anyway. If 120 days ever proves too
+short in practice, it's a one-line `var.log_retention_days` change per repo, not a redesign.
+
+**A real rollout gotcha, not just a Terraform nicety:** `test` and `production` already have all
+five Lambdas (and, once enabled, AppSync) running today, which means their log groups **already
+exist**, auto-created and Terraform-unmanaged. `aws_cloudwatch_log_group`'s `CreateLogGroup` call
+fails with `ResourceAlreadyExistsException` against a name that already exists — so simply adding
+these resources and running `terraform apply` will error on `test`/`production` (though it'd work
+cleanly against a fresh ephemeral environment, where nothing exists yet). Each pre-existing log
+group needs a `terraform import` before the first apply that introduces it, not a plain create —
+worth sequencing explicitly in Rollout rather than discovering it mid-apply.
 
 ### 12. PR checks become a required gate, scoped per component's actual tech
 
@@ -670,12 +711,17 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 11. **`[Claude]`** Ephemeral sweep (unchanged from the first draft): report-only first, automatic
     teardown only after a clean trial period. Independent of the rest of this rollout and can proceed
     in parallel.
-12. **`[Claude]`** Consolidated CloudWatch logging (Decision 11): the tagged, retention-set Lambda
-    log groups in `mootmaker-api`/`mootmaker-demo-data`; `mootmaker-api`'s AppSync `log_config` +
-    its own adopted, tagged log group + the logging IAM role (wildcard-scoped to break the cycle);
-    `mootmaker-release`'s own log group + `QueryDefinition`(s); the two IAM additions to the OIDC
-    deploy role. Independent of the release pipeline itself — no PAT, no `release.yml` dependency —
-    can proceed any time, same as the ephemeral sweep and the PR-checks work.
+12. **`[Claude]`** Consolidated CloudWatch logging (Decision 11): the tagged, 120-day-retention
+    Lambda log groups in `mootmaker-api`/`mootmaker-demo-data`; `mootmaker-api`'s AppSync
+    `log_config` + its own adopted, tagged, 120-day-retention log group + the logging IAM role
+    (wildcard-scoped to break the cycle); `mootmaker-release`'s own 120-day-retention log group +
+    `QueryDefinition`(s); the two IAM additions to the OIDC deploy role. **On `test`/`production`
+    specifically, `terraform import` each pre-existing Lambda/AppSync log group before the first
+    apply that introduces its `aws_cloudwatch_log_group` resource** — they already exist, and a
+    plain create fails against a name that's already taken; a fresh ephemeral environment has no
+    such issue since nothing exists there yet. Independent of the release pipeline itself — no PAT,
+    no `release.yml` dependency — can proceed any time, same as the ephemeral sweep and the
+    PR-checks work.
 13. **`[Claude]`** Build the three components' `pr-checks.yml` (Decision 12) and enable required
     status checks (branch protection) on each. Independent of the release pipeline itself — no PAT,
     no OIDC role, no `mootmaker-release` dependency — and can proceed in parallel with the rest of
@@ -696,6 +742,8 @@ No data migration beyond standing `test` back up from nothing.
 | **Automatic production rollback (Decision 10) masks a data-shape problem** that a redeploy of old code doesn't actually fix, giving false confidence that "rollback succeeded." | Medium | Accepted per OQ-2 — the GitHub Release still records that a rollback happened, so the masking is never silent even though it is automatic. |
 | **Over-broad OIDC role scope**, carried over from the first draft, now covering three deploy targets instead of one. | High | Same mitigation as before: least privilege, reviewed CFN, expect iteration during bring-up. |
 | **A scheduled ephemeral sweep and a release race on Terraform state.** | Low | State locking already exists; unchanged from the first draft. |
+| **Troubleshooting a release older than 120 days finds no CloudWatch detail**, only the GitHub Release's summary. | Low, accepted knowingly | The whole point of the retention policy added 2026-09-03 — permanence was never the goal, staying within scale-to-zero was. Bump `var.log_retention_days` per repo if 120 days ever proves too short in practice. |
+| **`terraform apply` fails on `test`/`production` when Decision 11's log-group resources are first introduced**, since the Lambda/AppSync log groups they name already exist (auto-created, unmanaged). | Medium, if missed | `terraform import` each one first — named explicitly in Rollout step 12 so it isn't discovered mid-apply against a real environment. |
 
 ---
 
@@ -722,11 +770,12 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       before it ever reaches `production`.
 - [ ] `[Claude]` Cut `production` over to the release pipeline as the sanctioned path.
 - [ ] `[Claude]` Build the scheduled ephemeral sweep (unchanged from the first draft).
-- [ ] `[Claude]` Build the tagged, retention-set Lambda log groups (`mootmaker-api`/
+- [ ] `[Claude]` Build the tagged, 120-day-retention Lambda log groups (`mootmaker-api`/
       `mootmaker-demo-data`), `mootmaker-api`'s AppSync logging (`log_config` + its own adopted,
-      tagged log group + wildcard-scoped logging role), `mootmaker-release`'s own log group +
-      `QueryDefinition`(s), and the two IAM additions to the OIDC deploy role (Decision 11) —
-      independent of the rest, can proceed any time.
+      tagged, 120-day-retention log group + wildcard-scoped logging role), `mootmaker-release`'s own
+      120-day-retention log group + `QueryDefinition`(s), and the two IAM additions to the OIDC
+      deploy role (Decision 11). Remember `terraform import` for each pre-existing log group on
+      `test`/`production` — independent of the rest, can proceed any time.
 - [ ] `[Claude]` Build `pr-checks.yml` for `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data`
       (Decision 12) and enable required status checks on each — independent of the rest, can proceed
       any time.
@@ -754,3 +803,5 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
 - A completed release's logs — at least one Terraform apply and one smoke-test run — are actually
   findable in CloudWatch via the saved query (Decision 11), including the relevant Lambda execution
   logs *and* AppSync's own request/resolver logs alongside them, not just theoretically wired up.
+- Every log group Decision 11 creates or adopts has its retention verified as actually set to 120
+  days against live AWS (`aws logs describe-log-groups`), not just declared in Terraform and assumed.
