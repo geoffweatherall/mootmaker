@@ -13,8 +13,9 @@ patterns for the equivalent scenario), and this doc isn't yet tagged per-fronten
 This is a first pass, not exhaustive, and not yet expanded in detail — expect it to grow.
 
 **Moved here 2026-08-19** from `mootmaker-e2e/use-cases.md` (that repo is now
-[mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra), and no longer owns
-a use-case list or a test suite of its own — see its README's History section). Only a couple of
+[mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs), and no
+longer owns a use-case list or a test suite of its own — see its README's History section). Only a
+couple of
 cases (A.1, F.38) are automated anywhere so far, in
 [mootmaker-webapp/acceptance/](https://github.com/geoffweatherall/mootmaker-webapp/tree/main/acceptance) —
 the rest of this list is still just a checklist, not a coverage report.

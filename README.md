@@ -54,7 +54,9 @@ condition, framed as transferable skills rather than a war story.
 | [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) | React SPA — TypeScript, MUI, Apollo Client, Vite |
 | [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) | Native Android app, a second frontend on the same API (not yet started) |
 | [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data) | Per-environment Lambda that keeps the demo populated — ships as part of the product |
-| [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) | Ephemeral-environment lifecycle and the SES email-reading pipeline |
+| [mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs) | Ephemeral-environment lifecycle scripts |
+| [mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing) | The persistent SES email-reading pipeline |
+| [mootmaker-release](https://github.com/geoffweatherall/mootmaker-release) | Release pipeline that ships `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data` to `test` and `production` |
 | [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) | DNS and mail identity for `mootmaker.com` |
 | [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) | The shared S3 bucket holding Terraform remote state |
 | [mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts) | AWS account guardrails — SCPs, IAM Identity Center, billing alerts |

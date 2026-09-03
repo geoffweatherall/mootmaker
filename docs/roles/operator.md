@@ -28,8 +28,10 @@ Security and privacy live here too, rather than in a hat of their own.
 | Account guardrails | `mootmaker-bootstrap-aws-accounts` |
 | Terraform remote state | `mootmaker-bootstrap-terraform` |
 | DNS and mail identity | `mootmaker-domain` |
-| Environment lifecycle scripts | `mootmaker-test-infra` |
+| Environment lifecycle scripts | `mootmaker-ephemeral-envs` |
+| Real-email testing pipeline | `mootmaker-email-testing` |
 | Demo-data tooling | `mootmaker-demo-data` |
+| Release pipeline | `mootmaker-release` |
 | Admin tooling (destructive) | `mootmaker-api` (`database-reset`/`database-repair` Lambdas) |
 | Privacy policy | [`../showcase/privacy-policy-draft.md`](../showcase/privacy-policy-draft.md) |
 
@@ -43,7 +45,7 @@ Security and privacy live here too, rather than in a hat of their own.
 ```bash
 aws s3 ls s3://remote-state-<account-id>/            # every environment with state
 aws lambda list-functions --query 'length(Functions)'
-mootmaker-test-infra/cleanup-stale-envs.sh           # what has been left behind
+mootmaker-ephemeral-envs/cleanup-stale-envs.sh       # what has been left behind
 ```
 
 ## Standing checks
