@@ -873,8 +873,10 @@ default of confirming before hard-to-reverse or production-affecting actions:
    root); one bug found and fixed along the way (`ThumbprintList` truncated by one character —
    [mootmaker-bootstrap-aws-accounts#6](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/issues/6)),
    `CREATE_COMPLETE` confirmed against live AWS, not just stack status.
-5. **`[Claude/Geoff]`** Create the PAT (OQ-3: PAT, not a GitHub App) and store it as a
-   `mootmaker-release` Actions secret.
+5. **`[Geoff]`** Create the PAT (OQ-3: PAT, not a GitHub App) and store it as a `mootmaker-release`
+   Actions secret. **Done 2026-09-03** — fine-grained PAT, `contents: write` only, scoped to exactly
+   the four repos named in Decision 3, stored as the `RELEASE_TAG_PAT` secret on `mootmaker-release`.
+   `release.yml` should reference this exact secret name when built.
 6. **`[Claude]`** Build each component's `release-build.yml` (reusable, build + unit + acceptance +
    artifact upload) and prove each one standalone before wiring up the orchestrator.
 7. **`[Claude]`** Build `mootmaker-release/release.yml`: `concurrency: { group: release,
@@ -940,7 +942,8 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       **Done 2026-09-03** ([PR #5](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/pull/5)).
 - [x] `[Geoff]` Apply that stack via the CloudFormation console in the workload account. **Done
       2026-09-03**, verified against live AWS.
-- [ ] `[Claude/Geoff]` Create and store the cross-repo tag-push PAT as a `mootmaker-release` secret.
+- [x] `[Geoff]` Create and store the cross-repo tag-push PAT as a `mootmaker-release` secret. **Done
+      2026-09-03** — stored as `RELEASE_TAG_PAT`.
 - [ ] `[Claude]` Build each component's `release-build.yml`.
 - [ ] `[Claude]` Build `mootmaker-release/release.yml` end to end: `concurrency: { group: release,
       cancel-in-progress: false }` (NB confirmed 2026-09-03 — queue overlapping triggers, don't
