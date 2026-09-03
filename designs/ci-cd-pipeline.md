@@ -332,6 +332,15 @@ acceptance layers:
 testing twice. Reusing the existing SES-based test-infra email support for the `test`-stage signup
 flow avoids building new email-verification plumbing.
 
+**Output config, deliberately the low end (added 2026-09-03):** `reporter: 'json'`,
+`use: { trace: 'off', video: 'off', screenshot: 'off' }`. Playwright's reporter output (test/step
+names, pass/fail, timing, error text on failure) and its trace/video/screenshot artifacts are
+separate config axes — the former is what makes Decision 11's CloudWatch shipping human- and
+AI-readable at a few KB per run; the latter is what can balloon into hundreds of MB per run (a full
+DOM+network+screenshot recording per test, not log text), and is deliberately off entirely here,
+screenshots included. That heavier tracing already exists, deliberately, in the acceptance suite —
+smoke tests are a five-minute human-tester-shaped check, not another place to reproduce it.
+
 **Where this code lives (resolved 2026-09-03, OQ-1):** `mootmaker-release`, not `mootmaker-webapp` or
 `mootmaker-ephemeral-envs`. Neither of those was quite right: `mootmaker-webapp` would have owned
 tests that assert on `mootmaker-api` and `mootmaker-demo-data` behaviour too, and
@@ -383,6 +392,14 @@ end of each job — `if: always()`, so a failure ships too, not just a pass — 
 OIDC-derived credentials already present for deploying, and pushes the captured, structured output
 via `aws logs create-log-stream` (if needed) + `aws logs put-log-events`. A plain script, matching
 this project's own bash-over-third-party-actions convention, not a marketplace action.
+
+**Only reporter/output text ever ships here — never trace, video, or screenshot artifacts (found on
+review 2026-09-03, see Decision 9's own output config).** Not just a cost preference: those are
+binary and can run to hundreds of MB per run (a full DOM/network/screenshot recording, not log
+text), and `PutLogEvents` caps a single log event at 256KB regardless — the wrong tool for that kind
+of artifact even before cost enters into it. If a failed smoke test ever needs a screenshot, that's
+a GitHub Actions artifact upload, a separate mechanism with its own lifecycle, not part of this log
+group at all.
 
 A `AWS::Logs::QueryDefinition` (`aws_cloudwatch_query_definition` in Terraform) is the saved,
 reusable query over this — unaffected in shape by CloudWatch's December 2024 addition of two more
