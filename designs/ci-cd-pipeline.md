@@ -132,6 +132,14 @@ Each component repo still owns its own
 build-and-deploy logic as a *reusable* workflow (`on: workflow_call`) that `mootmaker-release`'s
 `release.yml` calls — see Decision 3 — so this repo coordinates, it doesn't duplicate.
 
+**Concurrent triggers, guarded (confirmed 2026-09-03):** nothing about `workflow_dispatch` itself
+stops two release runs from overlapping — a human and an AI both starting one, or a double-click —
+which could race on reading "the current version," on tagging, or on deploying to the same standing
+`test`/`production`. `release.yml` declares `concurrency: { group: release, cancel-in-progress:
+false }`: a second trigger queues behind the first rather than running alongside it or killing it
+mid-deploy. Queuing, not cancelling, is the deliberate half of that — cancelling a release mid-`terraform
+apply` is a worse outcome than making the second trigger simply wait.
+
 ### 2. Free tier — the constraint is AWS spend, not GitHub Actions minutes
 
 **Decision:** state this plainly in the design rather than let "stay in free tier" imply GitHub
@@ -349,14 +357,20 @@ acceptance layers:
   email-reading support), sign in, create a meeting, view existing (demo) data, reset a password,
   delete the account just created. Roughly what a human tester would actually click through in five
   minutes — explicitly *not* a re-run of the full acceptance suite.
-- **`production`-stage smoke test:** narrower still — sign in as the published demo user, look
-  around, create one more meeting for the demo user, spot-check that data looks sane. No new-account
-  signup, no deletion, no password reset — production is a demo, and the demo user is the thing that
-  matters there.
+- **`production`-stage smoke test:** narrower, and — corrected 2026-09-03 — **strictly read-only,
+  no exceptions**: sign in as the published demo user, navigate around the app, confirm data reads
+  from the database and displays correctly. No new-account signup, no deletion, no password reset,
+  and (this design's own first draft got this wrong) **no meeting creation either** — production
+  gets no writes from this stage at all, only `test`'s smoke test mutates data.
 
 **Reasoning:** matches what was asked for directly — a human-tester-shaped check, not acceptance
 testing twice. Reusing the existing SES-based test-infra email support for the `test`-stage signup
-flow avoids building new email-verification plumbing.
+flow avoids building new email-verification plumbing. The asymmetry between the two stages is
+deliberate, confirmed 2026-09-03: `test` mutating data (signup, meeting creation, password reset,
+account deletion) is fine — that's exactly what closes the "does a write actually work" gap this
+whole layer exists for — but `production`'s smoke test verifying *only* reads means it can never be
+the thing that leaves stray data behind release after release, so there's no accumulation question
+to solve here the way there was for logs.
 
 **Output config, deliberately the low end (added 2026-09-03):** `reporter: 'json'`,
 `use: { trace: 'off', video: 'off', screenshot: 'off' }`. Playwright's reporter output (test/step
@@ -616,6 +630,12 @@ symmetric — see the Non-goals addition on Spotless for why.
 protection settings changed yet) — scoped in for Geoff to review as part of this design reaching
 `Ready`, matching everything else in the Implementation checklist.
 
+**`mootmaker-release` itself considered and deliberately left out of this requirement (confirmed
+2026-09-03)** — not an oversight, despite it holding the highest-blast-radius code in this whole
+design (tag push, deploy, rollback). It isn't a "deployable component" the same way the other three
+are — a different, lighter check would fit it better than duplicating this one — and isn't scoped
+in here.
+
 ---
 
 ## Choices you had me make
@@ -672,9 +692,13 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 - **NB-1 — Should `test`'s Terraform state ever be reset from scratch** (rather than left to
   accumulate release after release, same as `production`), and on what trigger, if ever? Currently
   no plan to — `production` never gets this either — but worth a deliberate "no" rather than silence.
-- **NB-2 — Does demo-data need an explicit one-off seed invocation after deploying to `test`**, or is
-  waiting for its own weekly schedule acceptable? The smoke test's "view some data" step needs
-  *something* to be there; see Technical considerations.
+- **NB-2 — Resolved 2026-09-03: yes**, an explicit invocation, not the weekly schedule. A freshly
+  created `test` (or one just reset) has had zero prior weekly ticks, so `test`-stage's own smoke
+  test — "view existing (demo) data" — would find nothing on exactly the runs where the environment
+  is newest. Deploy-to-`test` invokes `mootmaker-demo-data`'s Lambda once, synchronously, right
+  after deploying it and before the smoke test runs. Same treatment isn't needed for `production` —
+  the corrected `production`-stage smoke test (Decision 9) is read-only and never depends on
+  freshly-generated data existing.
 - **NB-3 — Resolved 2026-09-03: yes**, required, for the three deployable components — see Decision
   12. Carried over unresolved from the first draft (NB-1 there) until reconsidered on review.
 - **NB-4 — Does the schema-publish step (now already live in `mootmaker-api`) need any coordination
@@ -731,9 +755,9 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 - **GitHub Actions log retention defaults to around 90 days** — the GitHub Release (Decision 5) is
   what outlives that, not the raw logs; link to the run from the Release rather than relying on the
   run itself staying available.
-- **`test` needs demo-data seeded the same way `production` gets it**, or the smoke test's "view some
-  data" step has nothing to look at. Whether that's the weekly schedule alone or an explicit
-  post-deploy invocation is NB-2.
+- **`test` needs demo-data seeded, explicitly, on every deploy-to-`test`** (NB-2, resolved) — an
+  explicit post-deploy Lambda invocation, not the weekly schedule alone, since a freshly created or
+  reset `test` has had no prior tick.
 - **`teardown-ephemeral-env.sh` already refuses to touch `test` or `production`** by name-shape
   (Decision 6) — no change needed there, but worth a docs pointer so nobody re-derives this from
   scratch.
@@ -799,9 +823,11 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
    `mootmaker-release` Actions secret.
 6. **`[Claude]`** Build each component's `release-build.yml` (reusable, build + unit + acceptance +
    artifact upload) and prove each one standalone before wiring up the orchestrator.
-7. **`[Claude]`** Build `mootmaker-release/release.yml`: version computation, tagging, calling each
-   component's `release-build.yml`, deploy-to-`test`, smoke-test-`test`, deploy-to-`production`,
-   smoke-test-`production`, GitHub Release publish, rollback-on-failure.
+7. **`[Claude]`** Build `mootmaker-release/release.yml`: `concurrency: { group: release,
+   cancel-in-progress: false }` (NB confirmed 2026-09-03 — queue overlapping triggers, don't cancel
+   mid-deploy); version computation, tagging, calling each component's `release-build.yml`,
+   deploy-to-`test` (including the explicit demo-data seed invocation, NB-2), smoke-test-`test`,
+   deploy-to-`production`, smoke-test-`production`, GitHub Release publish, rollback-on-failure.
 8. **`[Claude]`** Build the smoke-test suites in `mootmaker-release` (OQ-1), including its Node/
    Playwright setup from scratch — the repo has none yet.
 9. **`[Geoff]` + `[Claude]`** Stand up `test` as a real environment for the first time under this
@@ -862,7 +888,12 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       2026-09-03**, verified against live AWS.
 - [ ] `[Claude/Geoff]` Create and store the cross-repo tag-push PAT as a `mootmaker-release` secret.
 - [ ] `[Claude]` Build each component's `release-build.yml`.
-- [ ] `[Claude]` Build `mootmaker-release/release.yml` end to end, including the `record-outcome`
+- [ ] `[Claude]` Build `mootmaker-release/release.yml` end to end: `concurrency: { group: release,
+      cancel-in-progress: false }` (NB confirmed 2026-09-03 — queue overlapping triggers, don't
+      cancel mid-deploy); version computation, tagging, calling each component's `release-build.yml`,
+      deploy-to-`test` (including the explicit demo-data seed invocation, NB-2), smoke-test-`test`,
+      deploy-to-`production`, smoke-test-`production`, GitHub Release publish, rollback-on-failure;
+      including the `record-outcome`
       job (Decision 5) — `if: always()`, branching on the tag-push job's own output, not on
       whether later jobs succeeded.
 - [ ] `[Claude]` Build the smoke-test suites in `mootmaker-release`, including its Node/Playwright
