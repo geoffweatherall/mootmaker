@@ -284,6 +284,16 @@ existing `mootmaker-ephemeral-envs/create-ephemeral-env.sh` / `undeploy.sh`, exa
 and that environment is torn down immediately after, regardless of whether the tests passed. Logs
 and test reports are captured as workflow artifacts before teardown.
 
+**Confirmed 2026-09-03: a GitHub Actions artifact is the right, and final, home for this stage's
+output — it does not also ship to CloudWatch (Decision 11).** Considered and deliberately rejected,
+not an oversight: Decision 11's whole reason for existing is that a release's summary (Decision 5)
+needs durable, queryable detail behind it once a version has actually been claimed. Stage 1 runs
+*before* any tag exists — a failed Stage 1 attempt claims no version at all, so there is nothing
+for its logs to be *the detail behind*. The same reasoning extends to the ephemeral environment's
+own Lambda/AppSync logs from this stage — they are not pulled out and shipped anywhere before
+teardown; whatever `verify`/`acceptance` output already captures as a workflow artifact is
+sufficient for a stage this transient.
+
 **Reasoning:** this stage is answering a different question than `test` is ("does this component
 work at all, in isolation, right now") and doesn't need persistence to answer it — a fresh
 create-and-destroy cycle is exactly right here, and reuses infrastructure that already exists and
@@ -399,6 +409,13 @@ this last one **only for the release pipeline's own `release-build.yml` run, nev
 GitHub's own Checks tab is already a fine home for it — shipping it here would just be noise with
 nothing to correlate it against. Consistent fields across everything shipped (`version`, `stage`,
 `component`, `outcome`) are what make this queryable rather than just archived.
+
+**Deliberately not shipped here, confirmed 2026-09-03: Stage 1's *acceptance*-test output** (as
+opposed to its unit-test output, which is shipped) **and the ephemeral build environment's own
+Lambda/AppSync logs** — same underlying reason as excluding PR checks, not a separate exception.
+Stage 1 runs before any tag exists; if it fails, no version was ever claimed, so there's no release
+for this detail to sit behind. A GitHub Actions artifact (Decision 7) is the right, and final, home
+for it.
 
 **Mechanism, since GitHub Actions has no native path into CloudWatch on its own:** a step at the
 end of each job — `if: always()`, so a failure ships too, not just a pass — uses the same
