@@ -281,7 +281,7 @@ DynamoDB writes would be faster and would let it construct states the API reject
 also let it generate data the API would never have allowed. If that trade is ever made, the
 storage-model library comes straight back.
 
-**The GraphQL half is already designed.** [`../designs/graphql-schema-sharing.md`](../designs/graphql-schema-sharing.md)
+**The GraphQL half is already designed.** [`../designs/archive/graphql-schema-sharing.md`](../designs/archive/graphql-schema-sharing.md)
 (Drafting, 2026-08-29) settles the distribution mechanism — GitHub Packages, hosting npm and Maven
 from one account, chosen over versioned S3 objects, Release assets and a schema registry — and
 decides to publish the raw `.graphql` file rather than generated types **for a first version**.
@@ -296,7 +296,7 @@ design lands first, since publishing is a pipeline step; and this feature's non-
 `dateFormat`/`timeFormat` would have been a major bump under semver, which is a useful test that
 the classification rules are drawn in the right place.
 
-*Found it, so Q5 withdrawn:* [`../designs/graphql-schema-sharing.md`](../designs/graphql-schema-sharing.md)
+*Found it, so Q5 withdrawn:* [`../designs/archive/graphql-schema-sharing.md`](../designs/archive/graphql-schema-sharing.md)
 (Status `Drafting`, 2026-08-29). Worth reading before either half of this becomes its own design —
 if it already settles the publishing question, the storage-model half may just need to follow the
 same convention rather than invent a second one.

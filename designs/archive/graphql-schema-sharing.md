@@ -9,11 +9,20 @@ that they agree, and `mootmaker-android` will need the same schema a third time.
 proposes publishing the schema as a versioned artifact — npm via npmjs.com, Maven via GitHub
 Packages — so every consumer reads one file instead of re-typing it.
 
-**Status:** Building — 2026-09-02
+**Status:** Shipped — 2026-09-03
 
-*(Promoted straight from `Drafting` to `Building` on Geoff's instruction to implement. The `Ready`
-stamp was never applied — noted rather than glossed over, since `Ready` is the one human-gated
-transition in the lifecycle. Every blocking question had already been answered on 2026-09-02.)*
+*(Went `Drafting` → `Building` → `Shipped` without a `Ready` stamp, on Geoff's instruction to
+implement — noted rather than glossed over, since `Ready` is the one human-gated transition in the
+lifecycle. Every blocking question had been answered first.)*
+
+`@mootmaker/schema` publishes to npmjs.com and `com.mootmaker:mootmaker-schema` to GitHub Packages
+on merge when the schema changes, by OIDC trusted publishing with no token anywhere. `1.0.1` was the
+first artifact through the automated path and carries a provenance attestation naming the workflow
+and commit that produced it. `mootmaker-webapp` generates its types and operations from the schema,
+its deploy refuses an API serving an older one, and a publish opens a bump PR.
+
+The Java consumers still build operations as hand-written strings — deferred deliberately by
+Decision 9, and the artifact they will use is already published and versioned.
 
 ---
 
