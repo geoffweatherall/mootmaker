@@ -1020,7 +1020,50 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       2026-09-03**, verified against live AWS.
 - [x] `[Geoff]` Create and store the cross-repo tag-push PAT as a `mootmaker-release` secret. **Done
       2026-09-03** — stored as `RELEASE_TAG_PAT`.
-- [ ] `[Claude]` Build each component's `release-build.yml`.
+- [x] `[Claude]` Build each component's `release-build.yml`. **Done 2026-09-03**, and proven
+      standalone against real AWS at a throwaway `v*` tag rather than only reviewed:
+      `mootmaker-api` 40 acceptance tests, `mootmaker-demo-data` 10, `mootmaker-webapp` 106
+      Playwright tests against a real CloudFront distribution and real Cognito emails — each
+      uploading its promotable artifact, each leaving no resources behind (verified with
+      `aws … list-*`, not from the workflow's exit code).
+      **Twelve real defects surfaced getting there, none of which review had caught.** They are
+      worth recording because most were in the pre-existing bootstrap and product code, not in the
+      new workflows:
+      - **`terraform` is not preinstalled on GitHub runners.** Every `deploy.sh`/`undeploy.sh` call
+        needs `hashicorp/setup-terraform@v3` first. Missed initially in all three workflows.
+      - **`job_workflow_ref` cannot be used as an AWS IAM condition key** — GitHub's own AWS guide
+        states "Support for custom claims for OIDC is unavailable in AWS"; only `sub` and `aud`
+        work. The trust policy as written could never have matched, and an unsupported key fails
+        *silently* as a generic authorization denial
+        ([bootstrap-aws-accounts#9](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/issues/9)).
+      - **This account uses GitHub's immutable subject claim**, so `sub` carries numeric owner and
+        repo IDs (`repo:geoffweatherall@1743794/mootmaker-api@1285433321:ref:…`). The conventional
+        `repo:owner/name:ref:…` pattern every tutorial shows does not match. Pinning the IDs is now
+        deliberate: they survive a rename, so a repo renamed away cannot carry this trust with it.
+      - **Eight missing IAM permissions on the deploy role**, all sharing one cause: the policy was
+        written for *apply-time* actions and omitted the reads Terraform performs during *refresh*
+        (`route53:GetHostedZone`/`ListHostedZones`/`ListTagsForResource`,
+        `ses:GetIdentityVerificationAttributes`, `dynamodb:DescribeContinuousBackups`,
+        `iam:ListRolePolicies`, `ssm:DescribeParameters`, `lambda:ListVersionsByFunction`, the S3
+        bucket-property reads, `s3:ListBucketVersions`), plus two runtime ones the deploy path never
+        needed (`lambda:InvokeFunction` for the acceptance suites' `database-reset` call, and
+        `sqs:ReceiveMessage` on the email-testing queue).
+        **The consequence is worse than a failed deploy:** `terraform destroy` refreshes first, so a
+        missing *read* strands infrastructure. Four separate runs left live DynamoDB tables, Lambdas
+        and an S3 bucket that had to be destroyed by hand. Decision 7's "always torn down" guarantee
+        depends on the deploy role's read permissions, not just its write ones — worth stating,
+        because it is not obvious.
+      - **`mootmaker-demo-data`'s acceptance suite was asserting on a silent SDK retry**
+        ([demo-data#16](https://github.com/geoffweatherall/mootmaker-demo-data/issues/16)).
+        `apiCallTimeout`/`apiCallAttemptTimeout` do not reach the HTTP client's socket read timeout,
+        which defaults to 30s; a cold-start seed takes ~35s, so the socket was torn down, the SDK
+        retried, and the retry correctly reported "nothing to do" against data the first invocation
+        had already created. Pre-existing, and invisible when run by hand against a reused
+        environment — the pipeline is simply the first thing to exercise a consistently cold one.
+      **Diagnostic gap found along the way:** `cloudtrail:LookupEvents` is denied under the
+      `WorkloadAdministrator` permission set, so an OIDC denial cannot be diagnosed the normal way.
+      The claims had to be printed from inside the workflow instead. Worth granting before the next
+      piece of OIDC work.
 - [ ] `[Claude]` Build `mootmaker-release/release.yml` end to end: `concurrency: { group: release,
       cancel-in-progress: false }` (NB confirmed 2026-09-03 — queue overlapping triggers, don't
       cancel mid-deploy); version computation, tagging, calling each component's `release-build.yml`,
