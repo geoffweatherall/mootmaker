@@ -64,6 +64,9 @@ and isn't repeated in full below except where the new release flow changes it.
   smoke test.
 - A durable, greppable release record — both for troubleshooting and because it's now the source of
   truth for "what version is `test`/`production` running."
+- **Consolidated CloudWatch logging** for the release process — Terraform output, smoke-test
+  output, and the relevant Lambda execution logs, queryable together and durable beyond GitHub
+  Actions' 90-day retention. See Decision 11.
 - The scheduled ephemeral-environment sweep, unchanged from the first draft, and now explicitly
   scoped to never touch `test` (see Technical considerations — the teardown script already refuses
   to).
@@ -346,6 +349,65 @@ doesn't actually fix) is accepted knowingly — the alternative, leaving `produc
 while waiting on a human, is worse for a public demo, and the GitHub Release (Decision 5) still
 records that a rollback happened and why, so the masking is never silent.
 
+### 11. Consolidated CloudWatch logging: durable full detail behind Decision 5's summary
+
+**Decision (added 2026-09-03):** Decision 5's GitHub Release solves "what happened, roughly" but
+only *links* to Actions logs, which age out at ~90 days — the raw detail (Terraform's own output,
+the smoke test's assertions) has no durable home. `mootmaker-release` gains one new CloudWatch Log
+Group (e.g. `/mootmaker/release-pipeline`) — its first real piece of Terraform, deployed once,
+persistent, no environment argument, the same shape `mootmaker-domain` already uses for shared
+infra. Every stage that produces meaningful output ships it there in **structured** form, not raw
+console text: `terraform apply -json` for every Terraform stage, Playwright's JSON reporter for the
+smoke tests. Consistent fields across everything shipped (`version`, `stage`, `component`,
+`outcome`) are what make this queryable rather than just archived.
+
+A `AWS::Logs::QueryDefinition` (`aws_cloudwatch_query_definition` in Terraform) is the saved,
+reusable query over this — unaffected in shape by CloudWatch's December 2024 addition of two more
+query languages (OpenSearch SQL and PPL, alongside the original Logs Insights QL) beyond the
+console change itself: `QueryDefinition` simply gained a `QueryLanguage` property
+(`CWLI`/`SQL`/`PPL`, defaulting to the original). Classic Logs Insights QL is the right choice here
+— this doesn't need SQL's or PPL's extra power, just `fields`/`filter`/`stats` over structured
+fields. `QueryDefinition` also supports named `Parameters` (placeholder variables filled in at run
+time), so one saved query with a `version` parameter covers every release, rather than one saved
+query per release.
+
+**Including the Lambda logs from the smoke test's own API calls — yes, and how:** every Lambda
+already logs to its own `/aws/lambda/<function-name>` group automatically; CloudWatch Logs Insights
+queries can span multiple log groups in one query. So the same saved query can pull together the
+pipeline's own shipped logs *and* `mootmaker-api`/`mootmaker-demo-data`'s Lambda execution logs for
+the same time window — a genuine "what the smoke test asserted, and what the Lambda actually did
+while handling it" view, not two separate places to look.
+
+**How `mootmaker-release`'s Terraform knows which Lambda log groups to include — tag-based
+discovery, not a naming convention and not a cross-repo state export.** A naming convention
+(`/aws/lambda/<environment>-mootmaker-<function>`) would work today but silently goes stale the
+moment a Lambda is renamed or added, with no build-time signal. Reading `mootmaker-api`'s Terraform
+state directly (`terraform_remote_state`) was considered and rejected — it's exactly the "hard
+remote-state dependency" this project already avoids elsewhere (`mootmaker-api/cognito.tf` finds
+`mootmaker-domain`'s SES identity via a `data` source specifically instead of one; same reasoning
+for the Route53 zone). Instead: `mootmaker-api` and `mootmaker-demo-data` gain **explicit**
+`aws_cloudwatch_log_group` resources for their Lambdas (neither has one today — verified, both rely
+entirely on the auto-created default, with no retention set either way, which this also fixes),
+tagged consistently (e.g. `mootmaker:release-logs = "true"`). `mootmaker-release`'s Terraform
+discovers them dynamically via `data "aws_resourcegroupstaggingapi_resources"` filtered on that
+tag, rather than listing names anywhere — self-updating as Lambdas are added, removed, or renamed,
+and staying consistent with this project's existing loose-coupling preference. Needs one small IAM
+addition to the OIDC deploy role: `tag:GetResources`, alongside the `logs:*` write access the
+pipeline's own shipped logs need — same incremental-growth pattern as every other addition to that
+role's policy so far.
+
+**Relationship to Decision 5, kept deliberately distinct:** the GitHub Release stays the index —
+version, SHAs, pass/fail per stage, "what happened at a glance." CloudWatch becomes the thing it
+points *into* for full detail, not a replacement for it. The Release can embed a direct Logs
+Insights query URL (pre-filled with that release's `version` parameter), so a human — or an AI
+session with plain `aws logs start-query`/`get-query-results` CLI access, nothing special needed —
+lands straight in the relevant slice of logs instead of hunting through Actions history.
+
+**Cost:** negligible at this project's volume — CloudWatch Logs ingestion/storage pricing is small
+per GB, and a handful of releases a month producing a few MB each doesn't approach a dollar.
+Retention on the new log group should still be set explicitly (e.g. a year) rather than left on
+whatever the default happens to be.
+
 ---
 
 ## Choices you had me make
@@ -418,13 +480,13 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 | Repository | Impact |
 |---|---|
 | `mootmaker` (hub) | No `release.yml` here (Decision 1, revised) — impact is docs-only. `docs/process/principles.md`'s "`test` was retired... could not justify its standing cost" line needs rewriting to reflect Decision 6's reasoning, not deleting the history but adding the reversal and why. `docs/process/environments.md`'s "exactly two kinds" becomes three. |
-| `mootmaker-release` (new repo) | Gains `release.yml` (the orchestrator, `workflow_dispatch`-triggered), the PAT secret, the cross-component smoke-test suites (resolved home, OQ-1), and publishes the GitHub Release (Decision 5). Scaffolded 2026-09-03; `release.yml` and the smoke tests themselves not yet built. |
-| `mootmaker-api` | Gains a reusable `release-build.yml` (`on: workflow_call`) doing build + unit test + acceptance-against-fresh-ephemeral + artifact upload, called by `mootmaker-release`'s `release.yml` per release. |
-| `mootmaker-webapp` | Same shape as `mootmaker-api`. Its PR checks additionally run **`npm run codegen:check`** — see Technical considerations; "build and unit tests" does not cover it. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)), unblocking Decision 8. |
-| `mootmaker-demo-data` | Same shape as the other two — first time it's included in an automated pipeline. |
+| `mootmaker-release` (new repo) | Gains `release.yml` (the orchestrator, `workflow_dispatch`-triggered), the PAT secret, the cross-component smoke-test suites (resolved home, OQ-1), and publishes the GitHub Release (Decision 5). Also gains its **first real Terraform** (Decision 11): the `/mootmaker/release-pipeline` CloudWatch Log Group and its `QueryDefinition`(s), deployed once like `mootmaker-domain`'s pattern. Scaffolded 2026-09-03; none of this built yet. |
+| `mootmaker-api` | Gains a reusable `release-build.yml` (`on: workflow_call`) doing build + unit test + acceptance-against-fresh-ephemeral + artifact upload, called by `mootmaker-release`'s `release.yml` per release. Also gains explicit, tagged `aws_cloudwatch_log_group` resources for its Lambdas (Decision 11) — none exist today, so this also fixes an unset-retention gap along the way. |
+| `mootmaker-webapp` | Same shape as `mootmaker-api`. Its PR checks additionally run **`npm run codegen:check`** — see Technical considerations; "build and unit tests" does not cover it. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)), unblocking Decision 8. No Lambdas, so Decision 11's log-group tagging doesn't apply here. |
+| `mootmaker-demo-data` | Same shape as `mootmaker-api` — first time it's included in an automated pipeline, and gains the same tagged Lambda log group treatment (Decision 11). |
 | `mootmaker-ephemeral-envs` (renamed from `mootmaker-test-infra` 2026-09-03) | `create-ephemeral-env.sh`/`teardown-ephemeral-env.sh` unchanged in mechanism; docs updated to describe `test` as a second protected, standing name (the scripts already treat it as one, per Decision 6). |
 | `mootmaker-email-testing` (split from `mootmaker-test-infra` 2026-09-03) | No direct pipeline changes — the standing `test` environment's smoke test reads from its persistent SQS queue the same way `mootmaker-webapp`'s existing `e2e`/`acceptance` suites already do. |
-| `mootmaker-bootstrap-aws-accounts` | Gains the OIDC identity provider + deploy role (OQ-4), scoped to three deploy targets. |
+| `mootmaker-bootstrap-aws-accounts` | Gains the OIDC identity provider + deploy role (OQ-4), scoped to three deploy targets. Its policy needs two more additions for Decision 11: `logs:*` scoped to the new release-pipeline log group, and `tag:GetResources` for the tag-based Lambda-log-group discovery. |
 
 ---
 
@@ -535,6 +597,11 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 11. **`[Claude]`** Ephemeral sweep (unchanged from the first draft): report-only first, automatic
     teardown only after a clean trial period. Independent of the rest of this rollout and can proceed
     in parallel.
+12. **`[Claude]`** Consolidated CloudWatch logging (Decision 11): the tagged, retention-set Lambda
+    log groups in `mootmaker-api`/`mootmaker-demo-data`; `mootmaker-release`'s own log group +
+    `QueryDefinition`(s); the two IAM additions to the OIDC deploy role. Independent of the release
+    pipeline itself — no PAT, no `release.yml` dependency — can proceed any time, same as the
+    ephemeral sweep and the PR-checks work.
 
 No data migration beyond standing `test` back up from nothing.
 
