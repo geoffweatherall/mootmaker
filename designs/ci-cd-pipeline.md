@@ -212,9 +212,24 @@ as stated — this pipeline does not support releasing one component independent
 **Decision:** the final step of a release — success or failure — publishes a GitHub Release (or, for
 a failed attempt that never reached `production`, a clearly-marked draft/failed Release, or an issue
 if no version was ever tagged) on `mootmaker-release`, containing: the version, the `bump` used, each
-component's commit SHA and tag, links to every stage's Actions run, and a pass/fail per stage
+component's commit SHA and tag, links to every stage's Actions run, a pass/fail per stage
 (build+acceptance / deploy-to-test / smoke-test-test / deploy-to-production /
-smoke-test-production).
+smoke-test-production), and — resolved 2026-09-03, NB-4 — the `@mootmaker/schema` npm package
+version published from `mootmaker-api`'s tagged commit.
+
+**NB-4 resolved 2026-09-03: traceability only, no coupling.** The schema (`api/mootmaker.graphql`)
+already publishes independently on every merge to `mootmaker-api`'s `main`, versioned by its own
+semver in `api/package.json` (see that repo's README, "The schema is published as a package") —
+that mechanism is unrelated to this pipeline and stays unrelated: this design does not gate
+tagging on it, does not wait for it, and does not make the two version numbers match. All this adds
+is a lookup — `npm view @mootmaker/schema version` (or the GitHub Packages equivalent) for the exact
+commit SHA being tagged as `mootmaker-api`'s side of the release, recorded as one more field in
+`record-outcome`'s Release body — so a human or AI looking at a release later, debugging something
+that smells like a schema mismatch, can see which schema version shipped with it without cross-
+referencing `api`'s own commit history separately. Rejected: gating the release on publish-schema.yml
+having succeeded — that makes this pipeline depend on a workflow with its own independent trigger
+and timing, for a check that a webapp build already effectively performs itself (it fails to build
+against a schema version its generated code doesn't match).
 
 **Reasoning:** Actions run logs are the obvious first source but default to a 90-day retention
 window and aren't searchable outside the Actions UI/API. A GitHub Release is permanent, browsable
@@ -267,6 +282,16 @@ already refuses to run against anything that isn't shaped like `<kind>-<YYMMDD>-
 own error message already says so in terms of `test`: *"this script only ever touches ephemeral
 environments, never 'test' or 'production'"* — written before this reversal, evidently anticipating
 it. No change needed there; `test` is already a protected name in the tooling.
+
+**NB-1 resolved 2026-09-03: `test`'s Terraform state is never reset from scratch, automatically or
+on a schedule** — confirmed, not just left silent by default. It is treated identically to
+`production` in this respect: state accumulates release after release, indefinitely. This is a
+deliberate consequence of Decision 6's own reasoning — the entire value of `test` is that its state
+history looks like `production`'s (an ever-updated, never-fresh apply target); resetting it on any
+schedule would periodically hand it back the ephemeral environments' "always a create" character
+that `test` exists specifically to not have. If a reset is ever genuinely needed (state corruption
+beyond what Decision 6a's manual-inspection path can fix), that's a deliberate, manual, one-off
+action outside the pipeline — not something this design builds automation for.
 
 ### 6a. A failed `test`-stage smoke test halts the release and leaves `test` exactly as it is
 
@@ -689,9 +714,8 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 
 ### Non-blocking
 
-- **NB-1 — Should `test`'s Terraform state ever be reset from scratch** (rather than left to
-  accumulate release after release, same as `production`), and on what trigger, if ever? Currently
-  no plan to — `production` never gets this either — but worth a deliberate "no" rather than silence.
+- **NB-1 — Resolved 2026-09-03: no**, never reset automatically or on a schedule — `test`'s state
+  accumulates indefinitely, identically to `production`. See Decision 6.
 - **NB-2 — Resolved 2026-09-03: yes**, an explicit invocation, not the weekly schedule. A freshly
   created `test` (or one just reset) has had zero prior weekly ticks, so `test`-stage's own smoke
   test — "view existing (demo) data" — would find nothing on exactly the runs where the environment
@@ -701,9 +725,9 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
   freshly-generated data existing.
 - **NB-3 — Resolved 2026-09-03: yes**, required, for the three deployable components — see Decision
   12. Carried over unresolved from the first draft (NB-1 there) until reconsidered on review.
-- **NB-4 — Does the schema-publish step (now already live in `mootmaker-api`) need any coordination
-  with the release version**, e.g. tagging the published schema artifact with the same release
-  version? Not addressed here; worth a look once this pipeline exists.
+- **NB-4 — Resolved 2026-09-03: traceability only**, not coupling. The release record (Decision 5)
+  now includes the `@mootmaker/schema` version published from the tagged `mootmaker-api` commit;
+  publishing itself stays fully independent (own trigger, own semver, no gating).
 
 ---
 
