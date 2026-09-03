@@ -68,8 +68,8 @@ and isn't repeated in full below except where the new release flow changes it.
 - A durable, greppable release record — both for troubleshooting and because it's now the source of
   truth for "what version is `test`/`production` running."
 - **Consolidated CloudWatch logging** for the release process — Terraform output, smoke-test
-  output, and the relevant Lambda execution logs, queryable together and durable beyond GitHub
-  Actions' 90-day retention. See Decision 11.
+  output, the relevant Lambda execution logs, and AppSync's own request/resolver logs, queryable
+  together and durable beyond GitHub Actions' 90-day retention. See Decision 11.
 - The scheduled ephemeral-environment sweep, unchanged from the first draft, and now explicitly
   scoped to never touch `test` (see Technical considerations — the teardown script already refuses
   to).
@@ -406,6 +406,32 @@ addition to the OIDC deploy role: `tag:GetResources`, alongside the `logs:*` wri
 pipeline's own shipped logs need — same incremental-growth pattern as every other addition to that
 role's policy so far.
 
+**AppSync's own request/resolver logs are included too — but this needs two new pieces, not just
+tagging (found on review 2026-09-03).** `mootmaker-api`'s `aws_appsync_graphql_api` has no
+`log_config` block today — AppSync CloudWatch logging isn't enabled at all yet, verified against
+the actual resource, not assumed. Two additions:
+
+1. **Turn logging on**: a `log_config` block (`field_log_level = "ALL"`, a new
+   `cloudwatch_logs_role_arn` for the IAM role AppSync assumes to write). This is the GraphQL-level
+   complement to the Lambda's own execution logs — which operation was called, auth outcome,
+   resolver timing/mapping errors — not a duplicate of them.
+2. **Adopt its log group for tagging**, the same way as the Lambda ones, with one real wrinkle:
+   AppSync always writes to a fixed-convention name, `/aws/appsync/apis/<api-id>` — not redirectable
+   — and the API ID is only known *after* `aws_appsync_graphql_api.this` is created, unlike a
+   Lambda's function name (which is set by the config, so knowable before applying). Still fine
+   within one apply — `resource "aws_cloudwatch_log_group" "appsync" { name =
+   "/aws/appsync/apis/${aws_appsync_graphql_api.this.id}" ... }`, Terraform's dependency graph
+   creates the API first and the log group second, same tag applied.
+
+**Near-circular dependency, resolved with an accepted `Resource: "*"`-style wildcard:** if the
+logging IAM role's policy tried to scope `logs:PutLogEvents` to the *exact* log group ARN, that
+would depend on the API's ID, while the API resource's own `log_config` depends on that IAM role's
+ARN — a genuine cycle. Broken by scoping that one policy statement to a static wildcard pattern
+instead (`arn:aws:logs:*:*:log-group:/aws/appsync/apis/*`), known at plan time with no dependency on
+the API resource at all. Confirmed acceptable rather than assumed — this is a narrower, one-purpose
+exception (breaking a real dependency cycle for one logging role), not a broadening of the OIDC
+deploy role itself.
+
 **Relationship to Decision 5, kept deliberately distinct:** the GitHub Release stays the index —
 version, SHAs, pass/fail per stage, "what happened at a glance." CloudWatch becomes the thing it
 points *into* for full detail, not a replacement for it. The Release can embed a direct Logs
@@ -521,7 +547,7 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 |---|---|
 | `mootmaker` (hub) | No `release.yml` here (Decision 1, revised) — impact is docs-only. `docs/process/principles.md`'s "`test` was retired... could not justify its standing cost" line needs rewriting to reflect Decision 6's reasoning, not deleting the history but adding the reversal and why. `docs/process/environments.md`'s "exactly two kinds" becomes three. |
 | `mootmaker-release` (new repo) | Gains `release.yml` (the orchestrator, `workflow_dispatch`-triggered), the PAT secret, the cross-component smoke-test suites (resolved home, OQ-1), and publishes the GitHub Release (Decision 5). Also gains its **first real Terraform** (Decision 11): the `/mootmaker/release-pipeline` CloudWatch Log Group and its `QueryDefinition`(s), deployed once like `mootmaker-domain`'s pattern. Scaffolded 2026-09-03; none of this built yet. |
-| `mootmaker-api` | Gains a reusable `release-build.yml` (`on: workflow_call`) doing build + unit test + acceptance-against-fresh-ephemeral + artifact upload, called by `mootmaker-release`'s `release.yml` per release. Also gains a required `pr-checks.yml` (Decision 12): `mvn -f impl/pom.xml test`, branch protection enabled. And explicit, tagged `aws_cloudwatch_log_group` resources for its Lambdas (Decision 11) — none exist today, so this also fixes an unset-retention gap along the way. |
+| `mootmaker-api` | Gains a reusable `release-build.yml` (`on: workflow_call`) doing build + unit test + acceptance-against-fresh-ephemeral + artifact upload, called by `mootmaker-release`'s `release.yml` per release. Also gains a required `pr-checks.yml` (Decision 12): `mvn -f impl/pom.xml test`, branch protection enabled. And explicit, tagged `aws_cloudwatch_log_group` resources for its Lambdas (Decision 11) — none exist today, so this also fixes an unset-retention gap along the way. Also gains AppSync CloudWatch logging (Decision 11) — not enabled today — plus a tagged log group adopting it and the IAM role/policy that turns it on. |
 | `mootmaker-webapp` | Same shape as `mootmaker-api`. Its required `pr-checks.yml` (Decision 12) additionally runs **`npm run codegen:check`** — see Technical considerations; "build and unit tests" does not cover it — plus lint, typecheck, and the mocked integration suite. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)), unblocking Decision 8. No Lambdas, so Decision 11's log-group tagging doesn't apply here. |
 | `mootmaker-demo-data` | Same shape as `mootmaker-api` — first time it's included in an automated pipeline, and gains both the required `pr-checks.yml` shape (Decision 12) and the tagged Lambda log group treatment (Decision 11). |
 | `mootmaker-ephemeral-envs` (renamed from `mootmaker-test-infra` 2026-09-03) | `create-ephemeral-env.sh`/`teardown-ephemeral-env.sh` unchanged in mechanism; docs updated to describe `test` as a second protected, standing name (the scripts already treat it as one, per Decision 6). |
@@ -645,10 +671,11 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
     teardown only after a clean trial period. Independent of the rest of this rollout and can proceed
     in parallel.
 12. **`[Claude]`** Consolidated CloudWatch logging (Decision 11): the tagged, retention-set Lambda
-    log groups in `mootmaker-api`/`mootmaker-demo-data`; `mootmaker-release`'s own log group +
-    `QueryDefinition`(s); the two IAM additions to the OIDC deploy role. Independent of the release
-    pipeline itself — no PAT, no `release.yml` dependency — can proceed any time, same as the
-    ephemeral sweep and the PR-checks work.
+    log groups in `mootmaker-api`/`mootmaker-demo-data`; `mootmaker-api`'s AppSync `log_config` +
+    its own adopted, tagged log group + the logging IAM role (wildcard-scoped to break the cycle);
+    `mootmaker-release`'s own log group + `QueryDefinition`(s); the two IAM additions to the OIDC
+    deploy role. Independent of the release pipeline itself — no PAT, no `release.yml` dependency —
+    can proceed any time, same as the ephemeral sweep and the PR-checks work.
 13. **`[Claude]`** Build the three components' `pr-checks.yml` (Decision 12) and enable required
     status checks (branch protection) on each. Independent of the release pipeline itself — no PAT,
     no OIDC role, no `mootmaker-release` dependency — and can proceed in parallel with the rest of
@@ -696,9 +723,10 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
 - [ ] `[Claude]` Cut `production` over to the release pipeline as the sanctioned path.
 - [ ] `[Claude]` Build the scheduled ephemeral sweep (unchanged from the first draft).
 - [ ] `[Claude]` Build the tagged, retention-set Lambda log groups (`mootmaker-api`/
-      `mootmaker-demo-data`), `mootmaker-release`'s own log group + `QueryDefinition`(s), and the
-      two IAM additions to the OIDC deploy role (Decision 11) — independent of the rest, can proceed
-      any time.
+      `mootmaker-demo-data`), `mootmaker-api`'s AppSync logging (`log_config` + its own adopted,
+      tagged log group + wildcard-scoped logging role), `mootmaker-release`'s own log group +
+      `QueryDefinition`(s), and the two IAM additions to the OIDC deploy role (Decision 11) —
+      independent of the rest, can proceed any time.
 - [ ] `[Claude]` Build `pr-checks.yml` for `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data`
       (Decision 12) and enable required status checks on each — independent of the rest, can proceed
       any time.
@@ -725,4 +753,4 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
   actually blocked, not just that the check runs.
 - A completed release's logs — at least one Terraform apply and one smoke-test run — are actually
   findable in CloudWatch via the saved query (Decision 11), including the relevant Lambda execution
-  logs alongside them, not just theoretically wired up.
+  logs *and* AppSync's own request/resolver logs alongside them, not just theoretically wired up.
