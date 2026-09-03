@@ -291,6 +291,19 @@ already works. Always tearing down (pass or fail) keeps this stage's AWS cost bo
 runtime, consistent with the scale-to-zero principle that `test` is a deliberate, named exception
 to.
 
+**`mootmaker-webapp`'s `acceptance/` suite needed a real fix before running here unattended (found
+on review 2026-09-03, fixed same day —
+[mootmaker-webapp#19](https://github.com/geoffweatherall/mootmaker-webapp/pull/20)):** its config
+was written assuming purely local, manual invocation — `trace: 'on'`/`screenshot: 'on'`
+unconditionally, plus an `html` reporter bundling every attachment into itself, together capable of
+producing ~800MB for one run. Fine on a developer's own machine; not something to run unattended,
+once per release, in GitHub Actions. Now branches on `process.env.CI` (set automatically, no
+workflow wiring needed): local behaviour is untouched, CI gets one retry (smooths transient
+real-AWS flakiness with nobody watching to re-run manually), no `html` reporter, and
+trace/screenshot only on failure. The `json` reporter stays in both — it references trace/screenshot
+files by path rather than embedding them, so it's small either way, which is what makes it the
+right thing to eventually ship to CloudWatch (Decision 11) without needing this fix repeated there.
+
 ### 8. Build once, promote the same artifact to `test` then `production`
 
 **Decision:** each component's build-and-test stage uploads its build output (`mootmaker-api` and
@@ -619,7 +632,7 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 | `mootmaker` (hub) | No `release.yml` here (Decision 1, revised) — impact is docs-only. `docs/process/principles.md`'s "`test` was retired... could not justify its standing cost" line needs rewriting to reflect Decision 6's reasoning, not deleting the history but adding the reversal and why. `docs/process/environments.md`'s "exactly two kinds" becomes three. |
 | `mootmaker-release` (new repo) | Gains `release.yml` (the orchestrator, `workflow_dispatch`-triggered), the PAT secret, the cross-component smoke-test suites (resolved home, OQ-1), and publishes the GitHub Release (Decision 5). Also gains its **first real Terraform** (Decision 11): the `/mootmaker/release-pipeline` CloudWatch Log Group and its `QueryDefinition`(s), deployed once like `mootmaker-domain`'s pattern. Scaffolded 2026-09-03; none of this built yet. |
 | `mootmaker-api` | Gains a reusable `release-build.yml` (`on: workflow_call`) doing build + unit test + acceptance-against-fresh-ephemeral + artifact upload, called by `mootmaker-release`'s `release.yml` per release. Also gains a required `pr-checks.yml` (Decision 12): `mvn -f impl/pom.xml test`, branch protection enabled. And explicit, tagged `aws_cloudwatch_log_group` resources for its Lambdas (Decision 11) — none exist today, so this also fixes an unset-retention gap along the way. Also gains AppSync CloudWatch logging (Decision 11) — not enabled today — plus a tagged log group adopting it and the IAM role/policy that turns it on. |
-| `mootmaker-webapp` | Same shape as `mootmaker-api`. Its required `pr-checks.yml` (Decision 12) additionally runs **`npm run codegen:check`** — see Technical considerations; "build and unit tests" does not cover it — plus lint, typecheck, and the mocked integration suite. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)), unblocking Decision 8. No Lambdas, so Decision 11's log-group tagging doesn't apply here. |
+| `mootmaker-webapp` | Same shape as `mootmaker-api`. Its required `pr-checks.yml` (Decision 12) additionally runs **`npm run codegen:check`** — see Technical considerations; "build and unit tests" does not cover it — plus lint, typecheck, and the mocked integration suite. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)), unblocking Decision 8. `acceptance/`'s config made CI-aware (Decision 7) — `mootmaker-webapp#19` (PR [#20](https://github.com/geoffweatherall/mootmaker-webapp/pull/20), open). No Lambdas, so Decision 11's log-group tagging doesn't apply here. |
 | `mootmaker-demo-data` | Same shape as `mootmaker-api` — first time it's included in an automated pipeline, and gains both the required `pr-checks.yml` shape (Decision 12) and the tagged Lambda log group treatment (Decision 11). |
 | `mootmaker-ephemeral-envs` (renamed from `mootmaker-test-infra` 2026-09-03) | `create-ephemeral-env.sh`/`teardown-ephemeral-env.sh` unchanged in mechanism; docs updated to describe `test` as a second protected, standing name (the scripts already treat it as one, per Decision 6). |
 | `mootmaker-email-testing` (split from `mootmaker-test-infra` 2026-09-03) | No direct pipeline changes — the standing `test` environment's smoke test reads from its persistent SQS queue the same way `mootmaker-webapp`'s existing `e2e`/`acceptance` suites already do. |
