@@ -68,8 +68,10 @@ and isn't repeated in full below except where the new release flow changes it.
 - A durable, greppable release record — both for troubleshooting and because it's now the source of
   truth for "what version is `test`/`production` running."
 - **Consolidated CloudWatch logging** for the release process — Terraform output, smoke-test
-  output, the relevant Lambda execution logs, and AppSync's own request/resolver logs, queryable
-  together and durable beyond GitHub Actions' 90-day retention. See Decision 11.
+  output, each component's Stage 1 build-and-unit-test output, the relevant Lambda execution logs,
+  and AppSync's own request/resolver logs, queryable together and durable beyond GitHub Actions'
+  90-day retention. PR checks (Decision 12) deliberately don't ship here — no release version to
+  tag them with. See Decision 11.
 - The scheduled ephemeral-environment sweep, unchanged from the first draft, and now explicitly
   scoped to never touch `test` (see Technical considerations — the teardown script already refuses
   to).
@@ -368,8 +370,19 @@ Group (e.g. `/mootmaker/release-pipeline`) — its first real piece of Terraform
 persistent, no environment argument, the same shape `mootmaker-domain` already uses for shared
 infra. Every stage that produces meaningful output ships it there in **structured** form, not raw
 console text: `terraform apply -json` for every Terraform stage, Playwright's JSON reporter for the
-smoke tests. Consistent fields across everything shipped (`version`, `stage`, `component`,
-`outcome`) are what make this queryable rather than just archived.
+smoke tests, and each component's Stage 1 build-and-unit-test output (Maven's Surefire reports for
+`mootmaker-api`/`mootmaker-demo-data`, Vitest's own structured output for `mootmaker-webapp`) —
+this last one **only for the release pipeline's own `release-build.yml` run, never for PR checks**
+(Decision 12): a PR isn't tied to a release version, has no natural field to tag it with, and
+GitHub's own Checks tab is already a fine home for it — shipping it here would just be noise with
+nothing to correlate it against. Consistent fields across everything shipped (`version`, `stage`,
+`component`, `outcome`) are what make this queryable rather than just archived.
+
+**Mechanism, since GitHub Actions has no native path into CloudWatch on its own:** a step at the
+end of each job — `if: always()`, so a failure ships too, not just a pass — uses the same
+OIDC-derived credentials already present for deploying, and pushes the captured, structured output
+via `aws logs create-log-stream` (if needed) + `aws logs put-log-events`. A plain script, matching
+this project's own bash-over-third-party-actions convention, not a marketplace action.
 
 A `AWS::Logs::QueryDefinition` (`aws_cloudwatch_query_definition` in Terraform) is the saved,
 reusable query over this — unaffected in shape by CloudWatch's December 2024 addition of two more
