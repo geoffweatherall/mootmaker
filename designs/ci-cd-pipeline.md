@@ -1041,9 +1041,28 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       120-day-retention log group + `QueryDefinition`(s), and the two IAM additions to the OIDC
       deploy role (Decision 11). Remember `terraform import` for each pre-existing log group on
       `test`/`production` — independent of the rest, can proceed any time.
-- [ ] `[Claude]` Build `pr-checks.yml` for `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data`
+- [x] `[Claude]` Build `pr-checks.yml` for `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data`
       (Decision 12) and enable required status checks on each — independent of the rest, can proceed
-      any time.
+      any time. **Done 2026-09-03** —
+      [mootmaker-api#17](https://github.com/geoffweatherall/mootmaker-api/pull/17) (`unit-tests`,
+      138 tests), [mootmaker-demo-data#10](https://github.com/geoffweatherall/mootmaker-demo-data/pull/10)
+      (`unit-tests`, 41 tests),
+      [mootmaker-webapp#21](https://github.com/geoffweatherall/mootmaker-webapp/pull/21)
+      (`pr-checks`; lint, `tsc -b`, 50 unit, codegen, 27 MSW-mocked Playwright). Each check was run
+      locally, then confirmed green in CI, and only then required via branch protection — the
+      ordering the bring-up notes above insist on, so no repo could require a context that never
+      reports. `allow_auto_merge` and `delete_branch_on_merge` enabled on all three at the same time.
+      **The Definition of done's deliberate-failure requirement is satisfied for all three**: a PR
+      carrying a failing test was opened against each, every one reached `mergeStateStatus: BLOCKED`,
+      `gh pr merge` was refused with "the base branch policy prohibits the merge" — GitHub's own
+      enforcement, not a local permission gate — and each was then closed rather than merged
+      (`mootmaker-api#18`, `mootmaker-demo-data#11`, `mootmaker-webapp#22`). `--admin` was offered by
+      `gh` each time and deliberately not used.
+      **Deviation to note:** `strict` (require branches up to date before merging) is set to `false`,
+      not `true`. `true` matches this design's "`main` stays green" premise more strictly, but
+      deadlocks an unattended run — when `main` moves, GitHub demands a branch update that
+      auto-merge will not perform on its own. With sequential single-PR merges the practical
+      difference is small. Flip it if that trade is wrong.
 - [ ] `[Claude]` Update the documentation named in Documentation impacts.
 
 ---
