@@ -18,17 +18,17 @@ Every repository expects the others as **siblings in one directory**. Scripts re
 
 ```
 mootmaker-workspace/
-  mootmaker/            mootmaker-api/           mootmaker-webapp/
-  mootmaker-android/    mootmaker-demo-data/
-  mootmaker-test-infra/ mootmaker-domain/
+  mootmaker/               mootmaker-api/             mootmaker-webapp/
+  mootmaker-android/       mootmaker-demo-data/       mootmaker-release/
+  mootmaker-ephemeral-envs/  mootmaker-email-testing/  mootmaker-domain/
   mootmaker-bootstrap-terraform/  mootmaker-bootstrap-aws-accounts/
 ```
 
 ```bash
 mkdir mootmaker-workspace && cd mootmaker-workspace
 for r in mootmaker mootmaker-api mootmaker-webapp mootmaker-android \
-         mootmaker-demo-data \
-         mootmaker-test-infra mootmaker-domain \
+         mootmaker-demo-data mootmaker-release \
+         mootmaker-ephemeral-envs mootmaker-email-testing mootmaker-domain \
          mootmaker-bootstrap-terraform mootmaker-bootstrap-aws-accounts; do
   git clone "https://github.com/geoffweatherall/$r.git"
 done
@@ -69,7 +69,7 @@ so without it a full seed is reported to you as a failure while the Lambda finis
 [`../process/environments.md`](../process/environments.md).
 
 ```bash
-cd ../mootmaker-test-infra && ./teardown-ephemeral-env.sh geoff-260829-a1b2
+cd ../mootmaker-ephemeral-envs && ./teardown-ephemeral-env.sh geoff-260829-a1b2
 ```
 
 That script discovers what is actually deployed from the environment's Terraform state prefix, so

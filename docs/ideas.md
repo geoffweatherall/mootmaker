@@ -203,7 +203,9 @@ What the design needs to specify:
   end of every teardown, and it fails rather than warns.
 
   All three shipped with `../designs/archive/demo-data-component.md`, closing
-  `mootmaker-test-infra#2`.
+  `mootmaker-ephemeral-envs#2` (that repo's issue #2 — filed back when it was still
+  `mootmaker-test-infra`, before the 2026-09-03 split; GitHub kept the issue number through both
+  the split and the rename).
 
 ---
 

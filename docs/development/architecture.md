@@ -33,7 +33,9 @@ constraint rather than a preference — see [`../process/principles.md`](../proc
 | `mootmaker-webapp` | React SPA, its S3 bucket and CloudFront distribution |
 | `mootmaker-android` | A second frontend on the same API. Not started. |
 | `mootmaker-demo-data` | Per-environment Lambdas that seed and top up demo data — ships as part of the product |
-| `mootmaker-test-infra` | Ephemeral environment lifecycle, and the SES pipeline that lets tests read real email |
+| `mootmaker-ephemeral-envs` | Ephemeral environment lifecycle scripts |
+| `mootmaker-email-testing` | The persistent SES pipeline that lets tests read real email |
+| `mootmaker-release` | Release pipeline that ships the deployable components to `test` and `production` |
 | `mootmaker-domain` | Route 53 zone, ACM certificate, SES domain identity. Shared across environments. |
 | `mootmaker-bootstrap-terraform` | The S3 bucket holding everyone's Terraform state |
 | `mootmaker-bootstrap-aws-accounts` | Account guardrails: SCPs, IAM Identity Center, billing alerts |

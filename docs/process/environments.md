@@ -18,7 +18,7 @@ It is still the thing a prospective employer will look at, so it should work.
 
 Created for a specific piece of work and destroyed when that work is done. A complete, isolated copy
 of the stack — its own Lambdas, DynamoDB tables, Cognito pool, S3 bucket, CloudFront distribution
-and AppSync API — created by `mootmaker-test-infra/create-ephemeral-env.sh`.
+and AppSync API — created by `mootmaker-ephemeral-envs/create-ephemeral-env.sh`.
 
 ### Naming
 
@@ -45,9 +45,9 @@ or not anyone remembers what it was for. Nothing enforces this yet; a scheduled 
 requirement handed to the CI/CD design.
 
 ```bash
-mootmaker-test-infra/create-ephemeral-env.sh claude [--with-demo-data]
-mootmaker-test-infra/teardown-ephemeral-env.sh <name>
-mootmaker-test-infra/cleanup-stale-envs.sh          # find what has been left behind
+mootmaker-ephemeral-envs/create-ephemeral-env.sh claude [--with-demo-data]
+mootmaker-ephemeral-envs/teardown-ephemeral-env.sh <name>
+mootmaker-ephemeral-envs/cleanup-stale-envs.sh          # find what has been left behind
 ```
 
 `--with-demo-data` also deploys `mootmaker-demo-data` and seeds the environment with it. It is

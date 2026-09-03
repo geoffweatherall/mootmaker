@@ -3,7 +3,8 @@
 This document records the overall testing strategy across this project's repositories —
 [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api),
 [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) (and, later,
-`mootmaker-android`), [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra)
+`mootmaker-android`), [mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs)
+and [mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing)
 (the shared test infrastructure any frontend depends on), and
 [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) (DNS/mail identity used by
 the real-email test pipeline) — and, specifically, how developing this
@@ -17,10 +18,13 @@ Each repository also has its own `testing-strategy.md` with the detail specific 
 - [mootmaker-api/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-api/blob/main/testing-strategy.md)
 - [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md) —
   including its `e2e/` and `acceptance/` suites; each frontend owns its own, not shared centrally.
-- [mootmaker-test-infra/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-test-infra/blob/main/testing-strategy.md) —
-  only the pieces genuinely shared across frontends (ephemeral-environment lifecycle, the SES
-  email-reading pipeline). Formerly `mootmaker-e2e`, which also used to own a full-stack test suite
-  itself — see that repo's README for the 2026-08-19 rename/restructure.
+- [mootmaker-ephemeral-envs/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-ephemeral-envs/blob/main/testing-strategy.md) —
+  the ephemeral-environment lifecycle scripts genuinely shared across frontends.
+- [mootmaker-email-testing/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-email-testing/blob/main/testing-strategy.md) —
+  the persistent SES email-reading pipeline, also genuinely shared across frontends. Both of these
+  were one repo, `mootmaker-test-infra`, until split 2026-09-03 (itself formerly `mootmaker-e2e`,
+  which also used to own a full-stack test suite — see mootmaker-ephemeral-envs' README for the
+  2026-08-19 rename/restructure, and mootmaker-email-testing's for the 2026-09-03 split).
 
 This document is the map between them: the overall layering, the decisions that cut across repos
 (ephemeral environments, how verification-code emails get read in tests), and the "vibe coding"
@@ -59,8 +63,9 @@ wiring mistake between two systems that were never actually connected during the
 Each frontend (`mootmaker-webapp`, later `mootmaker-android`) owns its own `e2e`/`acceptance` pair
 in its own repo, using whatever's idiomatic for that platform — nothing here is shared *test code*
 across frontends, only the infrastructure in
-[mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) (ephemeral-env
-lifecycle, the SES email pipeline) is.
+[mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs) (ephemeral-env
+lifecycle) and [mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing)
+(the SES email pipeline) is.
 
 **Built 2026-08-15**: the webapp's Vitest and MSW-mocked-integration layers exist now (30 unit
 tests, 27 integration tests, both independently verified green) — see
@@ -102,14 +107,14 @@ subdomain and filters the SQS queue for messages addressed to its own tag, ignor
 It's split across two repos by what it actually is: the domain identity and MX record live in
 [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) (DNS, shared and
 persistent, alongside the rest of that zone), while the receipt rule, SNS topic, and SQS queue
-live in [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) (test-only
+live in [mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing) (test-only
 infrastructure, shared across every frontend). Both are deployed once and left running, not tied to
 any single ephemeral environment's lifecycle.
 
 **Deployed 2026-08-15**: the account's SCP allow-list
 ([mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts)'s
 `scp-guardrails.yaml` and `identity-center.yaml`) was updated to include `ses`/`sns`/`sqs`, and both
-mootmaker-domain's SES domain identity and mootmaker-test-infra's (then still `mootmaker-e2e`'s)
+mootmaker-domain's SES domain identity and mootmaker-email-testing's (then still `mootmaker-e2e`'s)
 receipt rule/SNS/SQS pipeline are now live. `mail.mootmaker.com` genuinely receives mail, and this
 pipeline is now exercised end-to-end by `mootmaker-webapp/e2e/sign-up.spec.ts` and
 `forgot-password.spec.ts` (built 2026-08-19).
@@ -156,7 +161,7 @@ mechanism — this section only adds the policy on top of it):
     pattern. **Changed 2026-08-19** — previously a single generic `e2e-<YYMMDD>-<rand4>` covered
     every automated run regardless of which frontend or test tier created it; that stopped being
     distinguishable the moment a second frontend needed the same pattern. See
-    [mootmaker-test-infra/testing-strategy.md#naming-convention](https://github.com/geoffweatherall/mootmaker-test-infra/blob/main/testing-strategy.md#naming-convention)
+    [mootmaker-ephemeral-envs/testing-strategy.md#naming-convention](https://github.com/geoffweatherall/mootmaker-ephemeral-envs/blob/main/testing-strategy.md#naming-convention)
     for the full detail, including the character budget this leaves under the ceiling below.
 
   Naming by creator/purpose (rather than one shared prefix) so a cleanup pass (or a human glancing
@@ -182,9 +187,9 @@ mechanism — this section only adds the policy on top of it):
   silently destroying it. (This is recorded as a standing instruction for Claude — see the note
   below.)
 - **Scripts** (built and verified end-to-end 2026-08-15; a fourth added 2026-08-19): four separate bash scripts, living in
-  [mootmaker-test-infra](https://github.com/geoffweatherall/mootmaker-test-infra) alongside the
+  [mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs) alongside the
   other cross-cutting test infrastructure — see
-  [mootmaker-test-infra/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-test-infra/blob/main/testing-strategy.md#ephemeral-environment-scripts)
+  [mootmaker-ephemeral-envs/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-ephemeral-envs/blob/main/testing-strategy.md#ephemeral-environment-scripts)
   for the full design and reasoning. Naming ended up `claude-<YYMMDD>-<rand4>` (day-only, no
   time-of-day) rather than the originally-designed `<YYMMDD>-<HHmm>-<rand4>` — real deployment
   testing found the longer form 1 character over a Lambda function-name limit. In short:
@@ -212,7 +217,7 @@ mechanism — this section only adds the policy on top of it):
     confirmed gone, rather than treating any refresh difference as "gone" (an early version did
     exactly that and was corrected after testing against a real environment showed it produced
     false positives — see
-    [mootmaker-test-infra/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-test-infra/blob/main/testing-strategy.md#ephemeral-environment-scripts)
+    [mootmaker-ephemeral-envs/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-ephemeral-envs/blob/main/testing-strategy.md#ephemeral-environment-scripts)
     for the detail). Complements `cleanup-stale-envs.sh` by making the distinction visible up front.
 
   The first three are thin orchestrators over the existing per-project `deploy.sh`/`undeploy.sh` —
@@ -284,6 +289,6 @@ specifically so that latitude doesn't turn into unbounded AWS resource sprawl ac
 - **Only two of ~99 use cases in `use-cases.md` are automated** (in
   `mootmaker-webapp/acceptance/`) — a deliberate thin first slice, not full coverage. See that
   suite's own README for the pattern to follow when adding more.
-- `mootmaker-test-infra`'s `create-ephemeral-env.sh` still unconditionally deploys mootmaker-api
+- `mootmaker-ephemeral-envs`'s `create-ephemeral-env.sh` still unconditionally deploys mootmaker-api
   *and* mootmaker-webapp together — fine today, but `mootmaker-android`'s tests will only need the
   API half. Not solved yet; see that repo's own testing-strategy.md.
