@@ -200,6 +200,17 @@ troubleshooting a failure long after the run itself has aged out of retention. I
 answers "what version is running where" without needing to query Actions history at all, which is
 exactly what Decision 4 needs.
 
+**Mechanism, spelled out (found missing on review 2026-09-03):** the three-way "success / marked-
+failed / issue" branch above only actually happens if something *guarantees* it runs even when an
+earlier stage fails outright — a normal GitHub Actions job just stops on failure, it doesn't fall
+through to a later step by default. So `release.yml` needs a dedicated final job — call it
+`record-outcome` — with `if: always()`, run after every other job regardless of their outcome. The
+tag-push step (Decision 4) sets a job output (e.g. `tag_pushed: true`, plus the version string) the
+moment the tags land; `record-outcome` reads that output to decide which of the three cases applies
+— **not** by re-deriving it from whether later jobs succeeded, since a run can fail *after* tagging
+in ways that have nothing to do with whether the tag itself is real. Without this, the risk named
+below is exactly what happens: tags exist naming a version, and nothing on GitHub says so.
+
 ### 6. `test` is reintroduced as a standing environment — for a different reason than before
 
 **Decision:** `test` returns as the second long-lived environment, alongside `production`. Every
@@ -536,6 +547,7 @@ No data migration beyond standing `test` back up from nothing.
 | **`test` drifts from `production`'s shape over time** (the exact failure mode that got it retired once already). | Medium | `test`'s state changes only through the release pipeline, same as `production`'s; demo-data seeds it the same way (NB-2 pending); no ad hoc interactive use — ephemeral environments exist for that. |
 | **A failed `test`-stage smoke test leaves `test` broken, blocking the next release's deploy-to-`test` step** until fixed by hand. | Medium, accepted knowingly | This is Decision 6a's entire point — the alternative is finding out in `production`. Named here so it isn't mistaken for a bug later. |
 | **PAT compromise** (Decision 3) reaches four repos with write access. | Medium | Scope strictly to `contents: write`, nothing broader. Accepted per OQ-3 rather than switching to a GitHub App — revisit if this ever proves too narrow a mitigation in practice. |
+| **Tags exist naming a version with no corresponding GitHub Release** if the run fails between the tag push (Decision 4) and the final record-publish step, and that step isn't guaranteed to run. | Medium, found on review 2026-09-03 | The `record-outcome` job (Decision 5) must run with `if: always()` and branch on a job output set at tag-push time, not on later jobs' own success — spelled out in Decision 5 specifically so this doesn't get built as an afterthought. |
 | **Automatic production rollback (Decision 10) masks a data-shape problem** that a redeploy of old code doesn't actually fix, giving false confidence that "rollback succeeded." | Medium | Accepted per OQ-2 — the GitHub Release still records that a rollback happened, so the masking is never silent even though it is automatic. |
 | **Over-broad OIDC role scope**, carried over from the first draft, now covering three deploy targets instead of one. | High | Same mitigation as before: least privilege, reviewed CFN, expect iteration during bring-up. |
 | **A scheduled ephemeral sweep and a release race on Terraform state.** | Low | State locking already exists; unchanged from the first draft. |
@@ -555,7 +567,9 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
 - [ ] `[Geoff]` Apply that stack via the CloudFormation console in the workload account.
 - [ ] `[Claude/Geoff]` Create and store the cross-repo tag-push PAT as a `mootmaker-release` secret.
 - [ ] `[Claude]` Build each component's `release-build.yml`.
-- [ ] `[Claude]` Build `mootmaker-release/release.yml` end to end.
+- [ ] `[Claude]` Build `mootmaker-release/release.yml` end to end, including the `record-outcome`
+      job (Decision 5) — `if: always()`, branching on the tag-push job's own output, not on
+      whether later jobs succeeded.
 - [ ] `[Claude]` Build the smoke-test suites in `mootmaker-release`, including its Node/Playwright
       setup from scratch.
 - [ ] `[Geoff]`/`[Claude]` Stand `test` back up and run the full pipeline against it at least once
