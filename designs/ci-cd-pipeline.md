@@ -47,7 +47,10 @@ and isn't repeated in full below except where the new release flow changes it.
 ### In scope
 
 - PR checks (build, unit tests, and — where meaningful — the mocked/integration layer) for every
-  repository that has them, run on every pull request. Unchanged from the first draft.
+  repository that has them, run on every pull request.
+- **PR checks become a required gate, not just advisory** (resolves NB-3), for the three deployable
+  components specifically — `mootmaker-api`, `mootmaker-webapp`, `mootmaker-demo-data`. See Decision
+  12 for exactly what each runs.
 - A **release pipeline**, triggered by `workflow_dispatch`, covering all three deployable
   components: `mootmaker-api`, `mootmaker-webapp`, and `mootmaker-demo-data`. Demo-data is in scope
   from the start this time — its 2026-09-02 restructuring gave it the same `deploy.sh`/`verify.sh`
@@ -86,6 +89,13 @@ and isn't repeated in full below except where the new release flow changes it.
 - **Ephemeral-environment-per-PR.** Still deferred, for the same reason as before: no evidence yet
   that PR-time acceptance testing would catch something the release pipeline's own build-time
   acceptance run doesn't.
+- **Adding a Java linter/formatter to `mootmaker-api`/`mootmaker-demo-data`.** Neither has one today
+  (verified — no Checkstyle/PMD/SpotBugs/Spotless in either `pom.xml`). Spotless is the intended
+  choice when this does happen (a formatter, not a rules engine — fits "the codebase is the style
+  guide" better than Checkstyle would, especially for a mostly-AI-written codebase), named as a
+  fast follow, not built as part of this design. Consequence, accepted knowingly: the two Java
+  components' required PR check (Decision 12) covers build + unit tests only, not lint — genuinely
+  asymmetric with `mootmaker-webapp`'s, not an oversight.
 
 ---
 
@@ -408,6 +418,36 @@ per GB, and a handful of releases a month producing a few MB each doesn't approa
 Retention on the new log group should still be set explicitly (e.g. a year) rather than left on
 whatever the default happens to be.
 
+### 12. PR checks become a required gate, scoped per component's actual tech
+
+**Decision (added 2026-09-03, resolves NB-3):** for the three deployable components —
+`mootmaker-api`, `mootmaker-webapp`, `mootmaker-demo-data` — PR checks move from advisory to a
+**required status check** (GitHub branch protection: "Require status checks to pass before
+merging"). A PR that fails its checks cannot be merged, full stop, including by Claude. Each
+repo's check is scoped to what actually exists in it today, verified rather than assumed:
+
+- **`mootmaker-api` / `mootmaker-demo-data`** (same shape — Maven, an `impl/` module plus a
+  separate `verify/` acceptance module): `mvn -f impl/pom.xml test`. **Never `verify/`** — that
+  module needs a real deployed AWS environment, and PR checks never touch AWS (unchanged principle
+  from the first draft). No lint/format step yet — see the new Non-goal below.
+- **`mootmaker-webapp`**: `npm run lint` (oxlint), the typecheck half of `npm run build` (`tsc -b`),
+  `npm run test:unit` (Vitest), `npm run codegen:check` (already required as of the other machine's
+  work on `graphql-schema-sharing.md` — folded in here rather than duplicated), and `npm run
+  test:integration` (Playwright against MSW — no live AWS, fast, deterministic).
+
+**Reasoning:** NB-1 in the first draft (renumbered NB-3 here) left this advisory deliberately,
+reasoning that branch protection would "mostly obstruct" a solo developer with no approval step to
+gate on — true for *review* gates, but a status check is a different kind of gate, and one that
+matters more now than it did at the first draft: self-merge (including by Claude) is already the
+norm here, and the release pipeline's whole premise — "everything currently on `main` gets
+released" — depends on `main` actually staying green between releases, not just usually being
+green. `mootmaker-webapp`'s check is deliberately fuller than the two Java repos' right now, not
+symmetric — see the Non-goals addition on Spotless for why.
+
+**Not built as part of this design's own implementation work** (no workflow files, no branch
+protection settings changed yet) — scoped in for Geoff to review as part of this design reaching
+`Ready`, matching everything else in the Implementation checklist.
+
 ---
 
 ## Choices you had me make
@@ -467,8 +507,8 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 - **NB-2 — Does demo-data need an explicit one-off seed invocation after deploying to `test`**, or is
   waiting for its own weekly schedule acceptable? The smoke test's "view some data" step needs
   *something* to be there; see Technical considerations.
-- **NB-3 — Should branch protection require PR checks to pass before merge**, carried over unresolved
-  from the first draft (NB-1 there). Still not reconsidered.
+- **NB-3 — Resolved 2026-09-03: yes**, required, for the three deployable components — see Decision
+  12. Carried over unresolved from the first draft (NB-1 there) until reconsidered on review.
 - **NB-4 — Does the schema-publish step (now already live in `mootmaker-api`) need any coordination
   with the release version**, e.g. tagging the published schema artifact with the same release
   version? Not addressed here; worth a look once this pipeline exists.
@@ -481,9 +521,9 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
 |---|---|
 | `mootmaker` (hub) | No `release.yml` here (Decision 1, revised) — impact is docs-only. `docs/process/principles.md`'s "`test` was retired... could not justify its standing cost" line needs rewriting to reflect Decision 6's reasoning, not deleting the history but adding the reversal and why. `docs/process/environments.md`'s "exactly two kinds" becomes three. |
 | `mootmaker-release` (new repo) | Gains `release.yml` (the orchestrator, `workflow_dispatch`-triggered), the PAT secret, the cross-component smoke-test suites (resolved home, OQ-1), and publishes the GitHub Release (Decision 5). Also gains its **first real Terraform** (Decision 11): the `/mootmaker/release-pipeline` CloudWatch Log Group and its `QueryDefinition`(s), deployed once like `mootmaker-domain`'s pattern. Scaffolded 2026-09-03; none of this built yet. |
-| `mootmaker-api` | Gains a reusable `release-build.yml` (`on: workflow_call`) doing build + unit test + acceptance-against-fresh-ephemeral + artifact upload, called by `mootmaker-release`'s `release.yml` per release. Also gains explicit, tagged `aws_cloudwatch_log_group` resources for its Lambdas (Decision 11) — none exist today, so this also fixes an unset-retention gap along the way. |
-| `mootmaker-webapp` | Same shape as `mootmaker-api`. Its PR checks additionally run **`npm run codegen:check`** — see Technical considerations; "build and unit tests" does not cover it. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)), unblocking Decision 8. No Lambdas, so Decision 11's log-group tagging doesn't apply here. |
-| `mootmaker-demo-data` | Same shape as `mootmaker-api` — first time it's included in an automated pipeline, and gains the same tagged Lambda log group treatment (Decision 11). |
+| `mootmaker-api` | Gains a reusable `release-build.yml` (`on: workflow_call`) doing build + unit test + acceptance-against-fresh-ephemeral + artifact upload, called by `mootmaker-release`'s `release.yml` per release. Also gains a required `pr-checks.yml` (Decision 12): `mvn -f impl/pom.xml test`, branch protection enabled. And explicit, tagged `aws_cloudwatch_log_group` resources for its Lambdas (Decision 11) — none exist today, so this also fixes an unset-retention gap along the way. |
+| `mootmaker-webapp` | Same shape as `mootmaker-api`. Its required `pr-checks.yml` (Decision 12) additionally runs **`npm run codegen:check`** — see Technical considerations; "build and unit tests" does not cover it — plus lint, typecheck, and the mocked integration suite. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)), unblocking Decision 8. No Lambdas, so Decision 11's log-group tagging doesn't apply here. |
+| `mootmaker-demo-data` | Same shape as `mootmaker-api` — first time it's included in an automated pipeline, and gains both the required `pr-checks.yml` shape (Decision 12) and the tagged Lambda log group treatment (Decision 11). |
 | `mootmaker-ephemeral-envs` (renamed from `mootmaker-test-infra` 2026-09-03) | `create-ephemeral-env.sh`/`teardown-ephemeral-env.sh` unchanged in mechanism; docs updated to describe `test` as a second protected, standing name (the scripts already treat it as one, per Decision 6). |
 | `mootmaker-email-testing` (split from `mootmaker-test-infra` 2026-09-03) | No direct pipeline changes — the standing `test` environment's smoke test reads from its persistent SQS queue the same way `mootmaker-webapp`'s existing `e2e`/`acceptance` suites already do. |
 | `mootmaker-bootstrap-aws-accounts` | Gains the OIDC identity provider + deploy role (OQ-4), scoped to three deploy targets. Its policy needs two more additions for Decision 11: `logs:*` scoped to the new release-pipeline log group, and `tag:GetResources` for the tag-based Lambda-log-group discovery. |
@@ -546,8 +586,12 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
   acceptance suite runs in Stage 1 (build-and-test) against a fresh ephemeral environment, per
   release. This is new automated usage of test infrastructure that previously only ran when someone
   chose to run it.
-- **PR checks are unchanged** from the first draft — unit + mocked-integration only, no AWS access,
-  still deliberately not full acceptance-on-PR (OQ-2 in the first draft, not reopened here).
+- **PR checks are required now, scoped differently per repo** (Decision 12, NB-3) — still unit +
+  mocked-integration only, no AWS access, still deliberately not full acceptance-on-PR (OQ-2 in the
+  first draft, not reopened here). What's new is that a failing check blocks merge, and
+  `mootmaker-api`/`mootmaker-demo-data` don't yet have a lint step (no Java formatter configured;
+  see the Non-goals addition on Spotless) while `mootmaker-webapp` does — an intentional, temporary
+  asymmetry, not an oversight.
 
 ---
 
@@ -578,8 +622,11 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
    `mootmaker-bootstrap-aws-accounts`, scoped to the three deploy targets (OQ-4). **Done
    2026-09-03** — [PR #5](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/pull/5).
 4. **`[Geoff]`** Apply that stack via the CloudFormation console in the **workload** account
-   (431071856068, not the management account — this role deploys `test`/`production`). Blocks any
-   real deploy stage, not PR checks.
+   (431071856068, not the management account — this role deploys `test`/`production`). **Done
+   2026-09-03** — applied via CLI with Geoff's own SSO session (workload-account stacks don't need
+   root); one bug found and fixed along the way (`ThumbprintList` truncated by one character —
+   [mootmaker-bootstrap-aws-accounts#6](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/issues/6)),
+   `CREATE_COMPLETE` confirmed against live AWS, not just stack status.
 5. **`[Claude/Geoff]`** Create the PAT (OQ-3: PAT, not a GitHub App) and store it as a
    `mootmaker-release` Actions secret.
 6. **`[Claude]`** Build each component's `release-build.yml` (reusable, build + unit + acceptance +
@@ -602,6 +649,10 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
     `QueryDefinition`(s); the two IAM additions to the OIDC deploy role. Independent of the release
     pipeline itself — no PAT, no `release.yml` dependency — can proceed any time, same as the
     ephemeral sweep and the PR-checks work.
+13. **`[Claude]`** Build the three components' `pr-checks.yml` (Decision 12) and enable required
+    status checks (branch protection) on each. Independent of the release pipeline itself — no PAT,
+    no OIDC role, no `mootmaker-release` dependency — and can proceed in parallel with the rest of
+    this rollout, same as the ephemeral sweep.
 
 No data migration beyond standing `test` back up from nothing.
 
@@ -631,7 +682,8 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       ([PR #17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)).
 - [x] `[Claude]` Write the OIDC provider + deploy role CloudFormation (scoped to three targets).
       **Done 2026-09-03** ([PR #5](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/pull/5)).
-- [ ] `[Geoff]` Apply that stack via the CloudFormation console in the workload account.
+- [x] `[Geoff]` Apply that stack via the CloudFormation console in the workload account. **Done
+      2026-09-03**, verified against live AWS.
 - [ ] `[Claude/Geoff]` Create and store the cross-repo tag-push PAT as a `mootmaker-release` secret.
 - [ ] `[Claude]` Build each component's `release-build.yml`.
 - [ ] `[Claude]` Build `mootmaker-release/release.yml` end to end, including the `record-outcome`
@@ -643,6 +695,13 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       before it ever reaches `production`.
 - [ ] `[Claude]` Cut `production` over to the release pipeline as the sanctioned path.
 - [ ] `[Claude]` Build the scheduled ephemeral sweep (unchanged from the first draft).
+- [ ] `[Claude]` Build the tagged, retention-set Lambda log groups (`mootmaker-api`/
+      `mootmaker-demo-data`), `mootmaker-release`'s own log group + `QueryDefinition`(s), and the
+      two IAM additions to the OIDC deploy role (Decision 11) — independent of the rest, can proceed
+      any time.
+- [ ] `[Claude]` Build `pr-checks.yml` for `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data`
+      (Decision 12) and enable required status checks on each — independent of the rest, can proceed
+      any time.
 - [ ] `[Claude]` Update the documentation named in Documentation impacts.
 
 ---
@@ -661,3 +720,9 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
   positives, or has graduated to automatic teardown.
 - No AWS access key or long-lived AWS credential is stored anywhere in GitHub. The one accepted
   exception (the tag-push PAT, OQ-3) is documented as such, not incidental.
+- All three deployable components have a required, branch-protection-enforced PR check (Decision
+  12) — deliberately exercised at least once each by a PR that fails it, confirming merge is
+  actually blocked, not just that the check runs.
+- A completed release's logs — at least one Terraform apply and one smoke-test run — are actually
+  findable in CloudWatch via the saved query (Decision 11), including the relevant Lambda execution
+  logs alongside them, not just theoretically wired up.
