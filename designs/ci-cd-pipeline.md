@@ -152,8 +152,12 @@ to "no long-lived credentials anywhere" (`docs/process/principles.md`), and shou
 one rather than quietly matching the letter of the principle while missing its spirit. A GitHub App
 installation token would be the more "correct" version of this (short-lived, scoped by permission
 rather than by PAT-holder's own access) but is meaningfully more setup for a project this size — a
-fine-grained PAT, reviewed and rotated periodically, is the pragmatic choice. Flagged in Open
-questions in case that trade-off doesn't hold up.
+fine-grained PAT, reviewed and rotated periodically, is the pragmatic choice.
+
+**Confirmed 2026-09-03 (OQ-3):** PAT, not a GitHub App. Kept the review deliberately, not because
+the trade-off resolved differently, but because the exception is worth restating plainly: this PAT
+is checked-in-to-nothing (a repo secret), scoped narrowly, and its one job is a tag push — a GitHub
+App's extra correctness doesn't earn its setup cost at this project's scale.
 
 ### 4. Versioning: one semver number, computed and recorded via GitHub Releases
 
@@ -302,10 +306,15 @@ acceptance layers:
 testing twice. Reusing the existing SES-based test-infra email support for the `test`-stage signup
 flow avoids building new email-verification plumbing.
 
-**Where this code lives — open, see Open questions:** most likely a new `smoke/` directory in
-`mootmaker-webapp` (it already owns `acceptance/` and the Playwright tooling this would reuse), but
-this spans all three components conceptually and a case could be made for `mootmaker-ephemeral-envs`
-instead.
+**Where this code lives (resolved 2026-09-03, OQ-1):** `mootmaker-release`, not `mootmaker-webapp` or
+`mootmaker-ephemeral-envs`. Neither of those was quite right: `mootmaker-webapp` would have owned
+tests that assert on `mootmaker-api` and `mootmaker-demo-data` behaviour too, and
+`mootmaker-ephemeral-envs`'s whole identity post-split (Decision 1) is ephemeral-environment
+lifecycle specifically, not smoke testing. `mootmaker-release` is where the release pipeline itself
+already lives and is *already* the cross-component home — the smoke tests are a natural part of
+what it orchestrates, not a new category of thing bolted on. Consequence: `mootmaker-release` needs
+its own Playwright + Node setup (it currently has none — just `README.md`/`AGENTS.md`), separate
+from `mootmaker-webapp`'s.
 
 ### 10. Rollback: redeploy the previous version; attempt it automatically on a failed production smoke test
 
@@ -318,10 +327,13 @@ leaving a known-bad `production` up while waiting for a human.
 **Reasoning:** `test` passing and `production` still failing implies something environment-specific
 to `production` (data shape, a config difference, a race) rather than a code defect `test` should
 have caught — which is exactly the scenario an automatic revert is safe for, since the previous
-version is known-good by construction (it was itself a release that reached `production`). Left as
-an open question below whether "automatic" is actually the right call versus pausing for a human —
-recorded as a decision here because a design needs *a* default, not because the trade-off is
-one-sided.
+version is known-good by construction (it was itself a release that reached `production`).
+
+**Confirmed 2026-09-03 (OQ-2):** automatic is the right default. The masking risk named as the
+counterargument (an automatic redeploy hiding a data-shape problem that redeploying old code
+doesn't actually fix) is accepted knowingly — the alternative, leaving `production` visibly broken
+while waiting on a human, is worse for a public demo, and the GitHub Release (Decision 5) still
+records that a rollback happened and why, so the masking is never silent.
 
 ---
 
@@ -342,33 +354,37 @@ see Decision 1 and Technical considerations, not this list.
    user's original description tagged first; reordered here because it removes any need to ever
    "unwind" a tag, at the cost of the tagged commit being implicitly "whatever `main` was at trigger
    time" rather than a name fixed before the build starts. Worth confirming this reordering is fine.
-4. **Automatic rollback on a failed production smoke test** (Decision 10), rather than pausing for a
-   human to decide. Named as the more debatable of the two failure-handling defaults — see Open
-   questions.
 
 ---
 
 ## Open questions
 
-### Blocking
+**All four blocking questions resolved by Geoff on 2026-09-03.** Nothing now blocks this design
+moving to `Ready` once its Implementation checklist is filled in accordingly.
 
-- [ ] **OQ-1 — Where does the smoke-test code live?** `mootmaker-webapp/smoke/` (reuses existing
-  Playwright + SES test-infra tooling) is the working assumption in Decision 9, but this is
-  genuinely cross-component and `mootmaker-ephemeral-envs` is a defensible alternative home. Needs a
-  choice before Implementation checklist can be filled in properly.
-- [ ] **OQ-2 — Is automatic rollback on a failed production smoke test actually wanted**, or should
-  the pipeline instead stop and page/notify, leaving `production` in its failed state until a human
-  decides? Decision 10 assumes automatic; this is the more consequential of the two failure defaults
-  and deserves an explicit answer rather than inheriting the default by not objecting to it.
-- [ ] **OQ-3 — Fine-grained PAT vs. a GitHub App** for the cross-repo tag push in Decision 3. PAT is
-  simpler to set up for a solo project; a GitHub App installation token is shorter-lived and scoped
-  by permission rather than by the token-holder's own access, which is a better match for "no
-  long-lived credentials" but meaningfully more setup. Needs a decision before Rollout step 1.
-- [ ] **OQ-4 — The OIDC deploy role's CloudFormation (from the first draft's OQ-3) still needs
-  writing and a `[Geoff]` manual apply**, now scoped to three deploy targets instead of one
-  (per-release ephemeral, `test`, `production`) plus `mootmaker-demo-data`'s own resources. Not a new
-  question, but the scope changed enough to re-flag as blocking rather than assume the first draft's
-  version still applies unmodified.
+### Blocking (resolved)
+
+- [x] **OQ-1 — Where does the smoke-test code live?** Resolved: `mootmaker-release` — see Decision
+  9. Neither of the two options originally offered (`mootmaker-webapp/smoke/`,
+  `mootmaker-ephemeral-envs`) was quite right; `mootmaker-release` is where the release pipeline
+  already lives, so the smoke tests it runs belong there too.
+- [x] **OQ-2 — Automatic rollback confirmed**, not stop-and-notify — see Decision 10. The masking
+  risk (an automatic redeploy hiding a data-shape problem) is accepted knowingly: leaving
+  `production` visibly broken while waiting on a human is worse for a public demo, and the GitHub
+  Release still records that a rollback happened and why.
+- [x] **OQ-3 — Fine-grained PAT confirmed**, not a GitHub App — see Decision 3. The extra
+  correctness a GitHub App would bring doesn't earn its setup cost at this project's scale; the
+  exception to the no-long-lived-credentials principle is accepted and recorded, not hidden.
+- [x] **OQ-4 — Draft the OIDC deploy role's CloudFormation now**, rather than waiting for the other
+  three questions — it doesn't depend on any of them and sits on the critical path (Rollout step 1).
+  **Drafted 2026-09-03** — `workload-account/github-actions-deploy-role.yaml` in
+  `mootmaker-bootstrap-aws-accounts` ([PR #5](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/pull/5),
+  not yet applied): a fresh OIDC provider (verified none existed) and a deploy role whose trust
+  condition is scoped to `job_workflow_ref`, not just `repository` — only a run of one of the four
+  specific reusable-workflow files this design describes (none of which exist yet) can assume it.
+  Still needs a `[Geoff]` manual apply in the **workload** account (431071856068, not the
+  management account — this role deploys `test`/`production`, which live there) before anything
+  downstream can be tested end to end.
 
 ### Non-blocking
 
@@ -391,9 +407,9 @@ see Decision 1 and Technical considerations, not this list.
 | Repository | Impact |
 |---|---|
 | `mootmaker` (hub) | No `release.yml` here (Decision 1, revised) — impact is docs-only. `docs/process/principles.md`'s "`test` was retired... could not justify its standing cost" line needs rewriting to reflect Decision 6's reasoning, not deleting the history but adding the reversal and why. `docs/process/environments.md`'s "exactly two kinds" becomes three. |
-| `mootmaker-release` (new repo) | Gains `release.yml` (the orchestrator, `workflow_dispatch`-triggered), the PAT secret (OQ-3), the cross-component smoke-test suites (OQ-1, tentatively), and publishes the GitHub Release (Decision 5). Scaffolded 2026-09-03; `release.yml` itself not yet built. |
+| `mootmaker-release` (new repo) | Gains `release.yml` (the orchestrator, `workflow_dispatch`-triggered), the PAT secret, the cross-component smoke-test suites (resolved home, OQ-1), and publishes the GitHub Release (Decision 5). Scaffolded 2026-09-03; `release.yml` and the smoke tests themselves not yet built. |
 | `mootmaker-api` | Gains a reusable `release-build.yml` (`on: workflow_call`) doing build + unit test + acceptance-against-fresh-ephemeral + artifact upload, called by `mootmaker-release`'s `release.yml` per release. |
-| `mootmaker-webapp` | Same shape as `mootmaker-api`. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17), not yet merged), unblocking Decision 8. Possibly gains `smoke/` (OQ-1). |
+| `mootmaker-webapp` | Same shape as `mootmaker-api`. Also: `mootmaker-webapp#3` — fixed 2026-09-03 (PR [#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)), unblocking Decision 8. |
 | `mootmaker-demo-data` | Same shape as the other two — first time it's included in an automated pipeline. |
 | `mootmaker-ephemeral-envs` (renamed from `mootmaker-test-infra` 2026-09-03) | `create-ephemeral-env.sh`/`teardown-ephemeral-env.sh` unchanged in mechanism; docs updated to describe `test` as a second protected, standing name (the scripts already treat it as one, per Decision 6). |
 | `mootmaker-email-testing` (split from `mootmaker-test-infra` 2026-09-03) | No direct pipeline changes — the standing `test` environment's smoke test reads from its persistent SQS queue the same way `mootmaker-webapp`'s existing `e2e`/`acceptance` suites already do. |
@@ -465,20 +481,24 @@ see Decision 1 and Technical considerations, not this list.
 ## Rollout & migration
 
 1. **`[Claude]`** Fix `mootmaker-webapp#3` (Decision 8's blocking dependency) — needed before
-   build-once-promote means anything for the webapp.
-2. **`[Geoff]`** Resolve OQ-1 through OQ-4.
+   build-once-promote means anything for the webapp. **Done 2026-09-03** (PR
+   [mootmaker-webapp#17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)).
+2. **`[Geoff]`** Resolve OQ-1 through OQ-4. **Done 2026-09-03.**
 3. **`[Claude]`** Write the OIDC provider + deploy role CloudFormation in
-   `mootmaker-bootstrap-aws-accounts`, scoped to the three deploy targets (OQ-4).
-4. **`[Geoff]`** Apply that stack via the CloudFormation console as root in the management account —
-   not something Claude can do. Blocks any real deploy stage, not PR checks.
-5. **`[Claude/Geoff, per OQ-3]`** Create the PAT (or GitHub App) and store it as a `mootmaker`
-   Actions secret.
+   `mootmaker-bootstrap-aws-accounts`, scoped to the three deploy targets (OQ-4). **Done
+   2026-09-03** — [PR #5](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/pull/5).
+4. **`[Geoff]`** Apply that stack via the CloudFormation console in the **workload** account
+   (431071856068, not the management account — this role deploys `test`/`production`). Blocks any
+   real deploy stage, not PR checks.
+5. **`[Claude/Geoff]`** Create the PAT (OQ-3: PAT, not a GitHub App) and store it as a
+   `mootmaker-release` Actions secret.
 6. **`[Claude]`** Build each component's `release-build.yml` (reusable, build + unit + acceptance +
    artifact upload) and prove each one standalone before wiring up the orchestrator.
 7. **`[Claude]`** Build `mootmaker-release/release.yml`: version computation, tagging, calling each
    component's `release-build.yml`, deploy-to-`test`, smoke-test-`test`, deploy-to-`production`,
    smoke-test-`production`, GitHub Release publish, rollback-on-failure.
-8. **`[Claude]`** Build the smoke-test suites (OQ-1's location).
+8. **`[Claude]`** Build the smoke-test suites in `mootmaker-release` (OQ-1), including its Node/
+   Playwright setup from scratch — the repo has none yet.
 9. **`[Geoff]` + `[Claude]`** Stand up `test` as a real environment for the first time under this
    design (it does not currently exist — it was fully torn down 2026-08-29) and run the pipeline
    against it end to end at least once before it touches `production`.
@@ -498,8 +518,8 @@ No data migration beyond standing `test` back up from nothing.
 |---|---|---|
 | **`test` drifts from `production`'s shape over time** (the exact failure mode that got it retired once already). | Medium | `test`'s state changes only through the release pipeline, same as `production`'s; demo-data seeds it the same way (NB-2 pending); no ad hoc interactive use — ephemeral environments exist for that. |
 | **A failed `test`-stage smoke test leaves `test` broken, blocking the next release's deploy-to-`test` step** until fixed by hand. | Medium, accepted knowingly | This is Decision 6a's entire point — the alternative is finding out in `production`. Named here so it isn't mistaken for a bug later. |
-| **PAT compromise** (Decision 3) reaches four repos with write access. | Medium | Scope strictly to `contents: write`, nothing broader; review OQ-3 (GitHub App may be worth the extra setup after all). |
-| **Automatic production rollback (Decision 10) masks a data-shape problem** that a redeploy of old code doesn't actually fix, giving false confidence that "rollback succeeded." | Medium | OQ-2 — worth deciding whether automatic is right before building it, not after. |
+| **PAT compromise** (Decision 3) reaches four repos with write access. | Medium | Scope strictly to `contents: write`, nothing broader. Accepted per OQ-3 rather than switching to a GitHub App — revisit if this ever proves too narrow a mitigation in practice. |
+| **Automatic production rollback (Decision 10) masks a data-shape problem** that a redeploy of old code doesn't actually fix, giving false confidence that "rollback succeeded." | Medium | Accepted per OQ-2 — the GitHub Release still records that a rollback happened, so the masking is never silent even though it is automatic. |
 | **Over-broad OIDC role scope**, carried over from the first draft, now covering three deploy targets instead of one. | High | Same mitigation as before: least privilege, reviewed CFN, expect iteration during bring-up. |
 | **A scheduled ephemeral sweep and a release race on Terraform state.** | Low | State locking already exists; unchanged from the first draft. |
 
@@ -507,17 +527,20 @@ No data migration beyond standing `test` back up from nothing.
 
 ## Implementation checklist
 
-Not filled in with the same confidence as the first draft's was — several blocking Open questions
-above are new and unresolved as of 2026-09-03. Status stays `Drafting`.
+All four blocking questions are answered (see Open questions), so this is now filled in properly.
+Status stays `Drafting` until Geoff promotes it — a design does not self-promote to `Ready`.
 
-- [ ] `[Geoff]` Resolve OQ-1 through OQ-4.
-- [ ] `[Claude]` Fix `mootmaker-webapp#3`.
-- [ ] `[Claude]` Write the OIDC provider + deploy role CloudFormation (scoped to three targets).
-- [ ] `[Geoff]` Apply that stack via the CloudFormation console.
-- [ ] `[Claude/Geoff]` Create and store the cross-repo tag-push credential (OQ-3).
+- [x] `[Geoff]` Resolve OQ-1 through OQ-4. **Done 2026-09-03.**
+- [x] `[Claude]` Fix `mootmaker-webapp#3`. **Done 2026-09-03**
+      ([PR #17](https://github.com/geoffweatherall/mootmaker-webapp/pull/17)).
+- [x] `[Claude]` Write the OIDC provider + deploy role CloudFormation (scoped to three targets).
+      **Done 2026-09-03** ([PR #5](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/pull/5)).
+- [ ] `[Geoff]` Apply that stack via the CloudFormation console in the workload account.
+- [ ] `[Claude/Geoff]` Create and store the cross-repo tag-push PAT as a `mootmaker-release` secret.
 - [ ] `[Claude]` Build each component's `release-build.yml`.
 - [ ] `[Claude]` Build `mootmaker-release/release.yml` end to end.
-- [ ] `[Claude]` Build the smoke-test suites.
+- [ ] `[Claude]` Build the smoke-test suites in `mootmaker-release`, including its Node/Playwright
+      setup from scratch.
 - [ ] `[Geoff]`/`[Claude]` Stand `test` back up and run the full pipeline against it at least once
       before it ever reaches `production`.
 - [ ] `[Claude]` Cut `production` over to the release pipeline as the sanctioned path.
@@ -535,7 +558,7 @@ above are new and unresolved as of 2026-09-03. Status stays `Drafting`.
   recorded as a GitHub Release — at least once, for real.
 - A `test`-stage smoke-test failure has been deliberately exercised at least once, confirming the
   release correctly stops before `production` and leaves `test` inspectable.
-- A production rollback (whichever OQ-2 resolves to) has been exercised at least once, deliberately.
+- The automatic production rollback (Decision 10) has been exercised at least once, deliberately.
 - The ephemeral sweep has been running in report-only mode for its stated trial period with no false
   positives, or has graduated to automatic teardown.
 - No AWS access key or long-lived AWS credential is stored anywhere in GitHub. The one accepted
