@@ -1019,8 +1019,49 @@ No data migration beyond standing `test` back up from nothing.
 | **Automatic production rollback (Decision 10) masks a data-shape problem** that a redeploy of old code doesn't actually fix, giving false confidence that "rollback succeeded." | Medium | Accepted per OQ-2 — the GitHub Release still records that a rollback happened, so the masking is never silent even though it is automatic. |
 | **Over-broad OIDC role scope**, carried over from the first draft, now covering three deploy targets instead of one. | High | Same mitigation as before: least privilege, reviewed CFN, expect iteration during bring-up. **Bring-up execution model, decided 2026-09-03:** when a real workflow run fails on a missing permission, Claude may apply a narrow, additive-only fix to this one stack directly (no per-instance wait for Geoff) — Geoff reviews the resulting diff after the fact rather than before. Chosen deliberately over the alternative (Geoff applies every fix himself) to keep long unattended implementation stretches from stalling on a permission gap; revisit if an additive fix ever turns out not to be narrow in practice. |
 | **A scheduled ephemeral sweep and a release race on Terraform state.** | Low | State locking already exists; unchanged from the first draft. |
+| **The acceptance suites become a release gate, so pre-existing flakiness starts failing releases** for reasons unrelated to the change being released. | High — **materialised, and was the single largest cost of this build-out** | Not anticipated by this design, and worth recording as its most expensive surprise. Making the suites a gate did not *create* flakiness; it made existing flakiness *matter*, and it ran them consistently enough to expose bugs that ad hoc local runs had hidden for months. Every one turned out to be a real defect rather than test noise — see "What the gate exposed" below. |
 | **Troubleshooting a release older than 120 days finds no CloudWatch detail**, only the GitHub Release's summary. | Low, accepted knowingly | The whole point of the retention policy added 2026-09-03 — permanence was never the goal, staying within scale-to-zero was. Bump `var.log_retention_days` per repo if 120 days ever proves too short in practice. |
 | **`terraform apply` fails on `test`/`production` when Decision 11's log-group resources are first introduced**, since the Lambda/AppSync log groups they name already exist (auto-created, unmanaged). | Medium, if missed | `terraform import` each one first — named explicitly in Rollout step 12 so it isn't discovered mid-apply against a real environment. |
+
+---
+
+## What the gate exposed
+
+Recorded because it was the largest unplanned cost of this build-out, and because the conclusion is
+the opposite of the usual one about flaky tests.
+
+**Making the acceptance suites a release gate did not create flakiness. It made existing flakiness
+matter**, and — more usefully — it ran the suites *consistently, against consistently fresh
+environments*, which is what turned intermittent noise into reproducible evidence. Ad hoc local runs
+against a reused environment had hidden all of this for months.
+
+**Every flake traced to a real defect. None was test noise.** That is the finding worth carrying
+forward, because the instinct with an intermittent test is to quarantine or retry it, and here that
+instinct would have been wrong four times out of four.
+
+| Symptom | Actual cause |
+|---|---|
+| One test per run failing on `expect(getByText(name)).toBeVisible()` after a create, a different test almost every time | **DynamoDB `Scan` defaults to eventually consistent.** The webapp refetches once after a mutation and never again, so a stale read renders a list *permanently* missing the new row. Fixed with `consistentRead(true)` on six table Scans ([mootmaker-api#31](https://github.com/geoffweatherall/mootmaker-api/pull/31)) |
+| Three meeting tests failing together | The room-availability schedule reads through a **GSI**, and DynamoDB rejects `ConsistentRead` on an index. Fixed client-side by carrying the created meeting through navigation state ([mootmaker-webapp#35](https://github.com/geoffweatherall/mootmaker-webapp/pull/35)) |
+| F.53 failing on retry with a confusing wrong-room assertion | **The retry could never pass.** `SuggestRoomHandler` breaks capacity ties by name and `uniqueId()` is `Date.now()`-based, so the *failed* attempt's room always won the tiebreak. A retry in a state-accumulating suite converted a recoverable timeout into a certain failure ([mootmaker-webapp#30](https://github.com/geoffweatherall/mootmaker-webapp/issues/30)) |
+| demo-data acceptance asserting "nothing to do" against data that existed | An SDK socket timeout at 30s against a ~35s cold start, so the SDK silently retried and the test read the *retry's* result ([demo-data#16](https://github.com/geoffweatherall/mootmaker-demo-data/issues/16)) |
+
+**Two second-order lessons, both about diagnosis rather than the bugs themselves:**
+
+**Playwright's failure artifacts never left the runner.** A flake could only be guessed at from a log
+line saying an element was not found. Two wrong guesses were made before the capture existed; the
+business-hours/timezone bug was diagnosed within minutes of adding it. Now uploaded on failure
+([mootmaker-webapp#36](https://github.com/geoffweatherall/mootmaker-webapp/pull/36)).
+
+**A single green run proves nothing about an intermittent fault.** Three releases went green *before*
+either consistency fix existed. Frequency data — repeated runs against one environment — is the only
+thing that distinguishes "fixed" from "did not fire this time", and it is worth the wall-clock cost.
+
+**One genuine trade-off surfaced and got the wrong answer first.** `retries: 1` was set globally in
+response to the F.53 finding; the very next release then failed on a *different* test that a retry
+would rightly have absorbed. The correct shape is per-file: retries off only for the suite that
+reasons about accumulated state, on everywhere else. Generalising from one test to a whole suite was
+the mistake, and it took a release to catch.
 
 ---
 
