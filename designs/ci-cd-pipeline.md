@@ -738,14 +738,25 @@ moving to `Ready` once its Implementation checklist is filled in accordingly.
   exception to the no-long-lived-credentials principle is accepted and recorded, not hidden.
 - [x] **OQ-4 — Draft the OIDC deploy role's CloudFormation now**, rather than waiting for the other
   three questions — it doesn't depend on any of them and sits on the critical path (Rollout step 1).
-  **Drafted 2026-09-03** — `workload-account/github-actions-deploy-role.yaml` in
-  `mootmaker-bootstrap-aws-accounts` ([PR #5](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/pull/5),
-  not yet applied): a fresh OIDC provider (verified none existed) and a deploy role whose trust
-  condition is scoped to `job_workflow_ref`, not just `repository` — only a run of one of the four
-  specific reusable-workflow files this design describes (none of which exist yet) can assume it.
-  Still needs a `[Geoff]` manual apply in the **workload** account (431071856068, not the
-  management account — this role deploys `test`/`production`, which live there) before anything
-  downstream can be tested end to end.
+  **Drafted 2026-09-03, applied and since corrected** — `workload-account/github-actions-deploy-role.yaml`
+  in `mootmaker-bootstrap-aws-accounts`
+  ([PR #5](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/pull/5)): a fresh
+  OIDC provider (verified none existed) and a deploy role, applied by Geoff in the **workload**
+  account (431071856068, not the management account — this role deploys `test`/`production`, which
+  live there).
+  **The draft's central scoping claim did not survive contact with AWS.** It conditioned trust on
+  `job_workflow_ref` so that only a run of one specific reusable-workflow file could assume the
+  role. AWS supports only `sub` and `aud` as OIDC condition keys — an unsupported key is not
+  rejected when written, it silently evaluates as absent, so the condition never matched and every
+  assume-role was denied. That is how the first real proving run failed
+  ([bootstrap#9](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/issues/9)).
+  Trust is now keyed on `sub`: repository — by **immutable numeric ID**, which survives a rename —
+  and ref pattern. **Pinning to a specific workflow file is not available in AWS at all**, so the
+  compensating controls are the ref patterns (components only at `refs/tags/v*`, the orchestrator
+  and the sweep only at `refs/heads/main`) plus branch protection, not workflow-file identity. Any
+  workflow in those repos at a matching ref can assume the role. That is a weaker boundary than
+  this question assumed when it was written, and worth knowing rather than inheriting the
+  draft's wording.
 
 ### Non-blocking
 
