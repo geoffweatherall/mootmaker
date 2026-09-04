@@ -73,7 +73,11 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
 9. **Technical considerations** — implementation-level constraints, gotchas, and things a future
    implementer would otherwise have to rediscover the hard way (e.g. "backend times are naive local
    ISO strings, never parse them as UTC" — the kind of invariant that isn't obvious from the code
-   alone).
+   alone). **Say what this leaves behind**: what it writes, where that goes, and what deletes it.
+   Logs, metrics, snapshots, images, queued messages and stored objects all default to accumulating
+   forever unless something is configured to expire them — see
+   [`../docs/process/principles.md`](../docs/process/principles.md)'s "Nothing accumulates without
+   a bound". If nothing deletes it, that is a gap in the design.
 10. **Testing impacts** — which test layers need new or changed coverage (this project's own
     layering — unit / mocked-integration / real-deployed e2e+acceptance — is described in each
     repo's own `testing-strategy.md`), and specifically whether *existing* test scenarios need to

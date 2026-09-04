@@ -37,6 +37,34 @@ at by hand. The principle did not change; the environment found a job that pays 
 zero. Four leaked in a single day in August 2026 before anyone noticed — tearing yours down is part
 of finishing the work, not a tidy-up.
 
+**Nothing accumulates without a bound.** Under steady usage the bill should be *flat*. If usage does
+not grow but the bill does, something is accumulating that nobody chose to keep — and that is a
+defect, not a cost of doing business.
+
+This is scale-to-zero's other half, and it is easier to miss. Scale to zero is about what runs;
+this is about what *piles up*. A thing that costs nothing per hour still costs something per
+gigabyte-month forever.
+
+Concretely, and as a rule rather than a suggestion:
+
+- **Every CloudWatch log group has a retention period.** No exceptions. AWS's default is "never
+  expire", so a group created by anything other than deliberate Terraform/CloudFormation — Lambda
+  auto-creates one on a function's first invocation — retains forever unless someone sets it. This
+  project uses **120 days**.
+- **Every store with a natural lifetime has that lifetime configured**, not left to the default:
+  S3 lifecycle rules, CloudWatch metric filters and alarms, ECR image retention, snapshot and
+  backup schedules, SQS message retention, DynamoDB TTL where the data is genuinely transient.
+- **A resource that outlives what it belonged to is a leak**, even a free one. `terraform destroy`
+  removes a Lambda but *not* the log group Lambda created for it, which is how this account reached
+  282 orphaned log groups against 15 live ones by September 2026 — all retaining forever, from
+  environments and functions that no longer existed.
+
+**When designing anything new, ask what it leaves behind.** Not just "what does this run" but "what
+does this write, where does it go, and what deletes it". If the answer to the last part is nothing,
+that is a gap in the design, not an operational detail to sort out later. The
+[design section template](../../designs/README.md#section-template) asks this under Technical
+considerations for exactly this reason.
+
 ## The stack
 
 Verified against what is actually deployed, 2026-08-29. Prefer these over introducing something new;
