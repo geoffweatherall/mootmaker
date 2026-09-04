@@ -1213,23 +1213,39 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
 
 ## Definition of done
 
-- `gh workflow run release.yml` (or the Actions UI equivalent) is the only way `test` or
+**Status as at 2026-09-04: every item below is met except the ephemeral sweep's trial period,
+which is inherently time-based and has just started.** Evidence is recorded against each; the
+Implementation checklist above carries the detail.
+
+- ✅ `gh workflow run release.yml` (or the Actions UI equivalent) is the only way `test` or
   `production` change — no `./deploy.sh test|production` run by hand as the sanctioned path.
-- A release has gone all the way through: version computed, all three components tagged, built,
+  Documented rather than technically enforced; see step 10 for why that was the right shape.
+- ✅ A release has gone all the way through: version computed, all three components tagged, built,
   acceptance-tested, deployed to `test`, smoke-tested, deployed to `production`, smoke-tested, and
-  recorded as a GitHub Release — at least once, for real.
-- A `test`-stage smoke-test failure has been deliberately exercised at least once, confirming the
+  recorded as a GitHub Release — at least once, for real. `v0.0.9` first, `v0.0.12` again with the
+  logging in place. Eleven attempts preceded `v0.0.9`, each failing on a distinct genuine defect.
+- ✅ A `test`-stage smoke-test failure has been deliberately exercised at least once, confirming the
   release correctly stops before `production` and leaves `test` inspectable.
-- The automatic production rollback (Decision 10) has been exercised at least once, deliberately.
-- The ephemeral sweep has been running in report-only mode for its stated trial period with no false
-  positives, or has graduated to automatic teardown.
-- No AWS access key or long-lived AWS credential is stored anywhere in GitHub. The one accepted
-  exception (the tag-push PAT, OQ-3) is documented as such, not incidental.
-- All three deployable components have a required, branch-protection-enforced PR check (Decision
+- ✅ The automatic production rollback (Decision 10) has been exercised at least once, deliberately.
+- ⏳ **The only item still open.** The ephemeral sweep has been running in report-only mode for its
+  stated trial period with no false positives, or has graduated to automatic teardown. Built and
+  running daily as of 2026-09-04; two runs so far, identical results, all three guards observed
+  firing. The trial period's length was never actually stated anywhere — that, and what to do with
+  the 278 orphaned log groups it found, are asked in
+  [#51](https://github.com/geoffweatherall/mootmaker/issues/51). Worth naming the weak spot in the
+  evidence: the sweep has not yet been observed running concurrently with a release. The 12-hour
+  threshold makes that safe by construction, and by construction is not the same as observed.
+- ✅ No AWS access key or long-lived AWS credential is stored anywhere in GitHub. The one accepted
+  exception (the tag-push PAT, OQ-3) is documented as such, not incidental. Verified by listing
+  every secret in all five repos that hold workflows: `RELEASE_TAG_PAT` in `mootmaker-release` is
+  the only secret that exists anywhere.
+- ✅ All three deployable components have a required, branch-protection-enforced PR check (Decision
   12) — deliberately exercised at least once each by a PR that fails it, confirming merge is
   actually blocked, not just that the check runs.
-- A completed release's logs — at least one Terraform apply and one smoke-test run — are actually
+- ✅ A completed release's logs — at least one Terraform apply and one smoke-test run — are actually
   findable in CloudWatch via the saved query (Decision 11), including the relevant Lambda execution
   logs *and* AppSync's own request/resolver logs alongside them, not just theoretically wired up.
-- Every log group Decision 11 creates or adopts has its retention verified as actually set to 120
+  The saved definition itself returns 2,376 records for `v0.0.12` across all eight streams.
+- ✅ Every log group Decision 11 creates or adopts has its retention verified as actually set to 120
   days against live AWS (`aws logs describe-log-groups`), not just declared in Terraform and assumed.
+  All five managed Lambda groups, both AppSync groups and `/mootmaker/release-pipeline` read 120.
