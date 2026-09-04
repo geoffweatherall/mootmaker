@@ -28,7 +28,10 @@ minutes on public repositories, which is why CI has no marginal cost here.
 
 **A long-lived environment must justify itself.** `production` is the only one, and it exists
 because a public demo is part of the point. The `test` environment was retired in August 2026
-precisely because it could not justify its standing cost. See [environments.md](environments.md).
+precisely because it could not justify its standing cost — and brought back in September 2026 when
+it could: as the release pipeline's rehearsal stage, deployed to only by that pipeline, never poked
+at by hand. The principle did not change; the environment found a job that pays for it. See
+[environments.md](environments.md).
 
 **Ephemeral means ephemeral.** An environment left running is a direct contradiction of scale to
 zero. Four leaked in a single day in August 2026 before anyone noticed — tearing yours down is part

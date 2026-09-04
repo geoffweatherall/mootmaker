@@ -18,7 +18,8 @@ something that does not exist yet. Nothing here depends on a particular tool.
    [branching-and-prs.md](branching-and-prs.md).
 4. **Testing against a real deployment is the quality gate**, not code review. See
    [principles.md](principles.md) and [`../reference/testing-strategy.md`](../reference/testing-strategy.md).
-5. **Environments are production or ephemeral.** Nothing else is long-lived. See
+5. **Environments are `production`, `test`, or ephemeral.** `test` and `production` change only
+   through the release pipeline; everything else is ephemeral and yours to tear down. See
    [environments.md](environments.md).
 6. **Leave the documentation true.** If your change makes a document wrong, fixing it is part of
    the change, not a follow-up.

@@ -3,13 +3,12 @@
 The mechanics of how mootmaker runs multiple independent copies of the stack, and how to stand up
 and tear down your own. Moved here from the project README during the 2026-08 reorganisation.
 
-> **Note (2026-08-29):** the environment *model* changed as part of that reorganisation — there is
-> now only **production** plus short-lived **ephemeral** environments. The long-lived `test`
-> environment described in the examples below has been retired. The mechanics on this page are
-> still accurate; only the set of long-lived environment names has changed. Examples using `test`
-> are updated in Phase 4 of
-> [`designs/archive/project-reorganisation.md`](../../designs/archive/project-reorganisation.md). For the *policy*
-> — which environments exist and why — see `../process/environments.md`.
+> **Note (updated 2026-09-04):** the long-lived environments are **production** and **test**, plus
+> short-lived **ephemeral** ones. `test` was retired on 2026-08-29 and reinstated on 2026-09-03 with
+> a narrower job — the release pipeline's rehearsal stage, deployed to only by that pipeline. The
+> mechanics on this page never depended on which names exist and are still accurate throughout; the
+> `test` examples below read correctly again. For the *policy* — which environments exist, why, and
+> what may deploy to them — see [`../process/environments.md`](../process/environments.md).
 
 
 ### Overview
