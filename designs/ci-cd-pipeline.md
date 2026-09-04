@@ -1109,12 +1109,36 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       meetings, 40 people, 10 rooms.
 - [ ] `[Claude]` Cut `production` over to the release pipeline as the sanctioned path.
 - [ ] `[Claude]` Build the scheduled ephemeral sweep (unchanged from the first draft).
-- [ ] `[Claude]` Build the tagged, 120-day-retention Lambda log groups (`mootmaker-api`/
+- [x] `[Claude]` Build the tagged, 120-day-retention Lambda log groups (`mootmaker-api`/
       `mootmaker-demo-data`), `mootmaker-api`'s AppSync logging (`log_config` + its own adopted,
       tagged, 120-day-retention log group + wildcard-scoped logging role), `mootmaker-release`'s own
       120-day-retention log group + `QueryDefinition`(s), and the two IAM additions to the OIDC
       deploy role (Decision 11). Remember `terraform import` for each pre-existing log group on
-      `test`/`production` — independent of the rest, can proceed any time.
+      `test`/`production` — independent of the rest, can proceed any time. **Done 2026-09-04**, and
+      verified against live AWS rather than from Terraform's own output, which this item's
+      Definition-of-done counterpart insists on:
+      - the **saved query itself** — not one written for the occasion — returns **2,376 records**
+        for `v0.0.12`, with `stage`, `component`, `environment` and `outcome` as separately
+        filterable fields, from all eight streams the release shipped
+      - **both AppSync log groups now exist at 120 days**. They did not exist at import time, which
+        is itself the point: without `log_config` AppSync logs nothing at all, so a GraphQL error
+        rejected before reaching a resolver left no trace anywhere
+      - every Terraform-managed Lambda group reads **120** (`aws logs describe-log-groups`)
+      - the imports worked: `terraform plan` against `test` and `production` shows the adopted
+        groups **updated in-place, 0 to destroy** — without the import those would have been
+        creations against names already taken, which is the failure this entry warns about
+      **A bug this surfaced, worth recording because it is counter-intuitive:** naming a log group
+      from `aws_lambda_function.*.function_name` makes the group depend on the *function*, so
+      Terraform creates the function first — and SnapStart publishes a version by *executing the
+      function's init*, which makes Lambda auto-create the group. Terraform's own create then fails
+      with `ResourceAlreadyExistsException` **on a supposedly empty ephemeral environment**. Names
+      are now derived from `resource_prefix` with `depends_on` inverting the order. The same
+      SnapStart behaviour behind [#41](https://github.com/geoffweatherall/mootmaker/issues/41)
+      caused this by an entirely different route.
+      **Also found, and not covered by this design:** eleven production log groups whose Lambda no
+      longer exists, all retaining forever — leftovers from the per-field-resolver consolidation and
+      the `sample-data-*` merge, since `terraform destroy` removes a function but not its
+      auto-created group. [#47](https://github.com/geoffweatherall/mootmaker/issues/47).
 - [x] `[Claude]` Build `pr-checks.yml` for `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data`
       (Decision 12) and enable required status checks on each — independent of the rest, can proceed
       any time. **Done 2026-09-03** —
