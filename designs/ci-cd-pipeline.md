@@ -1099,7 +1099,7 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       reached production" are different questions. Rollback now targets the latter
       (`--exclude-pre-releases`); targeting the former would have restored a version that never
       deployed, inverting the property Decision 10 relies on.
-      Original scope, all built: `concurrency: { group: release, `concurrency: { group: release,
+      Original scope, all built: `concurrency: { group: release,
       cancel-in-progress: false }` (NB confirmed 2026-09-03 — queue overlapping triggers, don't
       cancel mid-deploy); version computation, tagging, calling each component's `release-build.yml`,
       deploy-to-`test` (including the explicit demo-data seed invocation, NB-2), smoke-test-`test`,
