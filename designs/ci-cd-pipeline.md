@@ -1239,9 +1239,13 @@ Implementation checklist above carries the detail.
   running daily as of 2026-09-04; two runs so far, identical results, all three guards observed
   firing. The trial period's length was never actually stated anywhere — that, and what to do with
   the 278 orphaned log groups it found, are asked in
-  [#51](https://github.com/geoffweatherall/mootmaker/issues/51). Worth naming the weak spot in the
-  evidence: the sweep has not yet been observed running concurrently with a release. The 12-hour
-  threshold makes that safe by construction, and by construction is not the same as observed.
+  [#51](https://github.com/geoffweatherall/mootmaker/issues/51).
+  **The concurrency case is now observed, not just argued.** A sweep was deliberately dispatched
+  while a release was mid-apply against `rel-api-260904-eb13`, and the report placed that
+  environment under *"In use (Terraform holds the lock)"* — so the `.tflock` guard fired, on a real
+  concurrent `terraform apply`, ahead of the staleness threshold that would also have caught it.
+  That was the one piece of this design's safety argument resting on construction rather than
+  evidence, and it no longer is.
 - ✅ No AWS access key or long-lived AWS credential is stored anywhere in GitHub. The one accepted
   exception (the tag-push PAT, OQ-3) is documented as such, not incidental. Verified by listing
   every secret in all five repos that hold workflows: `RELEASE_TAG_PAT` in `mootmaker-release` is
