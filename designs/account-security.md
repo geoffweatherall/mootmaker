@@ -6,15 +6,26 @@ should not be built from as-is.
 
 ## Summary
 
-Modernise and validate how MootMaker accounts are secured and recovered. Two halves that are easy
-to treat as one and shouldn't be: **authentication** (how someone proves they are who they say —
-today a password, possibly a passkey tomorrow) and **recovery** (how someone gets back in when
-that fails — today a code emailed to a verified address, which is also the only thing standing
-between an attacker with mailbox access and a full account takeover).
+Modernise and validate how accounts are secured and recovered — across **two populations that are
+easy to blur and shouldn't be**:
 
-"Validate" carries as much weight as "modernise" here. Several of the properties below are
-believed rather than demonstrated, and the belief has never been tested against a real deployed
-environment.
+1. **MootMaker's own end-user accounts.** The Cognito user pool: how someone proves they are who
+   they say (today a password, possibly a passkey tomorrow) and how they get back in when that
+   fails (today a code emailed to a verified address, which is the only thing standing between an
+   attacker with mailbox access and a full account takeover).
+2. **The operator accounts that own the infrastructure.** GitHub, both AWS accounts' root users,
+   AWS SSO, the domain registrar, and the email address underneath all of them. The question here
+   is blunter: **if the phone is lost or destroyed, is everything recoverable — and has that ever
+   been checked?**
+
+They share a subject and almost nothing else. Population 1 is a product feature with acceptance
+tests; population 2 is a personal operational risk with no code, no tests, and a much worse failure
+mode — a locked-out root user cannot be fixed by shipping a patch. They are together here because
+the answer to both is the same discipline, but they may well split into two documents once scope
+is real.
+
+"Validate" carries as much weight as "modernise" in both. Several properties below are believed
+rather than demonstrated.
 
 **Status:** Drafting — 2026-09-04. Placeholder; no work has started.
 
@@ -31,6 +42,12 @@ Not settled yet — the point of the placeholder. First pass at the boundary:
 - Cognito threat protection (the feature formerly called advanced security), currently not enabled
 - Token lifetimes, currently left at Cognito's defaults with no deliberate choice recorded
 - Session and sign-out behaviour across devices
+
+**In scope, and the reason this design has a deadline**
+- **Recovering every operator account after losing the phone.** MFA on a single device is a single
+  point of failure for the whole project, and unlike everything else here it cannot be fixed after
+  the fact. See "Operator account recovery" under Technical considerations for the inventory,
+  including the accounts that are easy not to think of.
 
 **Probably not in scope**
 - Authorization — the `custom:class` standard/admin boundary is a separate concern and already has
@@ -72,6 +89,15 @@ to try the demo would have missed the point.
   different answer. The demo does not need MFA. A portfolio piece that visibly reasons about
   authentication might. Worth being explicit, because the two justify very different amounts of
   work.
+- [ ] **Which of the operator accounts actually exist, and where do their recovery factors point?**
+  The inventory below is assembled from what this project demonstrably uses; only Geoff can confirm
+  what is really registered against each, and whether the recovery email and phone are themselves
+  recoverable. **This is the one blocking question with a clock on it** — every day it stays
+  unanswered is a day the single-device risk is live.
+
+*Note: the operator-recovery half does not need the threat-model question above answered first.
+"Can I get back in?" has the same answer whatever the threat model is, so it should not wait behind
+the product-side questions.*
 
 ### Non-blocking
 
@@ -144,6 +170,52 @@ Recorded so the next session starts from fact rather than from re-reading Terraf
 
 Two of those are already right and should not be "fixed" into something worse. The rest are open.
 
+### Operator account recovery — "if I lose my phone"
+
+The failure this half exists to prevent: **one device holds the second factor for everything, and
+losing it locks the project's owner out of the project.** Unlike the product-side work, this
+cannot be fixed retrospectively — the time to add a second recovery path is while the first one
+still works.
+
+The general principle, worth stating once rather than repeating per row: **every account needs at
+least two independent ways in, and they must not share a single point of failure.** Two TOTP codes
+in the same authenticator app on the same phone are one factor, not two. A recovery email that
+itself requires the lost phone is not a recovery path.
+
+**Inventory.** Assembled from what this project demonstrably uses — the ones marked *easy to miss*
+are the point of writing it down, since the obvious accounts tend to get handled and the ones
+underneath them do not:
+
+| Account | Why losing it hurts | Recovery to verify |
+|---|---|---|
+| **AWS root — workload account (431071856068)** | Owns `test`, `production`, every Lambda, table, and the Terraform state bucket | Root MFA devices registered; root email reachable without the phone. AWS supports **multiple MFA devices per root user** — registering a second is the single highest-value action here |
+| **AWS root — management account** | Owns the Organization, the SCP guardrails, and Identity Center itself | Same. Also: as the Organization management account, it can perform **centralized root access management** over member accounts, which is a recovery path *into* the workload account and worth knowing exists |
+| **AWS IAM Identity Center (SSO)** | The daily driver — `aws sso login`. Losing it stops all deploys | Whether the SSO user's MFA is separate from root's, and whether a root user can restore it |
+| **GitHub (`geoffweatherall`)** | All eleven repos, the release pipeline, `RELEASE_TAG_PAT` | **Recovery codes downloaded and stored somewhere that is not the phone** — the single most commonly skipped step. Also whether a second factor (security key) is registered |
+| **The email address behind all of the above** | *Easy to miss.* It is the recovery root for everything else — whoever controls it can reset the rest | Its own 2FA and *its* recovery path. If it is Gmail and 2FA is the lost phone, this is the true single point of failure, not any individual account below it |
+| **Domain registrar for `mootmaker.com`** | *Easy to miss.* Losing the domain loses the site, the SES identity, and `noreply@mail.mootmaker.com` — which is Cognito's sender, so end users' password recovery breaks too | Registrar login MFA and recovery. Also whether the registrar's contact email is one of the above |
+| **Authenticator app itself** | *Easy to miss.* If TOTP seeds live only on the phone with no cloud backup, every TOTP-protected account above fails at once | Whether seeds are backed up or the app syncs; whether backup is encrypted with a key that is itself recoverable |
+| **Password manager, if used** | *Easy to miss.* Its master credential is the root of everything stored in it | Emergency access / recovery kit, stored offline |
+| **Anthropic / Claude account** | Not infrastructure, but this workflow depends on it | Recovery factors |
+
+**The recurring shape** is worth naming because it is what makes this hard to reason about: these
+accounts form a **graph, not a list**. The registrar's recovery goes to the email; the email's
+recovery may go to the phone; AWS root's recovery goes to email *and* phone. A single lost device
+can cascade through several of them at once, and checking each account in isolation will not reveal
+that. The check that matters is *"assume the phone is gone — trace every path"*, not
+*"does each account have MFA"*.
+
+**Concrete actions that are almost certainly right regardless of how the open questions resolve** —
+listed here rather than in the Implementation checklist because they need no design work, only
+doing:
+
+- Register a **second MFA device** on both AWS root users
+- Download **GitHub recovery codes** and store them off-device
+- Confirm the **root account email addresses** are current, monitored, and independently recoverable
+- Check whether the **authenticator app's seeds survive the phone**
+- Consider a **hardware security key** as the second factor — it is the one option that is neither
+  on the phone nor dependent on the email graph above
+
 ### The recovery path is the weakest link, and is currently the *only* link
 
 With `verified_email` as the sole recovery mechanism and no MFA, anyone with access to a user's
@@ -180,6 +252,11 @@ Enrolling a passkey or a second factor cannot be a hard cutover without locking 
   suite together.
 - **Hardening theatre** — enabling features that look serious, cost money, and defend against a
   threat model nobody has articulated. The first blocking question exists to prevent this.
+- **Being locked out of an operator account while "improving" its security.** Re-registering MFA,
+  rotating a recovery email, or moving to a hardware key all involve a window where the old factor
+  is gone and the new one is unproven. Every such change should be made with a *second* working
+  path already in place, and verified by actually signing in again before the old factor is
+  discarded — not assumed from the settings page saying it worked.
 - Cognito changes that require pool replacement rather than in-place update. Some settings are
   immutable after creation; which ones needs checking before anything is promised, because
   replacing the pool means every existing user is gone.
@@ -194,3 +271,9 @@ Not meaningful until scope exists. The floor, whatever the scope turns out to be
 acceptance suite still green against a real deployed environment, the demo account still usable by
 a stranger from the home page, and every property claimed to be improved actually demonstrated
 against live AWS rather than inferred from Terraform.
+
+For the operator half the bar is different and simpler, and deliberately does not depend on
+anything being built: **every account in the inventory has a second, independent way in that has
+been used at least once** — actually signed in with, not just registered. A recovery path that has
+never been exercised is a belief, not a capability, and this project's own principles already say
+so about everything else.
