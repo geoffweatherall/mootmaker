@@ -1107,8 +1107,44 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       interactively would have broken Decision 6's mitigation ("`test`'s state changes only through
       the release pipeline") on its first day. Verified seeded against DynamoDB directly: 532
       meetings, 40 people, 10 rooms.
-- [ ] `[Claude]` Cut `production` over to the release pipeline as the sanctioned path.
-- [ ] `[Claude]` Build the scheduled ephemeral sweep (unchanged from the first draft).
+- [x] `[Claude]` Cut `production` over to the release pipeline as the sanctioned path.
+      **Done 2026-09-04** — [mootmaker#49](https://github.com/geoffweatherall/mootmaker/pull/49)
+      plus the same rule in all ten repos' `AGENTS.md`.
+      **Deliberately documented rather than enforced**, which is a decision this checklist item
+      did not pre-settle: `./deploy.sh production` still works. There is no gate a person holding
+      production credentials cannot get around, so a block would buy the appearance of a
+      guarantee rather than the guarantee; and the case for the pipeline is that it does more, not
+      that the alternative was removed. What the docs now do instead is state the actual cost of a
+      hand-deploy — it skips the tag, the `test` rehearsal, both smoke tests and the rollback, and
+      because the pipeline *promotes* one build rather than rebuilding per environment, it is not
+      even the same artifact. If that turns out to be too weak a rail, adding one is a small
+      change; unwinding a rail that blocks a genuine recovery is not.
+- [x] `[Claude]` Build the scheduled ephemeral sweep (unchanged from the first draft).
+      **Done 2026-09-04** —
+      [mootmaker-ephemeral-envs#10](https://github.com/geoffweatherall/mootmaker-ephemeral-envs/pull/10),
+      `sweep-stale-envs.sh` + `.github/workflows/sweep.yml`, daily at 06:00 UTC, report-only.
+      `cleanup-stale-envs.sh` stays as the interactive counterpart; neither replaces the other.
+      Three independent guards keep an unattended `--destroy` off a running build: the
+      `<kind>-<YYMMDD>-<rand4>` name check (which `test` and `production` cannot pass), a `.tflock`
+      object under the state prefix meaning Terraform holds the lock right now, and a 12-hour
+      staleness threshold — beyond GitHub's 6-hour job cap.
+      **The first report, against live AWS: 0 stranded, 37 leftover state objects, 238 orphaned
+      ephemeral log groups, 40 from retired `production`/`test` functions.** Two things worth
+      reading out of that. Zero stranded environments means the manual cleanups during this
+      build-out did hold. And [#47](https://github.com/geoffweatherall/mootmaker/issues/47) was a
+      significant undercount — it found eleven orphaned groups in `production`, but the account-wide
+      figure is 278, because *every ephemeral environment ever created* leaked its Lambda groups,
+      not just the retired production functions. That is noise rather than spend (11.5 MB of log
+      storage account-wide), but 283 of the account's 296 groups retain forever. The ongoing leak
+      is already closed by step 12's change — the newest release environments no longer appear.
+      **Two bugs found by running it in CI rather than trusting the local run**, both worth
+      recording. `lambda:ListFunctions` was missing from the deploy role: it had been verified
+      locally under an SSO admin session, not under the role CI assumes — the second time in this
+      build-out that testing under different credentials than production's hid a permissions gap.
+      And the run reported **green having swept nothing**, because `script | tee report.txt` gives
+      the step `tee`'s exit status; `set -o pipefail` fixes that. The green-on-nothing half was the
+      worse of the two, and is exactly what `docs/process/principles.md`'s "a script exiting zero
+      is not evidence" warns about.
 - [x] `[Claude]` Build the tagged, 120-day-retention Lambda log groups (`mootmaker-api`/
       `mootmaker-demo-data`), `mootmaker-api`'s AppSync logging (`log_config` + its own adopted,
       tagged, 120-day-retention log group + wildcard-scoped logging role), `mootmaker-release`'s own
@@ -1161,7 +1197,17 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       deadlocks an unattended run — when `main` moves, GitHub demands a branch update that
       auto-merge will not perform on its own. With sequential single-PR merges the practical
       difference is small. Flip it if that trade is wrong.
-- [ ] `[Claude]` Update the documentation named in Documentation impacts.
+- [x] `[Claude]` Update the documentation named in Documentation impacts. **Done 2026-09-04** —
+      [mootmaker#49](https://github.com/geoffweatherall/mootmaker/pull/49) for
+      `docs/process/environments.md` (two kinds to three, with a `test` section saying which
+      property is load-bearing), `docs/process/principles.md` (the retirement kept and the
+      reinstatement explained, rather than reverting to pre-retirement wording),
+      `docs/process/README.md` and `docs/development/environments.md`; plus one PR per repo for the
+      shared rules block. **The scope was larger than this design assumed** — Documentation impacts
+      names "each of the three component repos' `AGENTS.md`", but the "Environments are
+      `production` or ephemeral" line is part of the *shared* project-wide rules block duplicated
+      into all ten repos, so it was wrong in ten places, not three. The three deployable components
+      additionally got the `release.yml`-not-`deploy.sh` bullet this section asks for.
 
 ---
 
