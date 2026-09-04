@@ -11,8 +11,9 @@ something that does not exist yet. Nothing here depends on a particular tool.
 
 1. **Work of any real size starts with a design document**, not with code. See
    [`../../designs/README.md`](../../designs/README.md).
-2. **Bugs and small changes start with a GitHub issue**, in the repository they concern.
-   See [issues-and-board.md](issues-and-board.md).
+2. **Bugs and small changes start with a GitHub issue**, in the repository they concern. Before
+   fixing one, post an implementation plan as a comment and get it approved by a human. See
+   [issues-and-board.md](issues-and-board.md).
 3. **All work happens on a branch and lands via a pull request.** See
    [branching-and-prs.md](branching-and-prs.md).
 4. **Testing against a real deployment is the quality gate**, not code review. See

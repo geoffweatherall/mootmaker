@@ -52,6 +52,21 @@ A good issue records:
 When an issue is resolved, close it with the reasoning and a link to the commit or PR. A closed
 issue that only says "fixed" throws away most of its value.
 
+## Before fixing an issue
+
+**Post an implementation plan as a comment on the issue, under a `## Implementation plan` header,
+and get it approved by a human before starting work.** This is the lighter-weight equivalent of a
+design's `Drafting → Ready` gate ([branching-and-prs.md](branching-and-prs.md)) for work that does
+not need a full design document — see [Issues versus designs](#issues-versus-designs).
+
+**If the plan changes once you're underway, edit that same comment rather than posting a new
+one.** The issue should show one current plan, not a trail of superseded ones a reader has to
+reconcile by hand.
+
+Approval is a human reading the comment and saying so, the same as
+[PR review](branching-and-prs.md#review-and-merge) — there is no tooling gate for it. Do not open
+a branch or start the fix before that happens.
+
 ## Labels
 
 The same set exists in every repository, so a filter behaves consistently across the board.
