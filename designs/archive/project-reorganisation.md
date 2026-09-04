@@ -1070,7 +1070,7 @@ inconsistent with the stated process.
       cross-links — code comments, READMEs, Terraform comments, and the workstation manifest.
       Verified with `tools/check-links.py` (0 broken across all 10 repos) plus a manual grep sweep
       for bare-text mentions the checker can't see, which found 27 additional stale references to
-      `mootmaker/testing-strategy.md`/`use-cases.md`/etc. from before their Phase 1 move — that gap
+      `mootmaker/docs/reference/testing-strategy.md`/`use-cases.md`/etc. from before their Phase 1 move — that gap
       in the checker itself is now [mootmaker#8](https://github.com/geoffweatherall/mootmaker/issues/8).
 - [x] `[Claude]` Write `docs/process/environments.md`'s production+ephemeral model; update every
       script/doc referencing the `test` environment. **The model was already written in Phase 2**
