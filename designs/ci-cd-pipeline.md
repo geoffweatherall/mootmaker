@@ -1064,18 +1064,49 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       `WorkloadAdministrator` permission set, so an OIDC denial cannot be diagnosed the normal way.
       The claims had to be printed from inside the workflow instead. Worth granting before the next
       piece of OIDC work.
-- [ ] `[Claude]` Build `mootmaker-release/release.yml` end to end: `concurrency: { group: release,
+- [x] `[Claude]` Build `mootmaker-release/release.yml` end to end. **Done 2026-09-04**, and proven
+      by a complete release (`v0.0.9`) rather than by review: version computed, all three components
+      tagged, built and acceptance-tested, deployed to `test`, smoke-tested, deployed to
+      `production`, smoke-tested, and published as a GitHub Release. Verified against live AWS, not
+      job status — production's Lambdas re-dated to 2026-09-04, `www.mootmaker.com` and
+      `www.test.mootmaker.com` both serving, no stranded ephemeral resources.
+      **Deviation from this entry:** the three component builds run **sequentially**, not in
+      parallel. Three simultaneous `mootmaker-api` deploys (the webapp and demo-data builds each
+      deploy it too) failed with published Lambda versions stuck in `Failed`/`FunctionError` against
+      an account concurrency quota of 10 — see [mootmaker#41](https://github.com/geoffweatherall/mootmaker/issues/41),
+      and [mootmaker-release#11](https://github.com/geoffweatherall/mootmaker-release/issues/11) for
+      restoring two-way parallelism.
+      **Correction to Decision 10 found while building it:** `record-outcome` publishes a failed
+      attempt as a *prerelease*, so "the previous release" and "the last release that actually
+      reached production" are different questions. Rollback now targets the latter
+      (`--exclude-pre-releases`); targeting the former would have restored a version that never
+      deployed, inverting the property Decision 10 relies on.
+      Original scope, all built: `concurrency: { group: release, `concurrency: { group: release,
       cancel-in-progress: false }` (NB confirmed 2026-09-03 — queue overlapping triggers, don't
       cancel mid-deploy); version computation, tagging, calling each component's `release-build.yml`,
       deploy-to-`test` (including the explicit demo-data seed invocation, NB-2), smoke-test-`test`,
       deploy-to-`production`, smoke-test-`production`, GitHub Release publish, rollback-on-failure;
       including the `record-outcome`
       job (Decision 5) — `if: always()`, branching on the tag-push job's own output, not on
-      whether later jobs succeeded.
-- [ ] `[Claude]` Build the smoke-test suites in `mootmaker-release`, including its Node/Playwright
-      setup from scratch.
-- [ ] `[Geoff]`/`[Claude]` Stand `test` back up and run the full pipeline against it at least once
-      before it ever reaches `production`.
+      whether later jobs succeeded. All three of Decision 5's cases were exercised for real during
+      bring-up: a success, a tagged-then-failed prerelease, and a never-tagged attempt.
+- [x] `[Claude]` Build the smoke-test suites in `mootmaker-release`, including its Node/Playwright
+      setup from scratch. **Done 2026-09-04.** 6 test-stage tests (real signup through the
+      SES→SNS→SQS pipeline, sign in, demo-data read, meeting created, password reset with a real
+      emailed code, self-deletion) and 3 strictly read-only production tests. Proven against the
+      live `test` environment.
+      **Two defects worth recording, both invisible to review:** the meeting read-back asserted on a
+      page that renders only business hours (08:00–17:00), while the form defaults a meeting to
+      *now* in the browser's timezone — so it passed at UTC+12 and failed on UTC runners, looking
+      like a failed write when the write had succeeded. And `waitForVerificationCode` long-polls for
+      60s inside what was a 30s test timeout, which could never have completed on a slow email.
+      Both now fixed; the suite is verified under `TZ=UTC`, the condition that was failing.
+- [x] `[Geoff]`/`[Claude]` Stand `test` back up and run the full pipeline against it at least once
+      before it ever reaches `production`. **Done 2026-09-04.** `test` was created **by the pipeline
+      itself** rather than by hand — `terraform apply` is create-or-update, and standing it up
+      interactively would have broken Decision 6's mitigation ("`test`'s state changes only through
+      the release pipeline") on its first day. Verified seeded against DynamoDB directly: 532
+      meetings, 40 people, 10 rooms.
 - [ ] `[Claude]` Cut `production` over to the release pipeline as the sanctioned path.
 - [ ] `[Claude]` Build the scheduled ephemeral sweep (unchanged from the first draft).
 - [ ] `[Claude]` Build the tagged, 120-day-retention Lambda log groups (`mootmaker-api`/
