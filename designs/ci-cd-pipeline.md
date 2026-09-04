@@ -9,8 +9,15 @@ first draft), and a **specifically-initiated release pipeline** — triggered by
 `mootmaker-webapp` and `mootmaker-demo-data` together, proves them in a standing `test` environment,
 and only then promotes the same artifacts to `production`.
 
-**Status:** Drafting — 2026-09-03. Supersedes this doc's own 2026-08-29 draft on the trigger model
+**Status:** Building — 2026-09-04. Supersedes this doc's own 2026-08-29 draft on the trigger model
 and the standing-`test` question; see "What changed since the last draft" below.
+
+It stayed at Drafting through the whole build-out, which was simply wrong — Geoff authorized
+building from it on 2026-09-03 (see "Execution authorization for this build-out"), which is the
+Ready transition, and implementation started immediately. The Implementation checklist below is now
+fully ticked and eight of the nine Definition-of-done items are met. It moves to **Shipped**, and
+into [`archive/`](archive/), when the ninth does: the ephemeral sweep's report-only trial period,
+whose length is asked in [#51](https://github.com/geoffweatherall/mootmaker/issues/51).
 
 ---
 
