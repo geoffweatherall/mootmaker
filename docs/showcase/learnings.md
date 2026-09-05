@@ -133,8 +133,18 @@ looked like noise for months became evidence.
   the *failed* attempt's data always won the tiebreak. The retry was making things worse.
 - An AWS SDK socket timeout firing at 30s against a 35s cold start, so the SDK silently retried and
   the test asserted on the retry's result rather than the real one.
+- An Apollo Client cache race that produced *exactly the same symptom* as the DynamoDB one, and was
+  still there after the database fix shipped: an in-flight query issued before the write resolving
+  after the refetch and overwriting it, with nothing left to fetch again.
+- `getSession()` in the Cognito library not being safe to call concurrently, which the app was doing
+  three times over to read three fields off one token.
+- A layout shift that silently ate a click. Two notices rendered while a query was in flight and
+  vanished when it resolved, moving the button 72px. The mouse went down on the button and up
+  somewhere else, so the browser fired the click on the common ancestor and the handler never ran —
+  leaving the button focused, so it looked like it had worked. Any real user clicking as the page
+  settled would lose that click.
 
-Not one of those was the test's fault. Four for four.
+Not one of those was the test's fault. Seven for seven.
 
 **Why I think AI changes the economics here.** The reason teams write flakes off is not laziness, it
 is arithmetic. Chasing an intermittent failure is expensive and open-ended, the person doing it gets
@@ -150,6 +160,11 @@ With Claude doing the chasing, several things are different:
   Playwright assertion, the React refetch, the GraphQL resolver and DynamoDB's consistency model —
   across four repositories. That is the kind of link a human struggles to make, not because it is
   conceptually hard, but because holding all four layers in your head at the same time is hard.
+- **It will do the tedious thing that settles the question.** The click-swallowing bug was a theory
+  until the browser trace's DOM snapshots were decoded — they are stored as deltas against each
+  other, so answering "was that paragraph on the page a moment earlier?" meant reconstructing them.
+  That produced a number: the page moved 72 pixels, during the click. Nobody does that by hand for a
+  test that fails one run in three.
 
 **The consequence, which is the part I find most interesting.** If chasing edge cases is cheap, then
 strict tests become *more* valuable rather than less. The old economics pushed the other way: sharp
@@ -163,9 +178,12 @@ investment in a solid, strict test suite pays back more than it used to — whic
 knowing about when deciding how much to spend on tests in the first place.
 
 **Claude's note on this one:** worth separating "cheap" from "infallible", because the difference
-matters if you plan to rely on this. I was wrong twice during this hunt — I guessed the wrong root
-cause for the retry bug at first, and then over-corrected by disabling retries for the whole suite,
-which broke a *different* test on the very next release. What made the process work was not getting
+matters if you plan to rely on this. I was wrong three times during this hunt — I guessed the wrong
+root cause for the retry bug at first, then over-corrected by disabling retries for the whole suite,
+which broke a *different* test on the very next release, and then told Geoff the read-after-write
+failures were fixed and closed when only the database half of the cause had been found. That last one
+is the instructive one: the fix was real, the reasoning was sound, and the class was still open. A
+convincing mechanism is not the same as evidence, and only repeated runs could tell the difference. What made the process work was not getting
 it right first time; it was that being wrong cost about twenty minutes instead of a day, so the loop
 could run until the evidence settled it. The other necessary ingredient was human: Geoff decided this
 was worth four hours of attention. Left to my own priorities I would have kept building features.
