@@ -1086,6 +1086,19 @@ would rightly have absorbed. The correct shape is per-file: retries off only for
 reasons about accumulated state, on everywhere else. Generalising from one test to a whole suite was
 the mistake, and it took a release to catch.
 
+**Where this ended (2026-09-05).** All seven causes fixed, each with a deterministic regression test
+that fails before its fix and passes after, and five consecutive green releases since the last one:
+`33949744402`, `33952382143`, `33955028010`, `33957483786`, `33959977934`. The two long-standing
+flake issues ([mootmaker-webapp#1](https://github.com/geoffweatherall/mootmaker-webapp/issues/1) and
+[#12](https://github.com/geoffweatherall/mootmaker-webapp/issues/12)) are closed on that basis.
+
+Stated honestly, because the number is more persuasive than it deserves to be: **five clean runs only
+bounds the true failure rate below about 60%.** Sampling can show a rate improved; it cannot show a
+rate is small — that would take roughly sixty runs, which is 57 hours of wall clock. The regression
+tests are the evidence; the green runs are corroboration and a decision about when to stop looking.
+The arithmetic, and why five is nonetheless the right place to stop, is written up in
+[mootmaker-release's release-confidence.md](https://github.com/geoffweatherall/mootmaker-release/blob/main/docs/release-confidence.md).
+
 ---
 
 ## Implementation checklist
