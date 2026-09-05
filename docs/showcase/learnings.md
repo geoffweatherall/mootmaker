@@ -113,6 +113,63 @@ Arguments for "no change":
 
 What becomes the primary source definition for what the tests need to cover, particularly e2e tests?  Should you focus on a good set of definitions here (BDD) or longer form text, and use these to update the actual e2e test code?
 
+### Flaky tests are worth chasing now
+
+This is the learning from this project I most expect to carry into real work.
+
+Building the CI/CD pipeline turned the acceptance suites into a release gate. That did not create any
+flakiness — it made the flakiness that was already there start failing releases, and it ran the
+suites often enough, against fresh environments, to make the failures reproducible. Things that had
+looked like noise for months became evidence.
+
+**Every single one turned out to be a real bug in the product, not a flaky test.**
+
+- A DynamoDB `Scan` defaults to *eventually consistent* reads. The webapp refetches once after a
+  create and never again, so a stale read left a list permanently missing the row the user had just
+  added. A real user could hit this.
+- The same problem through a GSI, where DynamoDB won't allow a consistent read at all, so it needed a
+  completely different fix.
+- A retry that could never pass: the ranking breaks ties by name, the test's names are timestamps, so
+  the *failed* attempt's data always won the tiebreak. The retry was making things worse.
+- An AWS SDK socket timeout firing at 30s against a 35s cold start, so the SDK silently retried and
+  the test asserted on the retry's result rather than the real one.
+
+Not one of those was the test's fault. Four for four.
+
+**Why I think AI changes the economics here.** The reason teams write flakes off is not laziness, it
+is arithmetic. Chasing an intermittent failure is expensive and open-ended, the person doing it gets
+demoralised, and "add a retry and move on" is often the rational call. I have made that call myself
+plenty of times.
+
+With Claude doing the chasing, several things are different:
+
+- **The cost of investigating is much lower**, so the threshold for "worth chasing" drops a long way.
+- **It doesn't get discouraged.** It will not decide on the fourth attempt that the test is just
+  flaky and quietly weaken it. It keeps going.
+- **It holds more of the system in view at once.** Two of these bugs needed a connection between the
+  Playwright assertion, the React refetch, the GraphQL resolver and DynamoDB's consistency model —
+  across four repositories. That is the kind of link a human struggles to make, not because it is
+  conceptually hard, but because holding all four layers in your head at the same time is hard.
+
+**The consequence, which is the part I find most interesting.** If chasing edge cases is cheap, then
+strict tests become *more* valuable rather than less. The old economics pushed the other way: sharp
+tests find odd intermittent things, chasing them costs too much, so you dull the tests down — add
+retries, loosen the assertion, quarantine the spec. Every one of those steps trades away the test's
+ability to find real bugs, in exchange for not having to think about it.
+
+That trade now looks like a bad one. A test suite that catches a genuine read-after-write bug in an
+edge case is doing exactly the job I want it to do, and I can now afford to listen to it. So the
+investment in a solid, strict test suite pays back more than it used to — which is a change worth
+knowing about when deciding how much to spend on tests in the first place.
+
+**Claude's note on this one:** worth separating "cheap" from "infallible", because the difference
+matters if you plan to rely on this. I was wrong twice during this hunt — I guessed the wrong root
+cause for the retry bug at first, and then over-corrected by disabling retries for the whole suite,
+which broke a *different* test on the very next release. What made the process work was not getting
+it right first time; it was that being wrong cost about twenty minutes instead of a day, so the loop
+could run until the evidence settled it. The other necessary ingredient was human: Geoff decided this
+was worth four hours of attention. Left to my own priorities I would have kept building features.
+
 ### A new way to learn
 
 Claude is not like a junior software engineer; it's like a very senior software engineer.  You can learn a new area of technology by using Claude to build an example, and asking Claude to explain what it's done and why.  This might be more powerful than following a tutorial you find on the internet.
