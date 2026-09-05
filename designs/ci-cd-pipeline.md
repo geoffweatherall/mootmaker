@@ -1037,7 +1037,7 @@ against a reused environment had hidden all of this for months.
 
 **Every flake traced to a real defect. None was test noise.** That is the finding worth carrying
 forward, because the instinct with an intermittent test is to quarantine or retry it, and here that
-instinct would have been wrong four times out of four.
+instinct would have been wrong seven times out of seven.
 
 | Symptom | Actual cause |
 |---|---|
@@ -1045,13 +1045,36 @@ instinct would have been wrong four times out of four.
 | Three meeting tests failing together | The room-availability schedule reads through a **GSI**, and DynamoDB rejects `ConsistentRead` on an index. Fixed client-side by carrying the created meeting through navigation state ([mootmaker-webapp#35](https://github.com/geoffweatherall/mootmaker-webapp/pull/35)) |
 | F.53 failing on retry with a confusing wrong-room assertion | **The retry could never pass.** `SuggestRoomHandler` breaks capacity ties by name and `uniqueId()` is `Date.now()`-based, so the *failed* attempt's room always won the tiebreak. A retry in a state-accumulating suite converted a recoverable timeout into a certain failure ([mootmaker-webapp#30](https://github.com/geoffweatherall/mootmaker-webapp/issues/30)) |
 | demo-data acceptance asserting "nothing to do" against data that existed | An SDK socket timeout at 30s against a ~35s cold start, so the SDK silently retried and the test read the *retry's* result ([demo-data#16](https://github.com/geoffweatherall/mootmaker-demo-data/issues/16)) |
+| A created room or person still missing from Settings *after* `consistentRead(true)` shipped | **An Apollo Client cache race, not the database.** With `fetchPolicy: 'cache-and-network'` plus an explicit `refetch()`, a response issued *before* the write can resolve *after* the refetch's and overwrite it — and nothing fetches again. Fixed by writing each mutation's own authoritative result into the cache ([mootmaker-webapp#40](https://github.com/geoffweatherall/mootmaker-webapp/pull/40)) |
+| Intermittent sign-in failures with no server-side error | **`getSession()` is not safe to call concurrently** on one `CognitoUser`. `AuthProvider` fetched email, name and class in a three-way `Promise.all`; the calls raced during a token refresh and one errored. Collapsed into a single session fetch ([mootmaker-webapp#42](https://github.com/geoffweatherall/mootmaker-webapp/pull/42)) |
+| A 120-second timeout waiting for the "Add room" dialog, where the click action itself had *succeeded* | **A layout shift swallowed the click.** Two "no linked person yet" notices rendered while `myPerson` was in flight and vanished when it resolved, moving everything below up 72px. `mousedown` landed on the button, `mouseup` landed elsewhere, and the browser fired `click` on their common ancestor — so React's `onClick` never ran. The button kept focus, so it looked like the click had worked ([mootmaker-webapp#44](https://github.com/geoffweatherall/mootmaker-webapp/pull/44)) |
 
-**Two second-order lessons, both about diagnosis rather than the bugs themselves:**
+**Five second-order lessons, all about diagnosis rather than the bugs themselves:**
 
 **Playwright's failure artifacts never left the runner.** A flake could only be guessed at from a log
 line saying an element was not found. Two wrong guesses were made before the capture existed; the
 business-hours/timezone bug was diagnosed within minutes of adding it. Now uploaded on failure
 ([mootmaker-webapp#36](https://github.com/geoffweatherall/mootmaker-webapp/pull/36)).
+
+**The captured page snapshot and trace are the first thing to reach for, and they cracked three
+bugs that reasoning alone had got wrong.** Each time the decisive evidence was something a log line
+could not contain: a room created seconds earlier being *present* while the person was *absent*
+(ruling out the database and pointing at the client cache); a button rendered `[active]`, meaning
+focused, with no dialog on the page; and a paragraph present in the DOM snapshot taken before a
+click and gone from the one taken after it. Trace snapshots are delta-encoded and need resolving
+against earlier ones, which is worth the effort — that resolution is what turned the last of these
+from a theory into a measurement.
+
+**"The action succeeded" is not evidence that the action did anything.** Playwright reported the
+`Add room` click as completing normally in 130ms; the failure surfaced on the *next* line, waiting
+for a dialog that was never going to appear. A tool confirming it dispatched the events it was asked
+to dispatch says nothing about whether the application received them.
+
+**A fix that removes a symptom's most likely cause is not proof the cause was the only one.** After
+`consistentRead(true)` shipped, the read-after-write failures were reported as swept and closed. They
+were not: the API-side cause was real and fixed, but an independent client-side cause with the same
+symptom was still there, and saying "closed" cost a release to walk back. The honest form is that a
+class stays open until frequency data says so, however convincing the mechanism.
 
 **A single green run proves nothing about an intermittent fault.** Three releases went green *before*
 either consistency fix existed. Frequency data — repeated runs against one environment — is the only
