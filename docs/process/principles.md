@@ -45,6 +45,9 @@ This is scale-to-zero's other half, and it is easier to miss. Scale to zero is a
 this is about what *piles up*. A thing that costs nothing per hour still costs something per
 gigabyte-month forever.
 
+Measured rather than asserted: [running costs](../reference/running-costs.md) has the actual bill,
+the cost model it implies, and the checks that would catch this principle being broken.
+
 Concretely, and as a rule rather than a suggestion:
 
 - **Every CloudWatch log group has a retention period.** No exceptions. AWS's default is "never

@@ -74,7 +74,7 @@ condition, framed as transferable skills rather than a war story.
 |---|---|
 | [designs/](designs/) | One design document per feature or change, written and reviewed before any code. [The pattern itself](designs/README.md) explains the lifecycle. |
 | [docs/development/](docs/development/) | How to get set up and work on mootmaker, including [how environments work](docs/development/environments.md) |
-| [docs/reference/](docs/reference/) | [Data model](docs/reference/data-model.md), [testing strategy](docs/reference/testing-strategy.md), [use cases](docs/reference/use-cases.md), and [what the system does](docs/reference/business-functionality.md) for a non-technical reader |
+| [docs/reference/](docs/reference/) | [Data model](docs/reference/data-model.md), [testing strategy](docs/reference/testing-strategy.md), [use cases](docs/reference/use-cases.md), [running costs](docs/reference/running-costs.md), and [what the system does](docs/reference/business-functionality.md) for a non-technical reader |
 | [docs/showcase/](docs/showcase/) | The learnings write-up, branding, and the marketing material |
 
 Issues are tracked in GitHub, in the repository they concern, and gathered on the
