@@ -1230,6 +1230,14 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       are now derived from `resource_prefix` with `depends_on` inverting the order. The same
       SnapStart behaviour behind [#41](https://github.com/geoffweatherall/mootmaker/issues/41)
       caused this by an entirely different route.
+      **The full lifecycle is now verified end to end on a genuinely fresh environment
+      (2026-09-05)**, which is what makes the orphan cleanup durable rather than a one-off:
+      - **On create**, an ephemeral environment's four Lambda groups *and* its AppSync group appear
+        at **120 days** — Terraform-managed from the start, not auto-created with no expiry.
+      - **On `terraform destroy`**, all five are **removed**. The account returned to exactly its
+        14 baseline groups, with none left behind and none lacking retention.
+      Both halves matter. Creation alone would still have leaked on teardown; teardown alone would
+      not exist, since an auto-created group is not in state to destroy.
       **Also found, and not covered by this design:** eleven production log groups whose Lambda no
       longer exists, all retaining forever — leftovers from the per-field-resolver consolidation and
       the `sample-data-*` merge, since `terraform destroy` removes a function but not its
