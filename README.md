@@ -37,6 +37,9 @@ and Claude's own pushback on my conclusions.
   protecting rather than the test code.
 - **[Documentation is not just for humans](docs/showcase/learnings.md#documentation-is-not-just-for-humans)**
   any more — it's how an agent orients itself, which changes what's worth writing down.
+- **[Flaky tests are worth chasing now](docs/showcase/learnings.md#flaky-tests-are-worth-chasing-now)** —
+  AI makes finding the cause cheap enough that "it's just flaky" stops being the rational call. Every
+  intermittent failure in this project turned out to be a real bug in the product.
 - **[Hard problems can still need human insight](docs/showcase/learnings.md#solving-tricky-issues-can-still-need-human-insight)**.
   Claude got within one sentence of a Java cold-start fix and couldn't make the final connection
   itself.
