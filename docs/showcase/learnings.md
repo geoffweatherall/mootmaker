@@ -188,6 +188,56 @@ it right first time; it was that being wrong cost about twenty minutes instead o
 could run until the evidence settled it. The other necessary ingredient was human: Geoff decided this
 was worth four hours of attention. Left to my own priorities I would have kept building features.
 
+### Cost models age; the rules they justified don't
+
+Most engineering rules of thumb are compressed arithmetic. Someone weighed a cost against a benefit,
+the answer came out lopsided, and **the answer got remembered while the arithmetic got dropped**.
+That works fine until one of the inputs changes by an order of magnitude — at which point the rule
+carries on being repeated, confidently and as a best practice, long after the sum stopped coming out
+that way.
+
+Two findings on this project turned out to be the same thing twice.
+
+**"It's just flaky — add a retry and move on."** Rational when chasing an intermittent failure was
+expensive, open-ended and demoralising: the expected cost of investigating exceeded the expected
+value of what you'd find. AI collapses the investigation cost, and the sum inverts — which is the
+[whole argument above](#flaky-tests-are-worth-chasing-now). Seven for seven, every one a real bug.
+
+**"Use one wildcard certificate."** Rational when certificates cost money, arrived by email, and were
+installed by hand — consolidating was obviously right, and `*.example.com` covering everything was
+the whole point. ACM made them free, auto-renewing and API-provisioned, and that quietly inverted the
+trade. This project issues a separate single-hostname certificate per component per environment, and
+the payoff is not tidiness:
+
+- **Isolation.** A wildcard's private key is a shared secret across every environment holding it.
+  Test being compromised is production being compromised. A per-hostname certificate can only
+  impersonate itself.
+- **Self-containment**, which is the one that actually mattered. Each environment owns its own
+  certificate, so each can be destroyed and rebuilt on its own. Tearing down `test` removes
+  everything `test` owns and touches nothing else. With a shared wildcard the certificate has to
+  live centrally and every environment references it, so no environment is independently
+  destroyable — the property we most needed was the one consolidation would have taken away.
+- **It's load-bearing for ephemeral environments.** ACM and CloudFront wildcards match one subdomain
+  level, so `*.mootmaker.com` cannot cover `www.<environment>.mootmaker.com`. The "cheaper" option
+  doesn't merely cost more here, it doesn't work.
+
+The honest cost is real: every environment creation now blocks on DNS validation for a few minutes.
+It's a trade, not a free win — just a trade that now points the other way.
+
+**The tell is a rule stated without its cost model** — "always X", with no "because Y costs Z". When
+the arithmetic can't be recovered from the rule, it's worth re-deriving, because the rule can't tell
+you whether it still holds.
+
+Two cautions against over-applying this. Not every old heuristic is obsolete: the test pyramid's
+execution-time argument survives the cost of writing tests going to nearly zero, because execution
+time didn't change. And cheaper is not free — reviewing still costs roughly what it always
+did, which is why review rather than generation became this project's bottleneck.
+
+Looking back at the rest of this page, this is really the organising idea behind several of the
+others — [experimenting more when code is cheap](#when-code-is-cheap-you-experiment-more) and
+[rethinking the test pyramid](#impacts-on-the-test-pyramid) are both the same move: an input changed,
+so re-run the sum.
+
 ### A new way to learn
 
 Claude is not like a junior software engineer; it's like a very senior software engineer.  You can learn a new area of technology by using Claude to build an example, and asking Claude to explain what it's done and why.  This might be more powerful than following a tutorial you find on the internet.
