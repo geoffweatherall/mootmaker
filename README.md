@@ -41,6 +41,9 @@ and Claude's own pushback on my conclusions.
   AI makes finding the cause cheap enough that "it's just flaky" stops being the rational call. Every
   intermittent failure in this project — seven of them so far — turned out to be a real bug in the
   product.
+- **[Cost models age; the rules they justified don't](docs/showcase/learnings.md#cost-models-age-the-rules-they-justified-dont)** —
+  "it's just flaky, add a retry" and "use one wildcard certificate" were both correct arithmetic once.
+  A rule stated without its cost model is worth re-deriving before trusting.
 - **[Hard problems can still need human insight](docs/showcase/learnings.md#solving-tricky-issues-can-still-need-human-insight)**.
   Claude got within one sentence of a Java cold-start fix and couldn't make the final connection
   itself.
