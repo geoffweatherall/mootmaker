@@ -30,6 +30,20 @@ mutation; GraphQL subscriptions for cross-client updates.
 
 ## Trade-offs and decisions
 
+**No data migration. The databases are dropped and recreated.** Both `test` and `production` are
+wiped and rebuilt rather than migrated forward. This is a demo system; `mootmaker-demo-data`
+repopulates it, and the cost of a migration path — plus the reverse path needed to make it
+reversible — buys nothing. This removes the largest risk and the longest phase from the rollout.
+
+**No decision is carried forward for compatibility's sake.** The finished code and schema should
+look as though they were designed this way on day one. Where a shape exists only because of how the
+current design evolved, it is replaced rather than adapted, and the cost of doing so is not a factor
+in the choice. Concretely this deletes rather than preserves: `MeetingRecord` and
+`MeetingParticipant`, the constant `bucket = "ALL"` attribute, both meetings GSIs, the
+router-state handoff between `AddMeetingPage` and `RoomAvailabilityPage`, and the resolver payload
+shape that today's handlers read. It also settles what would otherwise be a blocking question — see
+"one composite field" below.
+
 **The meetings item is already normalised; the redundancy is elsewhere.** `MeetingRecord.toItem()`
 stores `roomId`, `organiserId` and `attendeeIds` as bare ids — no names, no capacities. The
 duplication is in the two `projection_type = "ALL"` GSIs on the meetings table and the
@@ -40,9 +54,13 @@ there, not at the item.
 **Concurrent root fields do not double cold-start latency.** AppSync resolves a query's root fields
 in parallel, so the client waits `max(restore + work)`, not the sum. What they do cost is
 *execution environments*: three root fields create three, each paying its own SnapStart restore and
-each holding a concurrency slot. With the account limit at 10, roughly three simultaneous users on
-`PersonCalendarPage` saturate the account. The quota increase is requested (mootmaker#72); the
-argument for collapsing is environment count and total compute, not user-visible latency.
+each holding a concurrency slot.
+
+The account concurrency limit was raised from 10 to 1,000 on 2026-09-07 (mootmaker#72), which
+**weakens this argument rather than strengthening it**. Three parallel root fields no longer come
+close to saturating the account, so collapsing them is now justified by total compute and by the
+number of SnapStart restores paid per page load — not by a ceiling. It is worth being honest that
+this is a smaller prize than it looked while the limit was 10.
 
 **`info.selectionSetList` is not in the resolver payload today.** This was verified empirically, not
 read from documentation. Decoding `$util.toJson($ctx)` — the exact expression in `appsync.tf`'s
@@ -83,6 +101,13 @@ client fetch its own id and hand it back, which is what creates the entire start
 resolve the caller from `identity.sub`, as `MyPersonHandler` already does. This also dodges a
 consistency hazard: `cognitoSub-index` is a GSI and GSIs reject `ConsistentRead`.
 
+**One composite field, not sibling root fields.** The only real argument for keeping `rooms`,
+`people` and `days` as siblings was that a composite field moves `rooms` from `ROOT_QUERY.rooms` to
+`ROOT_QUERY.workspace.rooms`, missing every existing `cache-first` reader and forcing a permanent
+`cache.writeQuery` mirror. That argument is entirely about not disturbing client code that is now
+being rewritten anyway. With the cache layout designed from scratch around the composite shape,
+there is no legacy slot to preserve and no mirror to maintain — so take the single invocation.
+
 **The day is the unit.** One day is a DynamoDB partition key, an AppSync fetch unit, an Apollo cache
 entity keyed by `date`, and a subscription filter value. This alignment is what makes the caching
 tractable: an Apollo cache keyed by day can distinguish "no meetings that day" (entity present,
@@ -110,11 +135,12 @@ budget without it.
 
 - **`Day` keyed by `date` rather than an opaque id.** A human-readable, client-derivable cache key
   means the webapp can construct `Day:2026-09-14` without a round trip to discover it.
-- **Explicit payload construction in the request template** rather than wrapping `$util.toJson($ctx)`
-  in a new envelope. Wrapping would break every handler's `event.get("info")` access; building the
-  payload field by field keeps `info.fieldName`, `info.parentTypeName` and `identity` exactly where
-  they are, so `ResolverDispatchHandler` and `Identity` are untouched. It also stops shipping every
-  CloudFront request header to Lambda on every call.
+- **A payload shaped for the new handlers, not for the current ones.** An earlier draft proposed
+  building the payload field by field specifically so that `info.fieldName`, `info.parentTypeName`
+  and `identity` stayed where they are and `ResolverDispatchHandler` and `Identity` went untouched.
+  That reasoning is void under "no decision carried forward": the template should carry exactly what
+  the handlers need in whatever shape reads best, and the handlers change to match. It stops
+  shipping every CloudFront request header to Lambda on every call either way.
 - **Day-scoped bulk over enhanced subscription filters.** `setSubscriptionFilter` with a `contains`
   operator over a `dates` array would work, but the payload still carries every meeting — it filters
   who is woken, not how much they receive.
@@ -140,16 +166,11 @@ on its own merits, not just as a subscription detail.**
 not degradation — a day becomes unbookable for a reason unrelated to room availability. Explicit,
 enforced limits turn that into a testable worst case.
 
-**Whether `meeting-participants` survives.** It answers "which meetings is this person in" in a
-single Query. With day-items there is no such index, so a six-week person calendar would fetch 42
-day items and filter in the Lambda. Keeping it means keeping a join table in sync with day items;
-dropping it means accepting the scan.
-
-**Composite field or sibling root fields.** One composite field gives one Lambda invocation but moves
-`rooms` from `ROOT_QUERY.rooms` to `ROOT_QUERY.workspace.rooms`, missing every existing
-`cache-first` reader; the fix is an explicit `cache.writeQuery` mirror, which is a permanent tax.
-Sibling root fields in one document keep cache slots canonical and cost one HTTP request, but three
-invocations. This decision is cheap to defer and expensive to reverse once clients depend on it.
+**Does the design need a person index at all?** Not "does `meeting-participants` survive" — nothing
+survives by default. The real question is whether "which meetings is this person in" deserves its own
+index. Today it has one, answered in a single Query. With day items and no index, a six-week person
+calendar fetches 42 day items and filters in the Lambda. At demo scale that is likely fine and far
+simpler; at any real scale it is not. The answer determines whether a second table exists at all.
 
 ### Non-blocking
 
@@ -167,16 +188,23 @@ invocations. This decision is cheap to defer and expensive to reverse once clien
 
 ## Impacts on components
 
-**`mootmaker-api`** — `api/mootmaker.graphql` (new `Day` type, `days` query, `mine` filter,
-`createMeetings`, `Subscription`); `deploy/terraform/appsync.tf` (request template, subscription
-resolvers, `@aws_subscribe`); `deploy/terraform/dynamodb.tf` (day-keyed meetings table, GSI
-removal); `ListMeetingsHandler`, `CreateMeetingHandler`, `MeetingRecord`, `MeetingParticipant`,
-`ResolverDispatchHandler`, `DatabaseReset`.
+Scope here is "everything the new design touches", not "the smallest set of files that could
+work" — see the second decision above.
 
-**`mootmaker-webapp`** — `apolloClient.ts` (`typePolicies`); `graphql/queries.ts` and `mutations.ts`;
-`HomePage`, `RoomAvailabilityPage`, `PersonCalendarPage`, `AddMeetingPage`, `SettingsPage`. The
-router-state workaround in `AddMeetingPage` and the paired `createdMeeting` merge in
-`RoomAvailabilityPage` should both be retired by proper cache writes.
+**`mootmaker-api`** — `api/mootmaker.graphql` (new `Day` type, composite query, `createMeetings`,
+`Subscription`; the `personId` filter argument goes away with the client that needed it);
+`deploy/terraform/appsync.tf` (request template, subscription resolvers, `@aws_subscribe`);
+`deploy/terraform/dynamodb.tf` (day-keyed meetings table, both GSIs and the `bucket` attribute
+removed). `MeetingRecord` and `MeetingParticipant` are deleted; `ListMeetingsHandler`,
+`CreateMeetingHandler`, `ResolverDispatchHandler` and `DatabaseReset` are rewritten against the new
+shapes rather than adapted.
+
+**`mootmaker-webapp`** — `apolloClient.ts` (`typePolicies`, designed around the composite shape from
+scratch); `graphql/queries.ts` and `mutations.ts` rewritten rather than edited; `HomePage`,
+`RoomAvailabilityPage`, `PersonCalendarPage`, `AddMeetingPage`, `SettingsPage`. The router-state
+workaround in `AddMeetingPage` and the paired `createdMeeting` merge in `RoomAvailabilityPage` are
+**deleted** — they exist only to work around a read-after-write window that day-keyed reads with
+`ConsistentRead` remove entirely.
 
 **`mootmaker-demo-data`** — `DemoData.java`'s `runInParallel(meetings, …createMeeting…)` becomes one
 bulk call per seeded day.
@@ -202,6 +230,11 @@ The delta against `docs/reference/data-model.md`:
 
 - **The template change is a prerequisite**, not a detail — nothing selection-aware works until
   `selectionSetList` is explicitly serialised.
+- **Treat the resolver layer as a rewrite, not a refactor.** `MeetingRecord`'s split from `Meeting`
+  exists to model "id-only as persisted" against "resolved for the response"; with day items and
+  selection-aware fetching, that distinction is drawn in a different place, and the types should be
+  redrawn rather than adapted. The same applies to `ResolverDispatchHandler`'s routing key and to
+  `BatchLoader`'s interface.
 - **Aliases defeat naive field matching.** Fail toward fetching. Unit-test the selection logic
   against recorded `selectionSetList` payloads, not only through end-to-end queries.
 - **Non-null propagation turns a stub/selection mismatch into silent data loss**, not a degraded
@@ -250,20 +283,28 @@ The delta against `docs/reference/data-model.md`:
 
 ## Rollout & migration
 
-**This needs a real data migration.** Existing per-meeting items must be read and rewritten as day
-items, and the GSIs dropped only after that succeeds. `production` holds real demo data;
-`test` can be rebuilt from nothing, which makes it the rehearsal.
+**No migration. The tables are dropped and recreated in both `test` and `production`.** Terraform
+replaces the meetings table rather than altering it, `mootmaker-demo-data` repopulates the demo
+content, and no backfill, no dual-read period and no reverse-migration path is written.
 
-The staging is otherwise conventional: ephemeral environment first, then `test`, then `production`
+One consequence needs a decision rather than an assumption: **dropping the People table orphans every
+Cognito user's linked Person.** Signed-up users would keep their account and lose their identity
+inside the app. `database-repair`'s `CreateMissingPersonsRepair` can rebuild Persons from Cognito, so
+there is a path — but "drop everything" and "drop everything except People" are different operations
+and the design should say which. Meetings and Rooms carry no such linkage.
+
+Staging is otherwise conventional: ephemeral environment first, then `test`, then `production`
 through `release.yml`. The schema changes are not backward-compatible for a deployed webapp, so API
 and webapp must ship together — which the release pipeline already does.
 
 ## Risks
 
-- **The migration is harder to reverse than a normal deploy.** Once meetings are day-items and the
-  GSIs are gone, rolling back means migrating in the opposite direction. `database-repair` already
-  has precedent for rebuilding derived data, and something equivalent should exist before the
-  forward migration runs.
+- **The data is gone, deliberately.** Dropping and recreating means `production`'s meeting history
+  does not survive. That is an accepted cost on a demo system, but it is a one-way door on the day it
+  runs, and it should not be discovered by a user rather than announced.
+- **Reverting is a redeploy, not a rollback.** With no migration there is also no reverse migration:
+  going back means deploying the previous version against freshly recreated tables. Cheap, but not
+  transparent — the same data loss happens again in the other direction.
 - **Broadcast visibility becomes load-bearing.** Subscriptions push to everyone matching the filter.
   That is safe only while every user may see every meeting. This design should not be built on if
   meeting privacy is anticipated.
@@ -275,9 +316,10 @@ and webapp must ship together — which the release pipeline already does.
 
 Sparse while Drafting — to be filled in properly before this reaches Ready.
 
-- [ ] `[Geoff]` Resolve the four blocking open questions, database reset first.
-- [ ] `[Claude]` Change the resolver request template to serialise `selectionSetList`; confirm no
-      handler reads `request.headers` or `stash` before dropping the full `$ctx`.
+- [ ] `[Geoff]` Resolve the three remaining blocking open questions, database reset first.
+- [ ] `[Geoff]` Decide whether the People table is dropped along with the rest — see Rollout.
+- [ ] `[Claude]` Change the resolver request template to serialise `selectionSetList`, in whatever
+      payload shape the new handlers want.
 - [ ] `[Claude]` Make `ListMeetingsHandler` selection-aware, with unit tests driven by recorded
       payloads including aliases. Independently shippable and valuable on its own — it removes an
       existing over-fetch where `meetings { id subject }` still batch-loads every room and person.
@@ -286,6 +328,7 @@ Sparse while Drafting — to be filled in properly before this reaches Ready.
 
 The feature's own acceptance coverage — including the two-context real-time test — is green; the
 existing acceptance suite is still green on a real deployed environment; every touched repo's unit
-tests pass; the migration has run against `test` and `production` with meeting counts verified
-before and after by direct DynamoDB reads rather than by exit codes; and everything under
-Documentation impacts is actually done.
+tests pass; both environments have been dropped, recreated and repopulated by `mootmaker-demo-data`
+with the result verified by direct DynamoDB reads rather than by exit codes; no code remains that
+exists only to preserve a shape from the previous design; and everything under Documentation impacts
+is actually done.
