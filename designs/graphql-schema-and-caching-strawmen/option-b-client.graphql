@@ -19,7 +19,7 @@
 # or `people` write straight over the same field the query populated, with no
 # typePolicy needed to make them agree.
 
-query PageLoad($dates: DateRange!) {          # { from: today, to: today+3 }
+query PageLoad($dates: [String!]!) {          # ["2026-09-07","2026-09-08","2026-09-09"]
   me { id name dateFormat timeFormat }
   rooms { id name capacity }
   people { id name }
@@ -39,7 +39,7 @@ query PageLoad($dates: DateRange!) {          # { from: today, to: today+3 }
 # A and B only diverge when a screen needs more than one kind of thing at once,
 # which after page load is rare.
 
-query CalendarWeeks($dates: DateRange!) {
+query CalendarWeeks($dates: [String!]!) {
   days(dates: $dates) {
     date
     meetings {
@@ -53,7 +53,7 @@ query CalendarWeeks($dates: DateRange!) {
 # ─── 3. ROOM AVAILABILITY: move to another day ───────────────────────────────
 # One invocation. Same query, one-day range.
 
-query OneDay($dates: DateRange!) {            # { from: "2026-09-15", to: "2026-09-16" }
+query OneDay($dates: [String!]!) {            # ["2026-09-15"]
   days(dates: $dates) {
     date
     meetings {

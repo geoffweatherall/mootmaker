@@ -16,7 +16,7 @@
 # tens of people) and slow-moving, and having them cached is what lets every
 # later query ask for ids only.
 
-query PageLoad($dates: DateRange!) {          # { from: today, to: today+3 }
+query PageLoad($dates: [String!]!) {          # ["2026-09-07","2026-09-08","2026-09-09"]
   workspace(dates: $dates) {
     me { id name dateFormat timeFormat }
     rooms { id name capacity }
@@ -44,14 +44,19 @@ query PageLoad($dates: DateRange!) {          # { from: today, to: today+3 }
 # so the resolver does not fetch them - that is the whole point of
 # selection-aware resolving. One invocation, one small response.
 #
-# The client asks only for days it does not already hold: Day is normalised on
-# `date`, so a week already in the cache is simply left out of $dates. If the
-# whole range is cached the query is skipped entirely and the render is free.
+# The client asks only for days it does not already hold. Day is normalised on
+# `date`, so if Tuesday and Thursday are cached, $dates is ["Mon","Wed","Fri"]
+# and nothing else is fetched. If every day is cached the query is skipped
+# entirely and the render costs nothing.
+#
+# Apollo does NOT compute that gap - see the README's "Fetching only what is
+# missing". The client works out the missing dates and passes them; the array
+# argument exists precisely so it can.
 #
 # Back-navigation stops at boundaries.earliestRetainedDate, read at page load.
 # The client never computes that date itself.
 
-query CalendarWeeks($dates: DateRange!) {
+query CalendarWeeks($dates: [String!]!) {
   workspace(dates: $dates) {
     days {
       date
@@ -69,7 +74,7 @@ query CalendarWeeks($dates: DateRange!) {
 # is one way to ask for meetings, and every screen is a different range of it.
 # Moving to an already-visited day is served entirely from cache.
 
-query OneDay($dates: DateRange!) {            # { from: "2026-09-15", to: "2026-09-16" }
+query OneDay($dates: [String!]!) {            # ["2026-09-15"]
   workspace(dates: $dates) {
     days {
       date
@@ -95,13 +100,13 @@ query OneDay($dates: DateRange!) {            # { from: "2026-09-15", to: "2026-
 # cache while it runs.
 
 query ReferenceDataRefresh {
-  workspace(dates: { from: "1970-01-01", to: "1970-01-01" }) {   # empty range
+  workspace(dates: []) {                        # empty list
     rooms { id name capacity }
     people { id name }
   }
 }
 
-# The empty range is awkward, and is Option A's clearest wart: `dates` is
+# The empty list is awkward, and is Option A's clearest wart: `dates` is
 # required by a field that here is being asked for something unrelated to
 # dates. Option B has no equivalent - it just asks for `rooms` and `people`.
 

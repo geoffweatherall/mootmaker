@@ -51,58 +51,82 @@ resolver its *own* arguments typed and nested field arguments only as raw GraphQ
 `me`, `boundaries`, `rooms` and `people` are four separate handlers doing four separate trivial
 things.
 
+## Fetching only what is missing
+
+`days` takes an **explicit list of dates, not a range**. A range cannot express a discontiguous set,
+and a discontiguous set is exactly what a warm cache asks for: if Tuesday and Thursday are already
+held, the client wants Mon/Wed/Fri and nothing else.
+
+**Apollo will not work that out.** A cache `read` returns either a complete result or `undefined`,
+and on `undefined` the query goes to the network **with the variables as given**. There is no
+mechanism to rewrite variables to fetch a subset. So the client computes the gap:
+
+```ts
+const wanted  = weekdaysOf(visibleWeeks)                       // e.g. Mon..Fri
+const missing = wanted.filter((date) =>
+  !cache.readFragment({ id: `Day:${date}`, fragment: DAY_FIELDS }))
+
+useQuery(DAYS, { variables: { dates: missing }, skip: missing.length === 0 })
+```
+
+That has a consequence for how components are written. The query result now contains **only the
+missing days**, so the calendar cannot render from it — it renders from the cache, one entity per
+cell:
+
+```ts
+const { data } = useFragment({ __typename: 'Day', from: `Day:${date}`, fragment: DAY_FIELDS })
+```
+
+Which is a gain, not a tax: each cell is independently reactive, so a subscription updating one day
+re-renders one cell rather than the grid.
+
 ## What each needs from the Apollo cache
 
-This is the real complexity difference, and it is larger than the schemas suggest.
-
 **Both** need `Day` normalised on `date` — the decision that makes an empty day distinguishable from
-an unfetched one:
+an unfetched one, and the thing the gap check above reads:
 
 ```ts
 Day: { keyFields: ['date'] }
 ```
 
-**Option B** then needs one more field policy, so that separately-fetched ranges accumulate into one
-canonical set of days rather than one cache entry per range:
+**Both** also need `keyArgs: false` on the day-bearing field, for a reason that is easy to miss:
+every distinct `dates` array is otherwise its own `ROOT_QUERY` entry. Because the array now varies
+with every navigation, those slots accumulate — junk that never gets read, since rendering happens
+through `useFragment`. Collapsing them to one slot is garbage control rather than a read strategy.
+
+**Option B** — one field policy, and that is all:
 
 ```ts
 Query: {
   fields: {
     days: {
-      keyArgs: false,                       // one slot, not one per DateRange
+      keyArgs: false,                        // one slot, not one per date array
       merge(existing = [], incoming, { readField }) {
         const byDate = new Map(existing.map((d) => [readField('date', d), d]))
         for (const d of incoming) byDate.set(readField('date', d), d)
         return [...byDate.values()]
-      },
-      read(all, { args, toReference }) {
-        // Missing date => cache miss => fetch. A present-but-empty Day is a hit.
-        const wanted = datesIn(args.dates)
-        const refs = wanted.map((date) => toReference({ __typename: 'Day', date }))
-        return refs.every(Boolean) ? refs : undefined
       },
     },
   },
 }
 ```
 
-`rooms`, `people`, `me` and `boundaries` need nothing at all — they take no arguments, so each is
-already a single stable cache field.
+`rooms`, `people`, `me` and `boundaries` need nothing — they take no arguments, so each is already a
+single stable cache field.
 
-**Option A** needs the same treatment on `workspace`, but harder, because one merge function has to
-handle four sub-fields with different semantics: `days` accumulates, while `people`, `rooms`, `me`
-and `boundaries` replace.
+**Option A** — the same idea on `workspace`, but one `merge` has to handle four sub-fields with
+different semantics: `days` accumulates, while `people`, `rooms`, `me` and `boundaries` replace.
 
 ```ts
-Workspace: { keyFields: false },            // not an entity; inline under ROOT_QUERY
+Workspace: { keyFields: false },             // not an entity; inline under ROOT_QUERY
 Query: {
   fields: {
     workspace: {
-      keyArgs: false,                       // ONE workspace, not one per DateRange
+      keyArgs: false,                        // ONE workspace, not one per date array
       merge(existing = {}, incoming) {
         return {
           ...existing,
-          ...incoming,                      // replace me/people/rooms/boundaries when present
+          ...incoming,                       // replace me/people/rooms/boundaries when present
           days: unionByDate(existing.days, incoming.days),
         }
       },
@@ -111,8 +135,34 @@ Query: {
 }
 ```
 
-Without `keyArgs: false` here, every distinct date range gets its own `workspace` slot and the same
-rooms and people are cached repeatedly under each — the "empty vs unfetched" trap in a new costume.
+Without `keyArgs: false` here, every distinct date array gets its own `workspace` slot and the same
+rooms and people are cached repeatedly under each.
+
+## Subscriptions: identical in both, and constrained
+
+The payload is the same either way — `Subscription` is a root type in both options, and the mutations
+are byte-identical. But two AppSync constraints shape it, and an earlier draft of these files got
+both wrong.
+
+**`@aws_subscribe` pushes the mutation's return value, and the subscription field's type must match
+the mutation's return type.** A subscription typed `Day` against a mutation returning
+`CreateMeetingResult` does not deliver.
+
+**A rejected `createMeeting` still returns successfully at the GraphQL level** — validation failures
+are a typed `errors` array in the payload, not a transport error. So a subscription attached directly
+to `createMeeting` broadcasts failed bookings too.
+
+Two ways out, written out in the schema files:
+
+| | Subscribe to the wrapper | A publish-only mutation |
+|---|---|---|
+| Payload | `CreateMeetingResult`, clients select `day` | `Day` |
+| Broadcasts failures | Yes | No |
+| Covers `createMeetings` too | No — different result type | Yes, one channel |
+| Cost | None | An IAM-signed call from the resolver back to AppSync, and a mutation clients must not call |
+
+**The publish-only mutation is recommended.** It is deferred either way: history deletion
+deliberately does not broadcast, so nothing in the first cut depends on settling this.
 
 ## Mutation payloads, and what actually updates the cache
 

@@ -25,8 +25,8 @@ type Query {
     "Every room, unfiltered. Same."
     rooms: [Room!]!
 
-    "One entry per date in the range, including empty ones. Argument sits on the field it filters, which is where it belongs."
-    days(dates: DateRange!): [Day!]!
+    "One entry per requested date, including empty ones. An explicit list rather than a range, so a warm client can ask for exactly the days it is missing. Argument sits on the field it filters."
+    days(dates: [String!]!): [Day!]!
 
     "Retention and booking bounds."
     boundaries: Boundaries!
@@ -64,6 +64,43 @@ type CreatePersonResult { people: [Person!]!, person: Person, errors: [PersonErr
 type UpdatePersonResult { people: [Person!]!, person: Person, errors: [PersonError!]! }
 type UpdateMyPreferencesResult { person: Person, errors: [PreferencesError!]! }
 
-type Subscription {
-    dayChanged(date: String!): Day @aws_subscribe(mutations: ["createMeeting", "createMeetings"])
-}
+# ─────────────────────────────────────────────────────────────────────────────
+# Subscriptions - NOT in the first cut, and identical in both options.
+#
+# TWO CONSTRAINTS that an earlier draft of this file got wrong.
+#
+# 1. @aws_subscribe pushes the MUTATION'S RETURN VALUE, and AppSync requires the subscription
+#    field's type to MATCH the mutation's return type. A subscription typed `Day` against a
+#    mutation returning `CreateMeetingResult` simply does not deliver. So either the subscription
+#    is typed to the wrapper (and clients select `day` out of it), or the payload comes from
+#    somewhere else.
+#
+# 2. A REJECTED createMeeting still returns successfully at the GraphQL level - validation
+#    failures are a typed `errors` array in the payload, not a transport error. So attaching a
+#    subscription directly to createMeeting broadcasts failed bookings too. Filtering that out
+#    means an enhanced subscription filter testing an empty list, which is awkward.
+#
+# Option 1 - subscribe to the wrapper, accept both warts:
+#
+#   type Subscription {
+#     dayChanged(date: String!): CreateMeetingResult
+#       @aws_subscribe(mutations: ["createMeeting"])
+#   }
+#
+#   Cheap. Broadcasts `errors: []` to everyone, fires on rejected bookings, and cannot cover
+#   createMeeting and createMeetings together because their result types differ.
+#
+# Option 2 - a publish-only mutation on a NONE data source, called by the resolver after a
+# successful write. RECOMMENDED.
+#
+#   type Mutation { publishDayChanged(day: DayInput!): Day }   # not for client use
+#   type Subscription {
+#     dayChanged(date: String!): Day @aws_subscribe(mutations: ["publishDayChanged"])
+#   }
+#
+#   Clean payload, no spurious broadcasts, one channel for every kind of day change including
+#   any future one. Costs the resolver Lambda an IAM-signed HTTP call back to AppSync per
+#   mutation, plus a mutation in the schema that clients must not call.
+#
+# Deferred either way: history deletion deliberately does not broadcast, so nothing in the first
+# cut depends on this being settled.

@@ -13,12 +13,17 @@ type Day {
     meetings: [Meeting!]!
 }
 
-"Inclusive-from, exclusive-to. Both are calendar dates, not date-times."
-input DateRange {
-    from: String!
-    "Exclusive. A single day is { from: \"2026-09-14\", to: \"2026-09-15\" }."
-    to: String!
-}
+# NOTE: an explicit list of dates, NOT a from/to range.
+#
+# A range cannot express a discontiguous set, and a discontiguous set is exactly what a warm cache
+# asks for: if Tuesday and Thursday are already held, the client wants Mon/Wed/Fri and nothing else.
+# Apollo will not work that out - a cache read returns a complete result or nothing, and on nothing
+# the query goes to the network with the variables AS GIVEN. There is no mechanism to rewrite
+# variables to fetch a subset. So the client computes the gap, and the argument has to be able to
+# carry it.
+#
+# Bounded deliberately: the reachable window is (retention + horizon) days, so an unbounded list
+# would be a fetch bomb. Over the limit is a validation error, not a truncation.
 
 "What the server will and will not accept, so no client has to compute either boundary for itself."
 type Boundaries {
