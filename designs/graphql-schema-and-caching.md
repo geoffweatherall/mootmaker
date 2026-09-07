@@ -46,10 +46,9 @@ under Trade-offs; **Open** means it still needs an answer.
 10. **`meeting(id:)` gains a real entry point** *(Decided)* — a dedicated field backed by an id → date
     pointer, replacing today's full-table scan.
 11. **Retention of at least 30 days, against a stored Monday-aligned boundary** *(Decided)* — deleted
-    by a scheduled operation, not a TTL, so it can broadcast cache invalidation and delete each day
-    with its pointers in one transaction. The boundary advances *before* anything is deleted, so what
-    is advertised is never more permissive than what exists. TTL stays as a bill-protecting backstop
-    only. See "Retention".
+    by a weekly scheduled Lambda, with **no TTL anywhere**, so it can broadcast cache invalidation and
+    delete each day with its pointers in one transaction. The boundary advances *before* anything is
+    deleted, so what is advertised is never more permissive than what exists. See "Retention".
 12. **Enforced size limits, with an oversized item made unreachable** *(Decided)* — **320 meetings
     per day, 20 attendees per meeting, 280-byte subjects.** Enforced at three layers so that no input
     a user can construct produces an item over 400 KB. See "The item-size guarantee".
@@ -328,9 +327,15 @@ budget without it.
 fix the hard bound on how many day items can exist, so the horizon is the last number the storage
 bound is waiting on.
 
-**The TTL backstop's window.** Decided in principle as "longer than 30 days"; the number is not set.
-It only needs to be far enough out that it never fires before the scheduled operation has had several
-chances to run.
+**How the cleanup job broadcasts.** Deletion must reach connected clients — that is the reason TTL was
+rejected — but a Lambda writing directly to DynamoDB cannot broadcast on its own. Two options. The
+job can call a `purgeHistory` mutation through AppSync using M2M credentials, exactly as
+`mootmaker-demo-data` already calls `createMeeting`: one code path, invalidation for free, covered by
+the RBAC work in #76, and auditable in the AppSync logs. Or it can delete directly and then make a
+separate broadcast-only call, which keeps the destructive operation out of the public schema at the
+cost of two mechanisms and a notification anyone could trigger. **The mutation route is
+recommended** — it matches the reasoning that already made reset a mutation rather than a side
+door.
 
 **The shape of the top-level query.** Either three sibling root fields in one document — one HTTP
 request, three Lambda invocations, cache slots that map one-to-one onto the entities — or a single
@@ -474,8 +479,14 @@ real test of it.
 It is also catch-up safe: a job that has not run for weeks advances to the correct Monday and deletes
 everything before it, in one pass, with one notification.
 
-**Deletion is an explicit scheduled operation, not a DynamoDB TTL.** TTL is the obvious answer and it
-is the wrong one here, for three reasons:
+**Deletion is an explicit weekly operation, not a DynamoDB TTL.** TTL is the obvious answer and it is
+the wrong one here, for four reasons:
+
+0. **TTL bakes the policy into the data.** The expiry attribute is written per item, so changing the
+   retention window means rewriting every existing item to correct a value that is now wrong. A
+   scheduled job reads the policy at run time, so changing retention is a config change. The
+   attribute's value is also a function of the *meeting's* date rather than the write time, which is
+   one more thing to compute correctly on a path where getting it wrong deletes real data.
 
 1. **TTL cannot tell anyone.** A connected client holding `Day:2026-08-08` learns nothing when that
    day disappears. An operation can broadcast on the same subscription channel as every other write,
@@ -490,21 +501,21 @@ is the wrong one here, for three reasons:
    strictly more code than an explicit delete, for a weaker guarantee.
 
 TTL's real advantage is that deletes cost zero WCU. That matters when expiring millions of rows; here
-it is **one day item and its pointers per day**, so the saving is nil.
+it is **seven day items and their pointers per week**, so the saving is nil.
 
-The infrastructure already exists and is proven: `mootmaker-demo-data` runs on a daily EventBridge
-schedule invoking a Lambda. Expiry is the same shape, and the work per run is bounded by
-construction — one day.
+**No TTL at all, not even as a backstop.** An earlier draft kept one at a longer window to protect the
+bill if the job broke. That is worse than it looks: a backstop that silently covers for a failed job
+means **the failure is never discovered** — the bill stays flat and nothing surfaces. It would also
+need a window strictly longer than 37 days or it would delete data the stored boundary still
+advertises, breaking the very invariant the ordering exists to protect.
 
-**TTL is still set, as a backstop, at a longer window than the operation uses.** If the scheduled job
-breaks, storage stays bounded without anyone noticing the failure. It is a safety net for the *bill*,
-not a mechanism for correctness — the operation remains the thing that makes the boundary mean
-something.
+The principle is instead held by **one mechanism plus an alarm**: if the cleanup has not succeeded
+within a defined window, that is a fault to be raised, not absorbed. See #77, which is where the
+recurring check belongs.
 
-**Its window must be strictly longer than the maximum retention window (37 days).** A TTL that can
-fire inside the retained range would delete data the stored date still advertises, breaking the very
-invariant the cleanup ordering exists to protect. The backstop must only ever remove what is already
-beyond the boundary.
+**Cadence: weekly.** It pairs with Monday alignment — one run, one Monday, one week of data — and the
+work per run is bounded by construction. The shape is already proven in this project:
+`mootmaker-demo-data` is a scheduled EventBridge Lambda doing exactly this kind of job.
 
 Retention composes with the booking horizon already decided. The horizon bounds how far *forward* day
 items can exist; retention bounds how far *back*. Together the table holds at most
