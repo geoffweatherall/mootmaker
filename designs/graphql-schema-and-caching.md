@@ -53,10 +53,9 @@ under Trade-offs; **Open** means it still needs an answer.
     per day, 20 attendees per meeting, 280-byte subjects.** Enforced at three layers so that no input
     a user can construct produces an item over 400 KB. See "The item-size guarantee".
 13. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
-14. **Whether reset becomes a mutation** *(Reopened)* — it was decided, on the grounds that a mutation
-    broadcasts. History deletion has since dropped its own notification, and `Mutation.reset` turns
-    out to have been deliberately removed because any signed-in user could call it. See Open
-    questions.
+14. **Reset stays an IAM-invoked Lambda** *(Decided)* — briefly proposed as a mutation so it could
+    broadcast, then reversed: `Mutation.reset` was deliberately removed once because any signed-in
+    user could call it, and an in-product role is a weaker boundary than an AWS permission grant.
 
 ## What requires a server round trip
 
@@ -240,20 +239,19 @@ becomes a bounded, enumerable set of date keys that can be read with `BatchGetIt
 disappears along with `meeting-participants`, its transactional writes, and
 `RebuildMeetingParticipantsRepair`.
 
-**Reset becomes a mutation behind RBAC — but this now needs revisiting.** The reason for routing reset
-through GraphQL was that it would then broadcast, so connected clients evict instead of silently
-showing deleted data.
-
-Two things undercut it. First, history deletion has since dropped its own notification on complexity
-grounds; the same reasoning applies here. Second, and more seriously, **`Mutation.reset` already
-existed and was deliberately removed.** Per `mootmaker-api`'s README, it was *"callable by any signed
--in user, which the business functionality doc called out as a known gap"*, and replacing it with the
-IAM-authenticated `database-reset` Lambda closed that gap *"since invoking it needs an explicit AWS
+**Reset stays an IAM-invoked Lambda.** An earlier draft made it a GraphQL mutation so it could
+broadcast, but that reasoning does not survive scrutiny. History deletion has since dropped its own
+notification on complexity grounds, and the same applies here. More seriously, **`Mutation.reset`
+already existed and was deliberately removed**: per `mootmaker-api`'s README it was *"callable by any
+signed-in user, which the business functionality doc called out as a known gap"*, and the
+IAM-authenticated `database-reset` Lambda closed it *"since invoking it needs an explicit AWS
 permission grant rather than just being signed in to the product"*.
 
-Reintroducing it as a mutation would undo that, and an in-product RBAC role is a **weaker** boundary
-than requiring an AWS permission grant. Recorded as a blocking open question rather than left as a
-decision that quietly reverses prior work.
+Reintroducing it would trade a strong boundary for a weaker one, since an in-product role is not
+equivalent to an AWS permission grant. Reset therefore keeps its current shape, and connected clients
+are not told about a reset — the same accepted gap as history deletion. A consequence worth naming:
+**#76's RBAC work stops being a prerequisite for this design** and becomes valuable on its own terms.
+The flat admin role is still worth splitting; it is no longer blocking anything here.
 
 **Maximum subject length — a rule that does not exist today.** `CreateMeetingHandler` checks only
 that `subject` is non-blank. There is no upper bound, so a single meeting can carry a subject of any
@@ -331,13 +329,6 @@ budget without it.
 ## Open questions
 
 ### Blocking
-
-**Should reset become a mutation at all?** See Trade-offs. Its only benefit was broadcasting, which
-history deletion has now dropped for itself, and it would reverse a deliberate hardening: reset was
-moved *out* of GraphQL precisely because any signed-in user could call it. Leaving it as an
-IAM-invoked Lambda keeps the stronger boundary and makes #76's RBAC work valuable on its own terms
-rather than a prerequisite. If reset stays IAM-only, connected clients are not told about a reset —
-the same accepted gap as history deletion.
 
 **The booking horizon's length.** Retention is set at 30 days; the horizon is not set. Together they
 fix the hard bound on how many day items can exist, so the horizon is the last number the storage
@@ -558,13 +549,16 @@ the test runner's IAM credentials, function name from an environment variable `v
 the same deterministic way Terraform names it. Leaving the rule disabled in ephemeral is not only a
 cost decision: a schedule firing mid-run would make acceptance tests nondeterministic.
 
-**The job takes an explicit boundary in its payload.** An ephemeral environment created this morning
-has nothing 30 days old, so a test cannot exercise the real code path by waiting. Passing the target
-Monday in the invoke payload makes the test deterministic and independent of the calendar — and
-independent of whether past-dated bookings stay legal, which is itself an open question. This follows
-`database-repair`, which already takes `{"dryRun": true}`; a `dryRun` here would likewise let a test
-assert what *would* be deleted before anything is. When invoked with no payload, the job computes the
-boundary itself, which is what the schedule does.
+**The test creates its own history, and the job runs with no payload.** An ephemeral environment
+created this morning has nothing 30 days old, so the test seeds past-dated day items directly into
+DynamoDB — it already holds IAM credentials for invoking the Lambda, so writing table items needs no
+new access. Doing it this way rather than passing an override boundary means the job **computes its
+own boundary during the test**, which is the logic most likely to be wrong and the part an override
+would bypass. It is also independent of whether past-dated bookings stay legal through the API, which
+is its own open question.
+
+A `dryRun` payload is still worth having, following `database-repair`'s `{"dryRun": true}`, so a test
+can assert what *would* be removed before anything is.
 
 **It does not notify clients — for now.** Broadcasting would mean either routing the deletion through
 a mutation (pulling it into the public schema and the RBAC work in #76) or a separate
@@ -668,6 +662,17 @@ Without layer 1 the guarantee is a comment; without layer 3 it depends on an est
   `e2e_user_email` and `demo_user_email` are Terraform outputs — so no new Cognito plumbing.
 - **Existing acceptance tests change, not just grow.** Anything that depends on `ListMeetings`
   argument shapes or on the `createdMeeting` router-state handoff will need rewriting.
+- **The cleanup job's test asserts what survives, not just what goes.** A job that deletes too much
+  passes a test that only checks the old data is gone. The test seeds day items either side of the
+  boundary and asserts: everything before it is deleted, **everything on or after it is untouched**,
+  the `id → date` pointers went with their days, and the stored boundary advanced to the expected
+  Monday. The day falling exactly *on* the boundary is the off-by-one worth an explicit case.
+- **And the invariant itself is checkable.** After any run, no day item may exist earlier than the
+  stored boundary — that single assertion is the property the whole advance-then-delete ordering
+  exists to produce, and it holds regardless of how the job is invoked.
+- **Catch-up is a test case, not just a claim.** Seed several weeks of past days, run once, assert
+  all are cleared and the boundary lands on the correct Monday.
+- **Idempotency.** A second run immediately after the first changes nothing.
 - **The size guarantee needs tests that assert the guarantee, not the limits.** Specifically: build a
   day at *every* cap simultaneously — the day limit's worth of meetings, each with the attendee limit
   and a maximum-length subject — then serialise it and assert the real byte size is inside budget.
