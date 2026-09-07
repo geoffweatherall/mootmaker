@@ -509,9 +509,17 @@ means **the failure is never discovered** — the bill stays flat and nothing su
 need a window strictly longer than 37 days or it would delete data the stored boundary still
 advertises, breaking the very invariant the ordering exists to protect.
 
-The principle is instead held by **one mechanism plus an alarm**: if the cleanup has not succeeded
-within a defined window, that is a fault to be raised, not absorbed. See #77, which is where the
-recurring check belongs.
+The principle is instead held by **one mechanism plus a check**: if the cleanup has not succeeded
+within a defined window, that is a fault to be raised, not absorbed.
+
+**The stored boundary is its own dead-man's switch.** If the job has not run, `earliestRetainedDate`
+has not advanced, so "is the stored date within 37 days of today?" detects the exact failure using a
+value the system already holds and already returns to clients. No metric, no alarm, no new resource,
+no cost. A CloudWatch alarm would add only *automatic* notification, and it is not free — $0.10 per
+alarm metric per month, a standing charge that does not scale to zero, against an account currently
+running zero alarms and $0 of CloudWatch spend. For a weekly job whose failure mode is gradual
+storage growth, the recurring check in #77 is the proportionate answer; an alarm is an optional
+convenience to be decided on its own merits.
 
 **Cadence: weekly.** It pairs with Monday alignment — one run, one Monday, one week of data — and the
 work per run is bounded by construction. The shape is already proven in this project:
