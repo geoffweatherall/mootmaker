@@ -13,6 +13,92 @@ user's booking appears on another's screen without a refetch.
 
 **Drafting** — 2026-09-07.
 
+## Highlights
+
+The main changes, each considerable on its own. **Decided** means settled by discussion and recorded
+under Trade-offs; **Open** means it still needs an answer.
+
+1. **One DynamoDB item per day** *(Decided)* — meetings for a date live in a single item, read by
+   primary key. Buys `ConsistentRead`, which removes the read-after-write class of bug outright. Costs
+   write amplification and read-modify-write contention, and imposes a hard ceiling of roughly 1,000
+   meetings per day.
+2. **The shape of the top-level query** *(Open)* — three sibling root fields in one document, or one
+   composite entity carrying people, rooms and a date range of meetings. See "What requires a server
+   round trip" below, which exists to inform this.
+3. **Selection-aware resolvers** *(Decided)* — a query asking for `attendees { id }` does no Person
+   lookup; one asking for `{ id name }` does exactly one. Requires a request-template change first,
+   and the alias behaviour makes the selection test something to get right deliberately.
+4. **The server derives "mine" from the JWT** *(Decided)* — the client stops fetching its own id and
+   handing it back as a filter argument. This is what removes the startup waterfall.
+5. **Day-scoped bulk creation** *(Decided)* — `createMeetings(date:, meetings:)`. One operation, one
+   item write, one subscription message, one filterable field. Also sidesteps the 100-item
+   `TransactWriteItems` cap.
+6. **Real-time updates via AppSync subscriptions** *(Decided)* — one user's booking appears on
+   another's screen in tens of milliseconds. Costs pennies; the alternatives cost either ~$70/month
+   or a connection registry of their own.
+7. **Apollo cache built on day entities** *(Decided)* — `Day` keyed by `date`, so an empty day and an
+   unfetched day are distinguishable. Mutation results are written into the cache directly.
+8. **No cache persistence across refresh** *(Decided)* — see below; a refresh is a deliberate
+   stateless restart the user can always reach for.
+9. **Both meetings GSIs are deleted** *(Decided)*, and **whether any person index survives** *(Open)*.
+10. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
+11. **Database reset** *(Open)* — the current approach bypasses AppSync entirely and is unsatisfactory
+    independently of this design.
+
+## What requires a server round trip
+
+Every point at which the webapp needs data it does not have. This is the input to Highlight 2 — the
+top-level query shape should be chosen against this list, not against the current page structure.
+
+**On load and authentication**
+
+| Trigger | Data needed | Today |
+|---|---|---|
+| Any page load or refresh, signed in | Cognito claims, then the caller's Person | `MyPerson`, `network-only`, on every load |
+| Sign in | Same | Same, via `loadSession()` |
+| Sign up / confirm | None from the client | The PostConfirmation trigger creates the Person server-side |
+
+**Per page**
+
+| Page | Data needed | Today |
+|---|---|---|
+| Home (signed in) | My meetings, today → +2 days | `ListMeetings`, blocked until `MyPerson` resolves |
+| Home (signed out) | None | Demo credentials come from runtime config |
+| About | None | — |
+| Person calendar | All people, all rooms, one person's meetings across a 40-day span (30 displayed; weekends are in the range but not shown) | Three queries; rooms and people `cache-first` |
+| Room availability | All rooms, all meetings for one date | Two queries |
+| Add meeting | All rooms, all people | Two queries, in parallel |
+| Meeting details | **One meeting** | `ListMeetings` **with no filter at all** — every meeting ever stored, then `.find()` client-side. There is no `meeting(id:)` field in the schema |
+| Settings | The caller's Person | From auth context |
+| Settings, admin sections | All rooms, all people | Two queries, both gated so neither section renders until both land |
+
+**On user action**
+
+| Action | Round trip |
+|---|---|
+| "Suggest a room" | `suggestRoom(startTime, endTime, requiredCapacity)` |
+| Create meeting | `createMeeting` |
+| Rename self | `updatePerson` |
+| Change date/time preferences | `updateMyPreferences` |
+| Create or edit a room | `createRoom` / `updateRoom`, plus a refetch **and** a direct cache write |
+| Create or edit a person | `createPerson` / `updatePerson`, same pattern |
+| Delete my account | `deleteMyAccount` |
+
+**Caused by someone else**
+
+| Event | Today |
+|---|---|
+| Another user creates a meeting | Nothing. Stale until something refetches |
+| The daily `mootmaker-demo-data` run (18:00 NZT) | Nothing |
+| A database reset | Nothing, and the client keeps showing deleted data |
+
+Three observations fall out of this list. **Rooms and people are wanted by four of the seven pages
+and change rarely** — they are the strongest candidates for fetching once. **Meetings are always
+wanted as a date range**, and the ranges differ per page (3 days, 1 day, 40 days), which is precisely
+what day-keyed entities make composable. And **meeting details is the one lookup that is not a date
+range at all** — it is a single meeting by id, and it is currently served by scanning the entire
+table.
+
 ## Scope / non-goals
 
 **In scope:** the shape of `Query`'s entry points; selection-aware fetching in the resolver Lambda;
@@ -109,12 +195,18 @@ client fetch its own id and hand it back, which is what creates the entire start
 resolve the caller from `identity.sub`, as `MyPersonHandler` already does. This also dodges a
 consistency hazard: `cognitoSub-index` is a GSI and GSIs reject `ConsistentRead`.
 
-**One composite field, not sibling root fields.** The only real argument for keeping `rooms`,
-`people` and `days` as siblings was that a composite field moves `rooms` from `ROOT_QUERY.rooms` to
-`ROOT_QUERY.workspace.rooms`, missing every existing `cache-first` reader and forcing a permanent
-`cache.writeQuery` mirror. That argument is entirely about not disturbing client code that is now
-being rewritten anyway. With the cache layout designed from scratch around the composite shape,
-there is no legacy slot to preserve and no mirror to maintain — so take the single invocation.
+**The cache-slot objection to a composite field is void.** The argument against one composite entity
+was that it moves `rooms` from `ROOT_QUERY.rooms` to `ROOT_QUERY.workspace.rooms`, missing every
+existing `cache-first` reader and forcing a permanent `cache.writeQuery` mirror. That argument is
+entirely about not disturbing client code that is now being rewritten. It no longer applies, and
+should not be weighed. The choice itself remains open — see Open questions.
+
+**No cache persistence across a refresh.** `InMemoryCache` starts empty on every page load and will
+stay that way: no `apollo3-cache-persist`, no localStorage rehydration. This is not a concession, it
+is the point — **a refresh is a guaranteed stateless restart the user can always reach for**, and
+that escape hatch is worth more than saving one round trip on a cold load. It also removes an entire
+invalidation problem: persisted caches have to answer what happens to data written by the 18:00 NZT
+demo-data run while the tab was closed, and this design never has to.
 
 **The day is the unit.** One day is a DynamoDB partition key, an AppSync fetch unit, an Apollo cache
 entity keyed by `date`, and a subscription filter value. This alignment is what makes the caching
@@ -174,6 +266,19 @@ on its own merits, not just as a subscription detail.**
 not degradation — a day becomes unbookable for a reason unrelated to room availability. Explicit,
 enforced limits turn that into a testable worst case.
 
+**The shape of the top-level query.** Either three sibling root fields in one document — one HTTP
+request, three Lambda invocations, cache slots that map one-to-one onto the entities — or a single
+composite entity carrying people, rooms and a date range of meetings, giving one invocation. The
+cache-slot argument that previously made this urgent is void (see Trade-offs), so this is now a
+straight choice between invocation count and schema shape, with no legacy pressure either way. "What
+requires a server round trip" above is the evidence to decide it against.
+
+**Is there a `meeting(id:)` entry point?** Meeting details is the only page whose need is not a date
+range, and today it is served by fetching every meeting ever stored and filtering client-side. Under
+day-keyed storage there is no id index at all, so this needs an answer either way: a dedicated
+`meeting(id:)` field backed by its own index, or a URL carrying the date so the day item can be read
+directly, or accepting that details is reachable only from a list that already loaded it.
+
 **Does the design need a person index at all?** Not "does `meeting-participants` survive" — nothing
 survives by default. The real question is whether "which meetings is this person in" deserves its own
 index. Today it has one, answered in a single Query. With day items and no index, a six-week person
@@ -186,8 +291,6 @@ simpler; at any real scale it is not. The answer determines whether a second tab
   since `name`, `dateFormat` and `timeFormat` are all mutable and must not be baked into a token.
   Custom attributes cannot be removed or renamed once added to a pool, and M2M client-credentials
   tokens have no user behind them, so the fallback path is permanent.
-- **Cache persistence across reloads.** `InMemoryCache` starts empty on every page load. Persisting
-  it needs `apollo3-cache-persist` and its own invalidation story.
 - **A past-booking rule.** Nothing in `MeetingError` rejects a booking in the past, so history is
   not immutable and cannot be cached permanently. Adding the rule would make past days safely
   cacheable forever.
