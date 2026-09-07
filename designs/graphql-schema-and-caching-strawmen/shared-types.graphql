@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared types — IDENTICAL in Option A and Option B.
+#
+# Both options include this file. Nothing here is under comparison; the only
+# difference between the two straw men is the shape of Query's entry points.
+# ─────────────────────────────────────────────────────────────────────────────
+
+"A single date's meetings. The unit of storage (one DynamoDB item), of fetching, of Apollo cache identity, and of bulk creation."
+type Day {
+    "ISO-8601 calendar date, e.g. \"2026-09-14\". The cache key: Apollo's `Day` typePolicy sets keyFields: [\"date\"]."
+    date: String!
+    "Every meeting starting on this date, in no particular order. An empty list means the day is genuinely empty - distinct from the day not having been fetched, which is what makes day-keyed caching tractable."
+    meetings: [Meeting!]!
+}
+
+"Inclusive-from, exclusive-to. Both are calendar dates, not date-times."
+input DateRange {
+    from: String!
+    "Exclusive. A single day is { from: \"2026-09-14\", to: \"2026-09-15\" }."
+    to: String!
+}
+
+"What the server will and will not accept, so no client has to compute either boundary for itself."
+type Boundaries {
+    "The earliest date still retained, always a Monday. Stored, not computed - the cleanup job advances it before deleting anything, so it is never more permissive than reality. Clients bound their back-navigation by this."
+    earliestRetainedDate: String!
+    "The latest date a meeting may be booked on. The other half of the bound on how many day items can exist."
+    latestBookableDate: String!
+}
+
+type Meeting {
+    id: ID!
+    "Selecting only `id` on room/organiser/attendees costs no lookup - the ids are already on the stored meeting. Selecting any further field triggers exactly one batched lookup for all of them. See the design's \"selection-aware resolvers\"."
+    room: Room!
+    organiser: Person!
+    attendees: [Person!]!
+    "At most 280 bytes of NFC-normalised UTF-8. Plain text gets 280 characters; emoji get fewer."
+    subject: String!
+    "ISO-8601 local date-time, no offset, 15-minute boundary, e.g. \"2026-09-14T14:30:00\"."
+    startTime: String!
+    endTime: String!
+}
+
+type Room {
+    id: ID!
+    name: String!
+    capacity: Int!
+}
+
+type Person {
+    id: ID!
+    name: String!
+    dateFormat: DateFormat!
+    timeFormat: TimeFormat!
+}
+
+enum DateFormat { Usa British Iso }
+enum TimeFormat { TwentyFourHour AmPm }
+
+input MeetingInput {
+    roomId: ID!
+    organiserId: ID!
+    attendeeIds: [ID!]!
+    subject: String!
+    startTime: String!
+    endTime: String!
+}
+
+input RoomInput { name: String!, capacity: Int! }
+input PersonInput { name: String! }
+input PreferencesInput { dateFormat: DateFormat!, timeFormat: TimeFormat! }
+
+enum MeetingError {
+    StartMissaligned
+    EndMissaligned
+    SpansMultipleDays
+    EndBeforeStart
+    InsufficientCapacity
+    TimeRangeUnavailable
+    RoomRequired
+    RoomNotFound
+    OrganiserRequired
+    OrganiserNotFound
+    AttendeeNotFound
+    SubjectRequired
+    OrganiserIsAttendee
+    "New: the day already holds the maximum number of meetings. The day, not the room - a booking can be refused with rooms still free."
+    DayIsFull
+    "New: more than the per-meeting attendee limit."
+    TooManyAttendees
+    "New: subject exceeds 280 bytes of NFC-normalised UTF-8."
+    SubjectTooLong
+    "New: startTime is after latestBookableDate, or before earliestRetainedDate."
+    OutsideBookableRange
+}
+
+enum RoomError { NameRequired CapacityTooLow RoomNotFound NameTooLong }
+enum PersonError { NameRequired PersonNotFound NameTooLong }
+enum PreferencesError { NoLinkedPerson }

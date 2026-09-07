@@ -1,0 +1,69 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# OPTION B — sibling root fields, combined by the client into one document
+#
+# No composite wrapper. The client sends ONE HTTP request containing several
+# root fields; AppSync resolves them in parallel, which is one Lambda
+# invocation PER ROOT FIELD. So Option B is the same number of round trips as
+# Option A and up to five times the invocations.
+#
+# What it buys: every list sits at its own cache field, arguments sit on the
+# field they actually filter, and each entry point is independently
+# comprehensible. It is the shape a public API would take.
+#
+# Include shared-types.graphql alongside this file.
+# ═════════════════════════════════════════════════════════════════════════════
+
+schema { query: Query, mutation: Mutation, subscription: Subscription }
+
+type Query {
+    "The signed-in caller's own Person, or null. Takes no argument - the server resolves the caller from identity.sub, so no client ever fetches its own id in order to ask for its own data."
+    me: Person
+
+    "Every person, unfiltered. No arguments, so ROOT_QUERY.people is a single cache field that mutations can update directly."
+    people: [Person!]!
+
+    "Every room, unfiltered. Same."
+    rooms: [Room!]!
+
+    "One entry per date in the range, including empty ones. Argument sits on the field it filters, which is where it belongs."
+    days(dates: DateRange!): [Day!]!
+
+    "Retention and booking bounds."
+    boundaries: Boundaries!
+
+    "A user action rather than screen state, so it stays a root field in both options - it has its own arguments and is never part of a page's initial load. Returns rooms free over the range with capacity >= requiredCapacity, smallest surplus first."
+    suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!): [Room!]!
+
+    "The one lookup that is not a date range. Null for an unknown id and for one aged out of retention - the same answer for both, deliberately."
+    meeting(id: ID!): Meeting
+}
+
+# ─── Mutations are IDENTICAL to Option A ─────────────────────────────────────
+# The mutation shape is not what is being compared. Both options return the
+# whole affected Day from meeting writes and the whole collection from
+# room/person writes, for the same cache reasons. Kept verbatim so a diff
+# between the two files shows only the query entry points.
+
+type Mutation {
+    createMeeting(meeting: MeetingInput!): CreateMeetingResult!
+    createMeetings(date: String!, meetings: [MeetingInput!]!): CreateMeetingsResult!
+    createRoom(room: RoomInput!): CreateRoomResult!
+    updateRoom(id: ID!, room: RoomInput!): UpdateRoomResult!
+    createPerson(person: PersonInput!): CreatePersonResult!
+    updatePerson(id: ID!, person: PersonInput!): UpdatePersonResult!
+    updateMyPreferences(preferences: PreferencesInput!): UpdateMyPreferencesResult!
+    deleteMyAccount: Boolean!
+}
+
+type CreateMeetingResult { meeting: Meeting, day: Day, errors: [MeetingError!]! }
+type CreateMeetingsResult { day: Day, failures: [MeetingFailure!]! }
+type MeetingFailure { index: Int!, errors: [MeetingError!]! }
+type CreateRoomResult { rooms: [Room!]!, room: Room, errors: [RoomError!]! }
+type UpdateRoomResult { rooms: [Room!]!, room: Room, errors: [RoomError!]! }
+type CreatePersonResult { people: [Person!]!, person: Person, errors: [PersonError!]! }
+type UpdatePersonResult { people: [Person!]!, person: Person, errors: [PersonError!]! }
+type UpdateMyPreferencesResult { person: Person, errors: [PreferencesError!]! }
+
+type Subscription {
+    dayChanged(date: String!): Day @aws_subscribe(mutations: ["createMeeting", "createMeetings"])
+}

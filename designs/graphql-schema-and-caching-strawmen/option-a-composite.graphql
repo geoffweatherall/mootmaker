@@ -1,0 +1,86 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# OPTION A — one composite entry point
+#
+# Everything a screen needs hangs off a single field, so one query is ONE
+# AppSync resolver invocation. Arguments are hoisted onto `workspace` rather
+# than sitting on the nested fields they filter: AppSync gives a resolver its
+# own arguments typed, but nested field arguments only as raw GraphQL text in
+# info.selectionSetGraphQL, which would mean parsing GraphQL inside a Java
+# Lambda to recover a filter.
+#
+# Include shared-types.graphql alongside this file.
+# ═════════════════════════════════════════════════════════════════════════════
+
+schema { query: Query, mutation: Mutation, subscription: Subscription }
+
+type Query {
+    "Everything a screen needs, in one invocation. Sub-fields not selected are not fetched: `workspace { days { ... } }` does no people or rooms lookup at all."
+    workspace(dates: DateRange!): Workspace!
+
+    "A user action rather than screen state, so it stays a root field in both options - it has its own arguments and is never part of a page's initial load. Returns rooms free over the range with capacity >= requiredCapacity, smallest surplus first."
+    suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!): [Room!]!
+
+    "The one lookup that is not a date range. Returns null for an id that never existed AND for one whose day has passed out of retention - deliberately the same answer, so callers handle one case and nothing confirms that an id was once valid."
+    meeting(id: ID!): Meeting
+}
+
+type Workspace {
+    "The signed-in caller's own Person. Null if none is linked yet. Being here is what removes the old MyPerson -> ListMeetings waterfall: no client needs its own id before it can ask for anything."
+    me: Person
+    "Every person. Small and slow-moving; fetching once at page load makes every later `attendees { id }` resolvable from the Apollo cache with no further round trip."
+    people: [Person!]!
+    "Every room. Same reasoning as `people`."
+    rooms: [Room!]!
+    "One entry per date in `dates`, including dates with no meetings. Never sparse - a returned empty day means empty, not unfetched."
+    days: [Day!]!
+    "Retention and booking bounds. Cheap, and clients must not compute them independently - see the design's \"the server publishes that boundary\"."
+    boundaries: Boundaries!
+}
+
+type Mutation {
+    "Returns BOTH the created meeting and its whole updated Day. The client picks by selection: `{ meeting { id } }` for a small response, `{ day { date meetings { ... } } }` to have Apollo merge the new day state into the cache with no update function at all - Day is normalised on `date`, so a returned Day replaces the cached one automatically. Selecting the day is usually free rather than wasteful; see the straw-man README."
+    createMeeting(meeting: MeetingInput!): CreateMeetingResult!
+
+    "Day-scoped bulk creation. One operation, one item write, and - if subscriptions are added later - one broadcast with one filterable `date`. mootmaker-demo-data's per-meeting fan-out collapses into one call per seeded day."
+    createMeetings(date: String!, meetings: [MeetingInput!]!): CreateMeetingsResult!
+
+    createRoom(room: RoomInput!): CreateRoomResult!
+    updateRoom(id: ID!, room: RoomInput!): UpdateRoomResult!
+    createPerson(person: PersonInput!): CreatePersonResult!
+    updatePerson(id: ID!, person: PersonInput!): UpdatePersonResult!
+    updateMyPreferences(preferences: PreferencesInput!): UpdateMyPreferencesResult!
+    deleteMyAccount: Boolean!
+}
+
+type CreateMeetingResult {
+    "Populated when the meeting was created."
+    meeting: Meeting
+    "The affected day, in full, after the write. Select this to update the cache in one hit."
+    day: Day
+    errors: [MeetingError!]!
+}
+
+type CreateMeetingsResult {
+    "The day after all of them were applied. Whole-day replacement is the natural cache update for a whole-day write."
+    day: Day
+    "One entry per rejected input, by index. Empty when every meeting was created."
+    failures: [MeetingFailure!]!
+}
+
+type MeetingFailure {
+    "Index into the `meetings` argument."
+    index: Int!
+    errors: [MeetingError!]!
+}
+
+"Room and person mutations return the whole collection, not just the changed item. Apollo normalises entities by id, so returning one Room updates that Room everywhere - but it does NOT add it to the cached `rooms` list, which is a separate cache field. Returning the list makes the mutation self-sufficient. Both collections are small enough that this costs nothing."
+type CreateRoomResult { rooms: [Room!]!, room: Room, errors: [RoomError!]! }
+type UpdateRoomResult { rooms: [Room!]!, room: Room, errors: [RoomError!]! }
+type CreatePersonResult { people: [Person!]!, person: Person, errors: [PersonError!]! }
+type UpdatePersonResult { people: [Person!]!, person: Person, errors: [PersonError!]! }
+type UpdateMyPreferencesResult { person: Person, errors: [PreferencesError!]! }
+
+"Not in the first cut - recorded so the schema shape does not have to change to add it. History deletion deliberately does NOT broadcast; see the design."
+type Subscription {
+    dayChanged(date: String!): Day @aws_subscribe(mutations: ["createMeeting", "createMeetings"])
+}

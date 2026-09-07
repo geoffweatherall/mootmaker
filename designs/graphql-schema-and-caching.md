@@ -336,12 +336,18 @@ bound is waiting on.
 
 *(The cleanup job's broadcast question is settled — see "Retention". It does not broadcast, for now.)*
 
-**The shape of the top-level query.** Either three sibling root fields in one document — one HTTP
-request, three Lambda invocations, cache slots that map one-to-one onto the entities — or a single
+**The shape of the top-level query.** Either sibling root fields in one document — one HTTP request,
+one Lambda invocation per field, cache slots that map one-to-one onto the entities — or a single
 composite entity carrying people, rooms and a date range of meetings, giving one invocation. The
 cache-slot argument that previously made this urgent is void (see Trade-offs), so this is now a
-straight choice between invocation count and schema shape, with no legacy pressure either way. "What
-requires a server round trip" above is the evidence to decide it against.
+straight choice between invocation count and schema shape, with no legacy pressure either way.
+
+**Both are written out in full in
+[`graphql-schema-and-caching-strawmen/`](graphql-schema-and-caching-strawmen/)** — two complete
+schemas sharing byte-identical types, the queries the webapp would send for page load, calendar
+navigation, changing day on room availability and adding a meeting, and the mutation payloads with
+their cache behaviour worked through. "What requires a server round trip" above is the evidence;
+the straw men are the two candidate answers.
 
 ### Non-blocking
 

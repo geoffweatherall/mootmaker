@@ -1,0 +1,107 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# OPTION B — what the webapp actually sends
+#
+# Same number of HTTP requests as Option A. The difference is invocations:
+# AppSync runs one Lambda per ROOT FIELD, in parallel, so a five-field document
+# is five concurrent invocations and five SnapStart restores on a cold API.
+#
+# Mutations are identical to Option A and are not repeated - see
+# option-a-client.graphql sections 6-8. Only the queries differ.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+# ─── 1. PAGE LOAD ────────────────────────────────────────────────────────────
+# One request, FIVE invocations. Each root field is independently readable,
+# and each lands in its own cache slot: ROOT_QUERY.rooms, ROOT_QUERY.people,
+# ROOT_QUERY.me, ROOT_QUERY.boundaries, ROOT_QUERY.days({...}).
+#
+# That slot layout is Option B's real advantage. Mutations that return `rooms`
+# or `people` write straight over the same field the query populated, with no
+# typePolicy needed to make them agree.
+
+query PageLoad($dates: DateRange!) {          # { from: today, to: today+3 }
+  me { id name dateFormat timeFormat }
+  rooms { id name capacity }
+  people { id name }
+  boundaries { earliestRetainedDate latestBookableDate }
+  days(dates: $dates) {
+    date
+    meetings {
+      id subject startTime endTime
+      room { id } organiser { id } attendees { id }
+    }
+  }
+}
+
+
+# ─── 2. CALENDAR: user pages back a week ─────────────────────────────────────
+# One root field, so ONE invocation - identical cost to Option A here. Options
+# A and B only diverge when a screen needs more than one kind of thing at once,
+# which after page load is rare.
+
+query CalendarWeeks($dates: DateRange!) {
+  days(dates: $dates) {
+    date
+    meetings {
+      id subject startTime endTime
+      room { id } organiser { id } attendees { id }
+    }
+  }
+}
+
+
+# ─── 3. ROOM AVAILABILITY: move to another day ───────────────────────────────
+# One invocation. Same query, one-day range.
+
+query OneDay($dates: DateRange!) {            # { from: "2026-09-15", to: "2026-09-16" }
+  days(dates: $dates) {
+    date
+    meetings {
+      id subject startTime endTime
+      room { id } organiser { id } attendees { id }
+    }
+  }
+}
+
+
+# ─── 4. ADD MEETING PAGE ─────────────────────────────────────────────────────
+# No query - rooms and people are already cached from page load, exactly as in
+# Option A.
+#
+# The refresh, if a long session makes one worthwhile, is the thing Option A
+# cannot say cleanly. No invented empty date range; just ask for the two
+# collections. Two invocations rather than one, for a call that rarely happens.
+
+query ReferenceDataRefresh {
+  rooms { id name capacity }
+  people { id name }
+}
+
+
+# ─── 5. SUGGEST A ROOM ───────────────────────────────────────────────────────
+# Identical in both options - it was always a root field.
+
+query SuggestRoom($startTime: String!, $endTime: String!, $requiredCapacity: Int!) {
+  suggestRoom(startTime: $startTime, endTime: $endTime, requiredCapacity: $requiredCapacity) {
+    id
+  }
+}
+
+
+# ─── 6. MEETING DETAILS, opened from a link ──────────────────────────────────
+# Identical in both options. Worth showing because it replaces today's worst
+# query by a wide margin: MeetingDetailsPage currently fetches EVERY meeting
+# ever stored, unfiltered, and runs .find() on the result.
+#
+# Returns null both for an id that never existed and for one whose day has aged
+# out of retention - the same answer deliberately, so there is one case to
+# render and nothing confirms that an id was once valid.
+
+query MeetingById($id: ID!) {
+  meeting(id: $id) {
+    id subject startTime endTime
+    room { id name capacity }        # full - this page may be a cold entry point
+    organiser { id name }
+    attendees { id name }
+  }
+}
