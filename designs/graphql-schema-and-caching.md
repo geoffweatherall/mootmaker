@@ -497,9 +497,10 @@ The boundary almost always falls **mid-week**, so the earliest reachable week is
 Disable "Previous week" only when the entire next window would sit before `earliestRetainedDate`;
 disabling as soon as any of it would hides days that are still retained.
 
-A bookmarked or shared link to a meeting older than 30 days will stop resolving. That is an accepted
-consequence of retention rather than a defect, but `meeting(id:)` should return a "no longer
-available" result rather than a bare null that renders as a broken page.
+A bookmarked or shared link to a meeting older than 30 days stops resolving, and **`meeting(id:)`
+simply returns not-found** — the same answer as an id that never existed. No distinct "expired"
+result: it is one less state for every caller to handle, and it avoids confirming that a given id was
+once valid, which a separate expired response would. The page renders its ordinary not-found state.
 
 ### The item-size guarantee
 
