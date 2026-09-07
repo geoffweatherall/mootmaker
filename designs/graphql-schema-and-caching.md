@@ -55,8 +55,8 @@ under Trade-offs; **Open** means it still needs an answer.
 13. **Enforced transport limits, with an oversized response made unreachable** *(Decided)* — a
     separate bound from storage, set by AppSync's unadjustable 5 MB response cap: `maxRooms` 200,
     `maxPeople` 1,000, `maxDates` 31, and a dynamic `maxMeetingsPerResponse` of 2,000 that fails fast.
-    Also **240 KB on subscription payloads**, which is why a broadcast carries one meeting and not a
-    whole day. See "The transport bounds".
+    Also **240 KB on subscription payloads**, which is why a broadcast carries a list of invalidated
+    dates rather than any data at all. See "The transport bounds".
 14. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
 15. **Reset stays an IAM-invoked Lambda** *(Decided)* — briefly proposed as a mutation so it could
     broadcast, then reversed: `Mutation.reset` was deliberately removed once because any signed-in
@@ -644,17 +644,44 @@ does not comfortably allow. `database-reset` and `database-repair` keep their 90
 fronted by AppSync. The history-cleanup Lambda is not AppSync-fronted either and its work is bounded
 by construction, so 300 s is ample.
 
-**The subscription cap invalidates part of the mutation design, and this is the sharp one.** A
-worst-case day is roughly **618 KB** of JSON — a `Day` cannot be broadcast. Mutations may still
-return the whole `Day`, because they answer against the 5 MB budget; subscriptions must carry **only
-the created meeting** (~1.9 KB) and let the client merge it into `Day:<date>` itself.
+**The subscription cap invalidates part of the mutation design.** A worst-case day is roughly
+**618 KB** of JSON, so a `Day` cannot be broadcast. Mutations may still return the whole `Day`,
+because they answer against the 5 MB budget.
 
-So the two paths deliberately differ:
+**Subscriptions carry invalidated dates, not data.** The broadcast is a list of dates whose contents
+have changed; the client evicts those `Day` entities and lets its ordinary fetch path refill them.
+This was chosen over broadcasting the created meeting, and it is better for reasons beyond fitting
+the cap:
+
+- **The payload is uniform and tiny** whatever the day holds, so the 240 KB limit stops being a
+  design constraint rather than being narrowly satisfied.
+- **One channel serves every kind of change** — `createMeeting`, `createMeetings`, and later history
+  deletion or reset, which a meeting-carrying subscription could never express.
+- **It is idempotent.** The same invalidation twice is harmless; merging the same meeting twice needs
+  deduplication.
+- **The publish-only mutation becomes trivial**, carrying dates rather than domain objects — which
+  also removes the return-type-match awkwardness, since there is only ever one payload type.
+
+**How it actually triggers a refetch**, which is the part worth being precise about. Eviction does
+not fetch: `useFragment` is cache-only, so evicting `Day:<date>` makes it report `complete: false`
+and issues no request. What works is that eviction *is* a cache change, so the fragment re-renders,
+the gap computation re-runs, the date is now missing from the cache, and the existing `useQuery`
+fires for it. **The same code path as ordinary navigation** — no special case and no separate
+`refetch` call.
+
+The costs, stated plainly: one extra round trip before the user sees the change, and every client
+viewing that date refetches at once. The second is a classic invalidation stampede and is irrelevant
+at this scale, where concurrent viewers are counted in single figures.
 
 | | Payload | Budget | Client work |
 |---|---|---|---|
 | `createMeeting` response | The whole `Day` | 5 MB | None — `Day` is an entity, Apollo replaces it |
-| `dayChanged` subscription | One `Meeting` | 240 KB | A small cache update appending to the day |
+| `daysInvalidated` subscription | A list of dates | 240 KB, unreachable | Evict; the gap fetch refills |
+
+One consequence worth banking: **this makes notifying on history deletion cheap later.** The cleanup
+Lambda was left silent because routing it through a mutation was disproportionate. With a
+dates-only publish mutation it can call the same channel with the dates it removed, needing no new
+machinery.
 
 **JSON is much larger than the stored form**, which is easy to get wrong. A worst-case meeting is
 ~1,232 bytes in DynamoDB and **~1,931 bytes as JSON** — attribute names are repeated per object, and
@@ -891,8 +918,8 @@ Sparse while Drafting — to be filled in properly before this reaches Ready.
         subscription covering both `createMeeting` and `createMeetings`, whose result types differ?
       - Rejected mutations. A failed `createMeeting` returns successfully with a typed `errors`
         array, so does it broadcast? Can `$extensions.setSubscriptionFilter()` exclude it?
-      - The **240 KB payload cap** — the tightest limit in this design, and the reason a broadcast
-        carries one meeting rather than a whole day.
+      - The **240 KB payload cap** — the reason a broadcast carries invalidated dates rather than
+        data. Worth confirming a dates-only payload can never approach it.
       - **Connection lifecycle**: what ends a subscription when a client vanishes without closing
         cleanly. See "How subscriptions end" below for what is currently believed and what is not
         verified.

@@ -126,8 +126,21 @@ type UpdateMyPreferencesResult { person: Person, errors: [PreferencesError!]! }
 #      createMeeting response  ->  the whole Day    (5 MB budget, Apollo replaces the entity)
 #      dayChanged broadcast    ->  one Meeting      (240 KB budget, client appends to the day)
 #
-#    The two paths differ deliberately, and a change to broadcast a Day "for consistency" would
-#    breach the cap silently on a busy day.
+#    RESOLVED by broadcasting INVALIDATED DATES rather than data:
+#
+#      type Invalidation { dates: [String!]! }
+#      type Mutation { publishDaysInvalidated(dates: [String!]!): Invalidation }   # not for clients
+#      type Subscription {
+#        daysInvalidated: Invalidation @aws_subscribe(mutations: ["publishDaysInvalidated"])
+#      }
+#
+#    The payload is uniform and tiny whatever the day holds, one channel serves every kind of
+#    change (create, bulk create, and later history deletion), and it is idempotent. The client
+#    evicts Day:<date> and its ordinary gap-fetch refills it - eviction is a cache change, so the
+#    useFragment re-renders, the gap recomputes, and the existing useQuery fires. No special case.
+#
+#    Costs one round trip before the change is visible, and every viewer of that date refetches at
+#    once - a stampede that does not matter at single-figure concurrency.
 #
 # Deferred either way: history deletion deliberately does not broadcast, so nothing in the first
 # cut depends on this being settled.
