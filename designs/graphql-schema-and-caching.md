@@ -40,10 +40,18 @@ under Trade-offs; **Open** means it still needs an answer.
    unfetched day are distinguishable. Mutation results are written into the cache directly.
 8. **No cache persistence across refresh** *(Decided)* — see below; a refresh is a deliberate
    stateless restart the user can always reach for.
-9. **Both meetings GSIs are deleted** *(Decided)*, and **whether any person index survives** *(Open)*.
-10. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
-11. **Database reset** *(Open)* — the current approach bypasses AppSync entirely and is unsatisfactory
-    independently of this design.
+9. **Both meetings GSIs and the person index are deleted** *(Decided)* — every user-facing query
+   carries a date range, so no index is needed to serve one. A **maximum booking horizon** replaces
+   the one unbounded query. See "No person index" below.
+10. **`meeting(id:)` gains a real entry point** *(Decided)* — a dedicated field backed by an id → date
+    pointer, replacing today's full-table scan.
+11. **Enforced day limits** *(Decided, with a conflict to resolve)* — 200 meetings per day, 20
+    attendees per meeting. See Technical considerations: 200 is **below** the physical capacity of
+    the current 10 rooms.
+12. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
+13. **Reset becomes a mutation, behind RBAC** *(Decided; the RBAC model is a follow-up)* — it stops
+    being a side door, so it broadcasts like any other write. Putting a destructive operation in the
+    public schema has auth consequences the current flat admin role does not cover.
 
 ## What requires a server round trip
 
@@ -208,6 +216,36 @@ that escape hatch is worth more than saving one round trip on a cold load. It al
 invalidation problem: persisted caches have to answer what happens to data written by the 18:00 NZT
 demo-data run while the tab was closed, and this design never has to.
 
+**A dedicated `meeting(id:)` entry point.** Meeting details is the only need that is not a date
+range, and today it is served by fetching every meeting ever stored and filtering client-side — which
+the schema's own documentation warns against. Day-keyed storage has no id index, so this needs a
+deliberate one: an id → date pointer written alongside the day item, letting `meeting(id:)` resolve
+in two reads. Chosen over putting the date in the URL because a details link then works from
+anywhere — bookmarked, shared, or refreshed — without assuming what loaded first.
+
+**No person index, and a maximum booking horizon instead.** Every user-facing query for a person's
+meetings already carries a date range: the home page asks for three days, the calendar for forty.
+There is exactly one path that does not — `DeleteMyAccountHandler` queries the participants table for
+the caller and filters `startTime >= now`, i.e. *every upcoming meeting*, unbounded in the future
+direction. That single operation is the only thing the index exists for.
+
+Rather than keep a whole join table to serve one rare operation, the design adds a **maximum booking
+horizon**: a meeting cannot be created more than a fixed period ahead. "Every upcoming meeting" then
+becomes a bounded, enumerable set of date keys that can be read with `BatchGetItem`, and the index
+disappears along with `meeting-participants`, its transactional writes, and
+`RebuildMeetingParticipantsRepair`.
+
+**Reset becomes a mutation behind RBAC.** Routing reset through GraphQL means it broadcasts like any
+other write, so connected clients evict instead of silently showing deleted data. It also puts a
+destructive operation into the public schema, which the current authorisation model is not shaped
+for: `Identity.requireAdmin` recognises one flat admin role, so "can add a room" and "can destroy the
+database" would be the same permission. **The RBAC model is a follow-up in its own right** — recorded
+separately rather than designed here.
+
+**Day limits: 200 meetings, 20 attendees.** Roughly 49% of the 400 KB item cap at worst case, biased
+toward large meetings rather than many. See Technical considerations for the conflict this creates
+with the current room count.
+
 **The day is the unit.** One day is a DynamoDB partition key, an AppSync fetch unit, an Apollo cache
 entity keyed by `date`, and a subscription filter value. This alignment is what makes the caching
 tractable: an Apollo cache keyed by day can distinguish "no meetings that day" (entity present,
@@ -249,22 +287,11 @@ budget without it.
 
 ### Blocking
 
-**Database reset.** `DatabaseReset` deletes straight through `DynamoDbClient`, bypassing AppSync
-entirely. That is already unsatisfying; this design makes it worse in two specific ways. No
-subscription fires, so every connected client keeps a cache of data that no longer exists — and
-acceptance tests reset between runs, so this is the first thing a long-lived subscription in a test
-will hit. Options include: routing reset through a mutation so it broadcasts; adding a
-`resetGeneration` counter that clients compare and use to evict; having tests tear down browser
-contexts around resets; or accepting staleness and making reset visibly non-real-time. **Geoff has
-flagged the current approach as unsatisfactory independently of this design, so this wants deciding
-on its own merits, not just as a subscription detail.**
+**The day limit conflicts with the room count.** 200 meetings per day is below what 10 rooms can
+physically hold — see Technical considerations. Needs one of: raise the day limit, lower the attendee
+limit, or accept that bookings are refused while rooms sit empty.
 
-**Chosen limits for meetings per day and attendees per meeting.** The 400 KB item cap allows roughly
-**1,000 meetings per day** at four attendees each (~406 bytes per meeting; ~1,590 at zero attendees,
-~410 at twenty). Business hours of 08:00–17:00 on 15-minute boundaries give 36 slots per room, so
-1,000 meetings means 28 rooms fully booked all day. The failure mode is a hard `PutItem` rejection,
-not degradation — a day becomes unbookable for a reason unrelated to room availability. Explicit,
-enforced limits turn that into a testable worst case.
+**The booking horizon's length.** The maximum-booking-horizon rule is decided; the number is not.
 
 **The shape of the top-level query.** Either three sibling root fields in one document — one HTTP
 request, three Lambda invocations, cache slots that map one-to-one onto the entities — or a single
@@ -272,18 +299,6 @@ composite entity carrying people, rooms and a date range of meetings, giving one
 cache-slot argument that previously made this urgent is void (see Trade-offs), so this is now a
 straight choice between invocation count and schema shape, with no legacy pressure either way. "What
 requires a server round trip" above is the evidence to decide it against.
-
-**Is there a `meeting(id:)` entry point?** Meeting details is the only page whose need is not a date
-range, and today it is served by fetching every meeting ever stored and filtering client-side. Under
-day-keyed storage there is no id index at all, so this needs an answer either way: a dedicated
-`meeting(id:)` field backed by its own index, or a URL carrying the date so the day item can be read
-directly, or accepting that details is reachable only from a list that already loaded it.
-
-**Does the design need a person index at all?** Not "does `meeting-participants` survive" — nothing
-survives by default. The real question is whether "which meetings is this person in" deserves its own
-index. Today it has one, answered in a single Query. With day items and no index, a six-week person
-calendar fetches 42 day items and filters in the Lambda. At demo scale that is likely fine and far
-simpler; at any real scale it is not. The answer determines whether a second table exists at all.
 
 ### Non-blocking
 
@@ -331,7 +346,13 @@ The delta against `docs/reference/data-model.md`:
 - **Both meetings GSIs removed.** `bucket-startTime-index` and `roomId-startTime-index` exist to
   answer range and per-room queries that a day key answers directly. Removing them also removes the
   constant `bucket = "ALL"` attribute, which exists solely to give the GSI a partition key.
-- **`meeting-participants` status unresolved** — see Open questions.
+- **`meeting-participants` is deleted**, along with `RebuildMeetingParticipantsRepair`. Every
+  user-facing query carries a date range, and the one that did not is replaced by the booking
+  horizon.
+- **A new id → date pointer** backing `meeting(id:)`. Small, written in the same transaction as the
+  day item, and the only secondary lookup structure the design keeps.
+- **A maximum booking horizon** becomes a business rule, bounding how far ahead a meeting may be
+  created.
 - **No Cognito change**, unless the `personId` claim is adopted later.
 - **Storing ids as binary** (16 bytes) rather than 36-char strings would raise the per-day ceiling
   from ~1,000 to ~1,545 meetings; UUIDs are 63% of the payload. Not proposed, recorded as available
@@ -350,6 +371,19 @@ The delta against `docs/reference/data-model.md`:
   against recorded `selectionSetList` payloads, not only through end-to-end queries.
 - **Non-null propagation turns a stub/selection mismatch into silent data loss**, not a degraded
   response.
+- **The chosen day limit binds before room capacity does.** `production` has **10 rooms**, and
+  business hours of 08:00–17:00 on 15-minute boundaries give 36 slots per room — a physical capacity
+  of **360 meetings per day**. A limit of 200 therefore refuses bookings while rooms are still free,
+  which is a confusing failure to explain to a user.
+  The item cap is not what forces this. A meeting costs roughly `258 + 37 × attendees` bytes, so a
+  physically-full day of 360 meetings at 20 attendees is ~359 KB — it *fits*, at 88% of the cap with
+  little headroom. Resolving this means picking one of: raise the day limit to at least `rooms × 36`
+  and accept the tighter margin; keep 200 and accept that it binds first; or lower the attendee limit
+  (at 80% of the cap and 10 rooms, the arithmetic allows ~17 attendees). Recorded as an open question
+  rather than decided unilaterally.
+- **The limits need their own error codes.** `MeetingError` gains cases for exceeding the day limit,
+  the attendee limit, and the booking horizon — all three are validation failures a client must be
+  able to render, not exceptions.
 - **Write amplification.** Adding one meeting rewrites the whole day: on-demand billing is 1 WRU per
   KB, so a full 400 KB day costs ~400 WRU per booking against roughly 10 today. At demo scale a day
   is ~20 KB and this barely matters, but it grows linearly and the last booking pays for every
@@ -440,7 +474,8 @@ and webapp must ship together — which the release pipeline already does.
 
 Sparse while Drafting — to be filled in properly before this reaches Ready.
 
-- [ ] `[Geoff]` Resolve the three remaining blocking open questions, database reset first.
+- [ ] `[Geoff]` Choose the top-level query shape — the only substantial question still open.
+- [ ] `[Geoff]` Resolve the day-limit / room-capacity conflict, and set the booking horizon's length.
 - [ ] `[Claude]` Change the resolver request template to serialise `selectionSetList`, in whatever
       payload shape the new handlers want.
 - [ ] `[Claude]` Make `ListMeetingsHandler` selection-aware, with unit tests driven by recorded
