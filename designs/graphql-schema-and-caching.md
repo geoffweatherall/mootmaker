@@ -482,8 +482,20 @@ constant usage keeps it flat, so there is nothing to bound.
 The person calendar's "Previous week" control has **no lower bound** — `setFirstMonday(current =>
 current.subtract(7, 'day'))` pages backwards indefinitely. With retention it will walk into weeks
 that are empty because the data was deleted rather than because nothing was booked, which is
-indistinguishable to the user. The control needs a floor at the retention boundary, or an empty state
-that says why.
+indistinguishable to the user. It needs a floor at the retention boundary.
+
+**The server publishes that boundary; the client never computes it.** The top-level query returns an
+`earliestRetainedDate`, and the client disables "Previous week" against that value. The alternative —
+having the client work out "30 days before today" for itself — puts **two authorities on one fact**:
+the deletion job uses the server's date, the browser uses the user's. A user in UTC+13, or with a
+skewed clock, then asks for a day the server already considers expired. Padding the client's limit by
+a day would hide that disagreement rather than remove it, and a test would not catch it, because the
+test would encode the same assumption the code does. Publishing the value costs nothing — it rides on
+a request already being made — and makes the boundary exact rather than exact-if-the-clocks-agree.
+
+The boundary almost always falls **mid-week**, so the earliest reachable week is usually partial.
+Disable "Previous week" only when the entire next window would sit before `earliestRetainedDate`;
+disabling as soon as any of it would hides days that are still retained.
 
 A bookmarked or shared link to a meeting older than 30 days will stop resolving. That is an accepted
 consequence of retention rather than a defect, but `meeting(id:)` should return a "no longer
