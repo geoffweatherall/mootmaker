@@ -327,15 +327,7 @@ budget without it.
 fix the hard bound on how many day items can exist, so the horizon is the last number the storage
 bound is waiting on.
 
-**How the cleanup job broadcasts.** Deletion must reach connected clients — that is the reason TTL was
-rejected — but a Lambda writing directly to DynamoDB cannot broadcast on its own. Two options. The
-job can call a `purgeHistory` mutation through AppSync using M2M credentials, exactly as
-`mootmaker-demo-data` already calls `createMeeting`: one code path, invalidation for free, covered by
-the RBAC work in #76, and auditable in the AppSync logs. Or it can delete directly and then make a
-separate broadcast-only call, which keeps the destructive operation out of the public schema at the
-cost of two mechanisms and a notification anyone could trigger. **The mutation route is
-recommended** — it matches the reasoning that already made reset a mutation rather than a side
-door.
+*(The cleanup job's broadcast question is settled — see "Retention". It does not broadcast, for now.)*
 
 **The shape of the top-level query.** Either three sibling root fields in one document — one HTTP
 request, three Lambda invocations, cache slots that map one-to-one onto the entities — or a single
@@ -465,9 +457,12 @@ retention becomes a range — between 30 and 37 days depending on where in the w
 Each run, in this order:
 
 1. **Advance the stored date** to the appropriate Monday.
-2. **Notify clients**, on the same subscription channel as every other write, so they evict `Day`
-   entities before the new boundary.
+2. *(Deferred)* **Notify clients**, on the same subscription channel as every other write, so they
+   evict `Day` entities before the new boundary.
 3. **Delete the data** before it — day items and their `id → date` pointers, transactionally.
+
+(Step 2 is deferred — see "It does not notify clients" below. The ordering of 1 and 3 is what
+matters, and it stands on its own.)
 
 The invariant this protects is that **the advertised boundary must never be more permissive than
 reality**. Deleting first would open a window where the stored date still promises data that is
@@ -521,9 +516,33 @@ running zero alarms and $0 of CloudWatch spend. For a weekly job whose failure m
 storage growth, the recurring check in #77 is the proportionate answer; an alarm is an optional
 convenience to be decided on its own merits.
 
-**Cadence: weekly.** It pairs with Monday alignment — one run, one Monday, one week of data — and the
-work per run is bounded by construction. The shape is already proven in this project:
-`mootmaker-demo-data` is a scheduled EventBridge Lambda doing exactly this kind of job.
+**Cadence: weekly, on an EventBridge scheduled rule.** It pairs with Monday alignment — one run, one
+Monday, one week of data — and the work per run is bounded by construction.
+
+The shape is already proven here: `mootmaker-demo-data`'s `schedule.tf` is an
+`aws_cloudwatch_event_rule` with a cron expression, an `aws_cloudwatch_event_target`, and an
+`aws_lambda_permission` scoped to that rule with `events.amazonaws.com` as principal. **It costs
+nothing** — scheduled rules targeting an AWS service directly are not billed, only publishing custom
+events is, and the invocation falls inside Lambda's always-free tier. Confirmed against the bill:
+EventBridge does not appear as a line item at all despite demo-data running daily.
+
+Two details worth carrying across. The target should set `input = jsonencode({})` explicitly rather
+than letting EventBridge send its own event envelope, so the handler's payload is a contract rather
+than an accident. And the rule's `state` should be enabled in `test` and `production` but not in
+ephemeral environments, which never live long enough to accumulate anything.
+
+**The cleanup Lambda is simpler than demo-data**, because it talks to DynamoDB rather than the API:
+no SSM parameters, no M2M credentials, no Cognito token endpoint. An IAM role with permissions on the
+meetings table is the whole dependency list.
+
+**It does not notify clients — for now.** Broadcasting would mean either routing the deletion through
+a mutation (pulling it into the public schema and the RBAC work in #76) or a separate
+broadcast-only call, and neither earns its complexity yet. The consequence is bounded: the ordering
+still protects every reader who fetches the boundary *after* it advances, which is every new page
+load. Only a session already in flight keeps a stale boundary, and it can then navigate to a
+just-deleted week and see it as empty. A refresh corrects it completely — which is exactly the
+stateless restart the no-cache-persistence decision guarantees. Worth revisiting once subscriptions
+exist and the marginal cost is one more channel.
 
 Retention composes with the booking horizon already decided. The horizon bounds how far *forward* day
 items can exist; retention bounds how far *back*. Together the table holds at most
