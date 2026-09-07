@@ -45,9 +45,11 @@ under Trade-offs; **Open** means it still needs an answer.
    the one unbounded query. See "No person index" below.
 10. **`meeting(id:)` gains a real entry point** *(Decided)* — a dedicated field backed by an id → date
     pointer, replacing today's full-table scan.
-11. **Enforced day limits** *(Decided, with a conflict to resolve)* — 200 meetings per day, 20
-    attendees per meeting. See Technical considerations: 200 is **below** the physical capacity of
-    the current 10 rooms.
+11. **Enforced size limits, with an oversized item made unreachable** *(Decided; the numbers have a
+    conflict to resolve)* — an absolute cap on meetings per day, a per-organiser daily cap, an
+    attendee cap, and a **maximum subject length, which does not exist today**. Enforced at three
+    layers so that no input a user can construct produces an item over 400 KB. See "The item-size
+    guarantee".
 12. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
 13. **Reset becomes a mutation, behind RBAC** *(Decided; the RBAC model is a follow-up)* — it stops
     being a side door, so it broadcasts like any other write. Putting a destructive operation in the
@@ -246,6 +248,24 @@ separately rather than designed here.
 toward large meetings rather than many. See Technical considerations for the conflict this creates
 with the current room count.
 
+**A per-organiser daily limit, separate from the absolute one.** A user may organise at most a fixed
+number of meetings on any one date. This is a fairness and abuse control, not a size control, and the
+distinction matters: *N* organisers each at their own limit can still exceed the day cap, so the
+per-organiser rule provides no bound on the item. Only the absolute day cap does. Both exist, for
+different reasons.
+
+Its useful range is bounded by physics: an organiser cannot be in two meetings at once, and business
+hours of 08:00–17:00 on 15-minute boundaries mean one person can organise at most **36 meetings in a
+day**. A limit at or above 36 is inert. `mootmaker-demo-data` will not trip any sane value —
+`MeetingScheduler` caps rooms at two meetings a day each and never double-books a participant.
+
+**Maximum subject length — a rule that does not exist today.** `CreateMeetingHandler` checks only
+that `subject` is non-blank. There is no upper bound, so a single meeting can carry a subject of any
+size and blow the item on its own, regardless of how few meetings the day holds. **No count-based
+limit can deliver the "no oversized item" guarantee while this term is unbounded.** The limit is in
+**bytes, not characters** — a subject of emoji is four bytes per character, so a character count
+would understate the true size fourfold.
+
 **The day is the unit.** One day is a DynamoDB partition key, an AppSync fetch unit, an Apollo cache
 entity keyed by `date`, and a subscription filter value. This alignment is what makes the caching
 tractable: an Apollo cache keyed by day can distinguish "no meetings that day" (entity present,
@@ -292,6 +312,11 @@ physically hold — see Technical considerations. Needs one of: raise the day li
 limit, or accept that bookings are refused while rooms sit empty.
 
 **The booking horizon's length.** The maximum-booking-horizon rule is decided; the number is not.
+
+**The per-organiser daily limit's value, and the maximum subject length.** Both rules are decided;
+neither number is. The organiser limit is meaningful only in 1–36 (above that it is inert). The
+subject limit needs to be small enough that `dayLimit × subjectMaxBytes` is a minor term — at a
+200-meeting day, every 100 bytes of subject allowance costs 20 KB of the item's budget.
 
 **The shape of the top-level query.** Either three sibling root fields in one document — one HTTP
 request, three Lambda invocations, cache slots that map one-to-one onto the entities — or a single
@@ -371,6 +396,10 @@ The delta against `docs/reference/data-model.md`:
   against recorded `selectionSetList` payloads, not only through end-to-end queries.
 - **Non-null propagation turns a stub/selection mismatch into silent data loss**, not a degraded
   response.
+- **Subject length is currently unbounded, and so are room and person names.** Only `subject` sits
+  inside the day item, so it is the one that threatens the size guarantee — but the same absence of a
+  bound applies to `RoomInput.name` and `PersonInput.name`, and closing all three together is
+  cheaper than revisiting the question later.
 - **The chosen day limit binds before room capacity does.** `production` has **10 rooms**, and
   business hours of 08:00–17:00 on 15-minute boundaries give 36 slots per room — a physical capacity
   of **360 meetings per day**. A limit of 200 therefore refuses bookings while rooms are still free,
@@ -381,9 +410,39 @@ The delta against `docs/reference/data-model.md`:
   and accept the tighter margin; keep 200 and accept that it binds first; or lower the attendee limit
   (at 80% of the cap and 10 rooms, the arithmetic allows ~17 attendees). Recorded as an open question
   rather than decided unilaterally.
-- **The limits need their own error codes.** `MeetingError` gains cases for exceeding the day limit,
-  the attendee limit, and the booking horizon — all three are validation failures a client must be
-  able to render, not exceptions.
+- **The limits need their own error codes.** `MeetingError` gains cases for the absolute day limit,
+  the per-organiser daily limit, the attendee limit, the subject length limit, and the booking
+  horizon. All are validation failures a client must be able to render, not exceptions — a user who
+  hits one should see a sentence, never a 500.
+
+### The item-size guarantee
+
+The requirement is absolute: **there must be no input a user can construct that produces a DynamoDB
+item over 400 KB.** Meeting it needs the limits to be provably consistent with each other, not merely
+individually sensible. The invariant is:
+
+```
+dayLimit × (perMeetingBase + 37 × attendeeLimit + subjectMaxBytes) + overhead  ≤  safetyFraction × 400 KB
+```
+
+Enforced at three layers, because any one of them alone can be defeated by a later change:
+
+1. **At deploy.** The handler asserts the invariant during initialisation and refuses to start if the
+   configured limits cannot fit. SnapStart makes this land in exactly the right place: publishing a
+   version *executes init*, so an inconsistent set of limits fails the **deploy**, not a user's
+   booking. This is what stops the guarantee decaying when someone later raises a limit, or adds a
+   field to the persisted meeting shape without revisiting the arithmetic.
+2. **At validation.** Per-request checks on day count, organiser count, attendee count, subject
+   bytes, and horizon, each returning a `MeetingError`.
+3. **At write.** The serialised item is measured immediately before `PutItem` and rejected if it
+   exceeds the safety threshold. This is the backstop that holds even if the byte model itself is
+   wrong — and it will drift, because the model is an estimate of DynamoDB's own accounting.
+
+Without layer 1 the guarantee is a comment; without layer 3 it depends on an estimate being exact.
+
+- **The day-count check is a read-modify-write.** Two concurrent creates can both observe 199 and both
+  decide they fit. The conditional write on the day item's version attribute resolves it: the loser
+  retries and re-validates against the updated count, rather than re-validating against a stale read.
 - **Write amplification.** Adding one meeting rewrites the whole day: on-demand billing is 1 WRU per
   KB, so a full 400 KB day costs ~400 WRU per booking against roughly 10 today. At demo scale a day
   is ~20 KB and this barely matters, but it grows linearly and the last booking pays for every
@@ -410,8 +469,21 @@ The delta against `docs/reference/data-model.md`:
   `e2e_user_email` and `demo_user_email` are Terraform outputs — so no new Cognito plumbing.
 - **Existing acceptance tests change, not just grow.** Anything that depends on `ListMeetings`
   argument shapes or on the `createdMeeting` router-state handoff will need rewriting.
-- **The chosen day limits become a worst case that can actually be tested** — a full day at the
-  attendee cap, which is not covered today.
+- **The size guarantee needs tests that assert the guarantee, not the limits.** Specifically: build a
+  day at *every* cap simultaneously — the day limit's worth of meetings, each with the attendee limit
+  and a maximum-length subject — then serialise it and assert the real byte size is inside budget.
+  That test fails if anyone adds a field to the persisted meeting shape without revising the limits,
+  which is the actual regression to guard against.
+- **Boundary tests on each rule**: at the limit succeeds, one past it returns the right
+  `MeetingError` rather than an exception. Including the per-organiser limit, which needs a second
+  organiser in the same day to prove it is scoped per person and not per day.
+- **A multi-byte subject test.** A subject of emoji at the character limit but four times the byte
+  limit must be rejected — this is the test that proves the limit counts bytes, and it is the one
+  most likely to be missed.
+- **A test that the deploy-time assertion actually fires** on a deliberately inconsistent set of
+  limits, since it is the layer that keeps the guarantee true over time.
+- **An acceptance test that a user hitting the organiser limit sees a rendered message**, not a
+  server error.
 - **Unit coverage for selection parsing**, driven by recorded payloads including aliases and
   fragments.
 - **`DatabaseReset` interacts with connected subscribers** — see the blocking open question.
