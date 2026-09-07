@@ -52,8 +52,13 @@ under Trade-offs; **Open** means it still needs an answer.
 12. **Enforced size limits, with an oversized item made unreachable** *(Decided)* — **320 meetings
     per day, 20 attendees per meeting, 280-byte subjects.** Enforced at three layers so that no input
     a user can construct produces an item over 400 KB. See "The item-size guarantee".
-13. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
-14. **Reset stays an IAM-invoked Lambda** *(Decided)* — briefly proposed as a mutation so it could
+13. **Enforced transport limits, with an oversized response made unreachable** *(Decided)* — a
+    separate bound from storage, set by AppSync's unadjustable 5 MB response cap: `maxRooms` 200,
+    `maxPeople` 1,000, `maxDates` 31, and a dynamic `maxMeetingsPerResponse` of 2,000 that fails fast.
+    Also **240 KB on subscription payloads**, which is why a broadcast carries one meeting and not a
+    whole day. See "The transport bounds".
+14. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
+15. **Reset stays an IAM-invoked Lambda** *(Decided)* — briefly proposed as a mutation so it could
     broadcast, then reversed: `Mutation.reset` was deliberately removed once because any signed-in
     user could call it, and an in-product role is a weaker boundary than an AWS permission grant.
 
@@ -621,6 +626,108 @@ simply returns not-found** — the same answer as an id that never existed. No d
 result: it is one less state for every caller to handle, and it avoids confirming that a given id was
 once valid, which a separate expired response would. The page renders its ordinary not-found state.
 
+### The transport bounds: AppSync's hard limits
+
+The 400 KB DynamoDB item cap bounds what can be *stored* in a day. Three AppSync quotas bound what
+can be *moved*, and they are different numbers with different consequences. None is adjustable.
+
+| Quota | Value | What it binds |
+|---|---|---|
+| Request execution time | **30 s** | Every query and mutation |
+| Resolver/handler response size | **5 MB** | The composite query's whole result |
+| **Subscription payload size** | **240 KB** | Anything broadcast |
+
+**Lambda timeouts align below the 30 seconds, not at it.** The resolver function is currently 15 s.
+It moves to **25 s**: under AppSync's limit so the Lambda fails first with a diagnosable error rather
+than being orphaned while AppSync has already given up, but with room for a full-month fetch that 15 s
+does not comfortably allow. `database-reset` and `database-repair` keep their 900 s — they are never
+fronted by AppSync. The history-cleanup Lambda is not AppSync-fronted either and its work is bounded
+by construction, so 300 s is ample.
+
+**The subscription cap invalidates part of the mutation design, and this is the sharp one.** A
+worst-case day is roughly **618 KB** of JSON — a `Day` cannot be broadcast. Mutations may still
+return the whole `Day`, because they answer against the 5 MB budget; subscriptions must carry **only
+the created meeting** (~1.9 KB) and let the client merge it into `Day:<date>` itself.
+
+So the two paths deliberately differ:
+
+| | Payload | Budget | Client work |
+|---|---|---|---|
+| `createMeeting` response | The whole `Day` | 5 MB | None — `Day` is an entity, Apollo replaces it |
+| `dayChanged` subscription | One `Meeting` | 240 KB | A small cache update appending to the day |
+
+**JSON is much larger than the stored form**, which is easy to get wrong. A worst-case meeting is
+~1,232 bytes in DynamoDB and **~1,931 bytes as JSON** — attribute names are repeated per object, and
+Apollo adds `__typename` to every selection set. At 20 attendees that is 23 objects per meeting and
+roughly 480 bytes of `__typename` alone, a quarter of the payload.
+
+### How subscriptions end
+
+Relevant because it decides whether anything has to be cleaned up, and because it is the question
+that separates AppSync from a hand-rolled WebSocket.
+
+**Believed, with reasonable confidence:**
+
+- **Subscriptions are scoped to the WebSocket connection.** When the connection goes, every
+  subscription on it goes with it. There is no server-side registry of subscribers to reap — which
+  is precisely the work API Gateway WebSockets would have required, where stale connection ids must
+  be detected on a failed `PostToConnection` and deleted by hand.
+- **AppSync sends periodic keep-alive (`ka`) messages**, and the `connection_ack` it returns at
+  connect time carries a `connectionTimeoutMs` telling the client how long it may wait between
+  messages before treating the connection as dead.
+- **A machine switched off mid-session closes nothing.** No WebSocket close frame and no TCP FIN
+  is sent, so the connection is discovered as dead only when AppSync next tries to write to it — a
+  keep-alive or a subscription message — and that write fails, or the timeout elapses. Detection is
+  therefore in the order of tens of seconds to a couple of minutes, not instant.
+- **Billing accrues until detection.** Connection-minutes keep counting for a dead-but-undiscovered
+  connection. At $0.08 per million connection-minutes this is not worth engineering around.
+
+**Not verified, and on the reading list above:** the default `connectionTimeoutMs`, the keep-alive
+interval, whether AppSync enforces a maximum connection lifetime (24 hours is the figure I associate
+with it, without confidence), and whether a subscription can outlive a reconnect or must always be
+re-established.
+
+The practical consequence either way: **nothing in this design has to clean up after a disappeared
+client.** That is a property of AppSync rather than of anything written here, and it is one of the
+stronger reasons for choosing it over the alternatives.
+
+### The response bound, and the limits that make it unbreakable
+
+The requirement is the same as for item size: **no request a client can construct may produce a
+response over the limit.** That needs every contributing quantity bounded.
+
+```
+response  =  maxRooms × roomJson
+          +  maxPeople × personJson
+          +  totalMeetings × meetingJson          ≤  safetyFraction × 5 MB
+```
+
+**Static limits, all newly required:**
+
+| Limit | Value | Why |
+|---|---|---|
+| `maxRooms` | 200 | Bounds `rooms`, which is an unfiltered scan |
+| `maxPeople` | 1,000 | Bounds `people`, same |
+| `maxRoomNameBytes` | 100 | Unbounded today |
+| `maxPersonNameBytes` | 100 | Unbounded today |
+| `maxDates` | 31 | One request covers the calendar's 30 weekdays |
+| `maxMeetingsPerResponse` | 2,000 | The one that actually makes it unbreakable |
+
+The last is the important one. `maxDates × maxMeetingsPerDay` is 31 × 320 = 9,920 meetings, which at
+1,931 bytes each is 19 MB — **the static limits alone permit a request that cannot be answered.**
+Lowering `maxDates` to make the product safe would put it at 6, which is useless for a calendar.
+
+So the bound is enforced dynamically instead: the resolver accumulates days in order and **fails fast
+with a typed error once the running meeting count would exceed 2,000**, before building a response it
+cannot send. 2,000 × 1,931 ≈ 3.9 MB, plus 200 rooms (~37 KB) and 1,000 people (~178 KB), against a
+5 MB ceiling.
+
+That cap is unreachable in practice — `production` holds 508 meetings in total — but it is what turns
+"the response is probably fine" into a guarantee with a test behind it.
+
+**New `MeetingError`/query error cases**: too many dates requested, and response would be too large.
+Both are validation failures a client renders, never a 500.
+
 ### The item-size guarantee
 
 The requirement is absolute: **there must be no input a user can construct that produces a DynamoDB
@@ -688,6 +795,16 @@ Without layer 1 the guarantee is a comment; without layer 3 it depends on an est
 - **Catch-up is a test case, not just a claim.** Seed several weeks of past days, run once, assert
   all are cleared and the boundary lands on the correct Monday.
 - **Idempotency.** A second run immediately after the first changes nothing.
+- **The response bound needs the same treatment as the item bound.** Build a request at every static
+  limit at once — `maxDates` days, each holding `maxMeetingsPerDay` meetings at the attendee and
+  subject limits, alongside `maxRooms` rooms and `maxPeople` people — and assert the request is
+  **rejected** by the `maxMeetingsPerResponse` check rather than producing an oversized response. The
+  mirrored case, one meeting under the cap, must succeed.
+- **A test that measures the real serialised response**, not the modelled one. The byte model above
+  is an estimate of JSON with `__typename` included; the test should serialise an actual maximal
+  response and assert it is inside 5 MB, so the estimate being wrong fails a test rather than a user.
+- **A subscription payload test.** The 240 KB cap is the tightest limit in the design and the easiest
+  to breach by accident — a single change to broadcast a `Day` instead of a `Meeting` would do it.
 - **The size guarantee needs tests that assert the guarantee, not the limits.** Specifically: build a
   day at *every* cap simultaneously — the day limit's worth of meetings, each with the attendee limit
   and a maximum-length subject — then serialise it and assert the real byte size is inside budget.
@@ -766,6 +883,23 @@ and webapp must ship together — which the release pipeline already does.
 Sparse while Drafting — to be filled in properly before this reaches Ready.
 
 - [ ] `[Geoff]` Choose the top-level query shape — the only substantial question still open.
+- [ ] `[Geoff]` **Read up on `@aws_subscribe` properly before any of the subscription design is
+      built.** Enough constraints have already turned up by accident that the rest should be found on
+      purpose. Specific questions worth answering:
+      - The return-type match. `@aws_subscribe` pushes the *mutation's* return value and the
+        subscription field's type must equal the mutation's return type — does that rule out one
+        subscription covering both `createMeeting` and `createMeetings`, whose result types differ?
+      - Rejected mutations. A failed `createMeeting` returns successfully with a typed `errors`
+        array, so does it broadcast? Can `$extensions.setSubscriptionFilter()` exclude it?
+      - The **240 KB payload cap** — the tightest limit in this design, and the reason a broadcast
+        carries one meeting rather than a whole day.
+      - **Connection lifecycle**: what ends a subscription when a client vanishes without closing
+        cleanly. See "How subscriptions end" below for what is currently believed and what is not
+        verified.
+      - Whether AppSync's `graphql-ws` protocol support is current enough for a stock Apollo
+        `GraphQLWsLink`, or whether the client needs a hand-rolled link.
+      - Real-time billing shape: per delivery per subscriber, so cost scales with
+        `mutations × subscribers`.
 - [ ] `[Geoff]` Resolve the day-limit / room-capacity conflict, and set the booking horizon's length.
 - [ ] `[Claude]` Change the resolver request template to serialise `selectionSetList`, in whatever
       payload shape the new handlers want.

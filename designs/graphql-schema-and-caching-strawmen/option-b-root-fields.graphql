@@ -102,5 +102,16 @@ type UpdateMyPreferencesResult { person: Person, errors: [PreferencesError!]! }
 #   any future one. Costs the resolver Lambda an IAM-signed HTTP call back to AppSync per
 #   mutation, plus a mutation in the schema that clients must not call.
 #
+# 3. A THIRD CONSTRAINT, and the tightest limit anywhere in this design: AppSync caps a
+#    SUBSCRIPTION PAYLOAD at 240 KB, against 5 MB for a resolver response. A worst-case Day is
+#    ~618 KB of JSON - two and a half times over. So a broadcast CANNOT carry a whole day, even
+#    though a mutation response can:
+#
+#      createMeeting response  ->  the whole Day    (5 MB budget, Apollo replaces the entity)
+#      dayChanged broadcast    ->  one Meeting      (240 KB budget, client appends to the day)
+#
+#    The two paths differ deliberately, and a change to broadcast a Day "for consistency" would
+#    breach the cap silently on a busy day.
+#
 # Deferred either way: history deletion deliberately does not broadcast, so nothing in the first
 # cut depends on this being settled.
