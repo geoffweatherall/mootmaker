@@ -45,9 +45,11 @@ under Trade-offs; **Open** means it still needs an answer.
    the one unbounded query. See "No person index" below.
 10. **`meeting(id:)` gains a real entry point** *(Decided)* — a dedicated field backed by an id → date
     pointer, replacing today's full-table scan.
-11. **30-day retention, deleted by an explicit operation rather than a TTL** *(Decided)* — so it can
-    broadcast cache invalidation, and so the day item and its pointers go in one transaction. TTL
-    stays as a bill-protecting backstop only. See "Retention".
+11. **Retention of at least 30 days, against a stored Monday-aligned boundary** *(Decided)* — deleted
+    by a scheduled operation, not a TTL, so it can broadcast cache invalidation and delete each day
+    with its pointers in one transaction. The boundary advances *before* anything is deleted, so what
+    is advertised is never more permissive than what exists. TTL stays as a bill-protecting backstop
+    only. See "Retention".
 12. **Enforced size limits, with an oversized item made unreachable** *(Decided)* — **320 meetings
     per day, 20 attendees per meeting, 280-byte subjects.** Enforced at three layers so that no input
     a user can construct produces an item over 400 KB. See "The item-size guarantee".
@@ -441,7 +443,36 @@ The delta against `docs/reference/data-model.md`:
 is flat. Meeting history is the one place mootmaker currently breaks it — meetings are written and
 never deleted, so storage grows with time rather than with usage.
 
-**Historic meetings are kept for 30 days.**
+**Historic meetings are kept for at least 30 days**, bounded by a **stored** earliest-retained date
+rather than one computed from the clock.
+
+The date is held as a config item in the meetings table, always aligned to a **Monday**, and read
+with `ConsistentRead`. Consistency is not incidental: an eventually-consistent read could return a
+stale, *more permissive* boundary, which is exactly the failure the ordering below exists to prevent.
+
+Monday alignment means the calendar's week windows and the boundary are the same kind of thing, so
+"is this week reachable" is an exact comparison rather than a straddling judgement. The cost is that
+retention becomes a range — between 30 and 37 days depending on where in the week the job falls — so
+**the storage bound uses 37 as its worst case**.
+
+#### The cleanup order, and why it is that way
+
+Each run, in this order:
+
+1. **Advance the stored date** to the appropriate Monday.
+2. **Notify clients**, on the same subscription channel as every other write, so they evict `Day`
+   entities before the new boundary.
+3. **Delete the data** before it — day items and their `id → date` pointers, transactionally.
+
+The invariant this protects is that **the advertised boundary must never be more permissive than
+reality**. Deleting first would open a window where the stored date still promises data that is
+already gone, and clients asking for those days get empty results indistinguishable from "nothing was
+booked". Advancing first opens the opposite window — data that still exists but is no longer
+advertised — which is harmless. The ordering holds even if the job dies between steps, which is the
+real test of it.
+
+It is also catch-up safe: a job that has not run for weeks advances to the correct Monday and deletes
+everything before it, in one pass, with one notification.
 
 **Deletion is an explicit scheduled operation, not a DynamoDB TTL.** TTL is the obvious answer and it
 is the wrong one here, for three reasons:
@@ -467,7 +498,13 @@ construction — one day.
 
 **TTL is still set, as a backstop, at a longer window than the operation uses.** If the scheduled job
 breaks, storage stays bounded without anyone noticing the failure. It is a safety net for the *bill*,
-not a mechanism for correctness — the operation remains the thing that makes 30 days mean 30 days.
+not a mechanism for correctness — the operation remains the thing that makes the boundary mean
+something.
+
+**Its window must be strictly longer than the maximum retention window (37 days).** A TTL that can
+fire inside the retained range would delete data the stored date still advertises, breaking the very
+invariant the cleanup ordering exists to protect. The backstop must only ever remove what is already
+beyond the boundary.
 
 Retention composes with the booking horizon already decided. The horizon bounds how far *forward* day
 items can exist; retention bounds how far *back*. Together the table holds at most
@@ -484,18 +521,22 @@ current.subtract(7, 'day'))` pages backwards indefinitely. With retention it wil
 that are empty because the data was deleted rather than because nothing was booked, which is
 indistinguishable to the user. It needs a floor at the retention boundary.
 
-**The server publishes that boundary; the client never computes it.** The top-level query returns an
-`earliestRetainedDate`, and the client disables "Previous week" against that value. The alternative —
+**The server publishes that boundary; the client never computes it.** The top-level query returns the
+stored `earliestRetainedDate`, and the client disables "Previous week" against it. The alternative —
 having the client work out "30 days before today" for itself — puts **two authorities on one fact**:
 the deletion job uses the server's date, the browser uses the user's. A user in UTC+13, or with a
 skewed clock, then asks for a day the server already considers expired. Padding the client's limit by
 a day would hide that disagreement rather than remove it, and a test would not catch it, because the
-test would encode the same assumption the code does. Publishing the value costs nothing — it rides on
-a request already being made — and makes the boundary exact rather than exact-if-the-clocks-agree.
+test would encode the same assumption the code does. Because the date is stored and Monday-aligned,
+the comparison is exact rather than exact-if-the-clocks-agree.
 
-The boundary almost always falls **mid-week**, so the earliest reachable week is usually partial.
-Disable "Previous week" only when the entire next window would sit before `earliestRetainedDate`;
-disabling as soon as any of it would hides days that are still retained.
+**A client already viewing a week that falls out of retention is not moved.** The invalidation
+notification updates the boundary and empties the affected days; it does not navigate anyone. Moving
+a viewport in response to a background event the user did not cause is the same family of defect as
+the layout shifts behind webapp#44, #46 and #50 — the fix for which was, in every case, to stop
+things moving underneath the user. The control disables itself where they stand and the empty week
+says why. In practice this is close to unreachable anyway: the boundary advances once a week, so a
+user would have to be viewing the oldest retained week at the moment the job runs.
 
 A bookmarked or shared link to a meeting older than 30 days stops resolving, and **`meeting(id:)`
 simply returns not-found** — the same answer as an id that never existed. No distinct "expired"
