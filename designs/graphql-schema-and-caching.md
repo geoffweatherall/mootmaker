@@ -45,11 +45,14 @@ under Trade-offs; **Open** means it still needs an answer.
    the one unbounded query. See "No person index" below.
 10. **`meeting(id:)` gains a real entry point** *(Decided)* — a dedicated field backed by an id → date
     pointer, replacing today's full-table scan.
-11. **Enforced size limits, with an oversized item made unreachable** *(Decided)* — **320 meetings
+11. **30-day retention, deleted by an explicit operation rather than a TTL** *(Decided)* — so it can
+    broadcast cache invalidation, and so the day item and its pointers go in one transaction. TTL
+    stays as a bill-protecting backstop only. See "Retention".
+12. **Enforced size limits, with an oversized item made unreachable** *(Decided)* — **320 meetings
     per day, 20 attendees per meeting, 280-byte subjects.** Enforced at three layers so that no input
     a user can construct produces an item over 400 KB. See "The item-size guarantee".
-12. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
-13. **Reset becomes a mutation, behind RBAC** *(Decided; the RBAC model is a follow-up)* — it stops
+13. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
+14. **Reset becomes a mutation, behind RBAC** *(Decided; the RBAC model is a follow-up)* — it stops
     being a side door, so it broadcasts like any other write. Putting a destructive operation in the
     public schema has auth consequences the current flat admin role does not cover.
 
@@ -319,9 +322,13 @@ budget without it.
 
 ### Blocking
 
-**The booking horizon's length and the retention window's length.** Both rules are decided; neither
-number is. Together they set the hard bound on how many day items can exist, so they want choosing
-together. They are the last unset numbers in the design.
+**The booking horizon's length.** Retention is set at 30 days; the horizon is not set. Together they
+fix the hard bound on how many day items can exist, so the horizon is the last number the storage
+bound is waiting on.
+
+**The TTL backstop's window.** Decided in principle as "longer than 30 days"; the number is not set.
+It only needs to be far enough out that it never fires before the scheduled operation has had several
+chances to run.
 
 **The shape of the top-level query.** Either three sibling root fields in one document — one HTTP
 request, three Lambda invocations, cache slots that map one-to-one onto the entities — or a single
@@ -432,24 +439,55 @@ The delta against `docs/reference/data-model.md`:
 
 `principles.md`'s **"Nothing accumulates without a bound"** requires that under steady usage the bill
 is flat. Meeting history is the one place mootmaker currently breaks it — meetings are written and
-never deleted, so storage grows monotonically with time rather than with usage.
+never deleted, so storage grows with time rather than with usage.
 
-Day items turn this from a job into a property. Expiry today would mean querying the
-`bucket-startTime-index` GSI for old `startTime`s and transactionally deleting each meeting plus its
-participant rows on a schedule — a Lambda that costs WCUs and can fail. Under day items it is **one
-numeric attribute**: DynamoDB TTL deletes cost **zero WCU**, need no scan, no schedule and no code,
-and a past day is never read again.
+**Historic meetings are kept for 30 days.**
 
-It also composes with the booking horizon already decided. The horizon bounds how far *forward* day
-items can exist; a retention window bounds how far *back*. Together the table holds at most
+**Deletion is an explicit scheduled operation, not a DynamoDB TTL.** TTL is the obvious answer and it
+is the wrong one here, for three reasons:
+
+1. **TTL cannot tell anyone.** A connected client holding `Day:2026-08-08` learns nothing when that
+   day disappears. An operation can broadcast on the same subscription channel as every other write,
+   which is the same argument that makes reset a mutation rather than a side door.
+2. **TTL is not atomic across items.** The day item and its `id → date` pointers would expire
+   independently, so `meeting(id:)` can resolve a pointer whose day is already gone. An operation
+   deletes the day and its pointers in one transaction, so the inconsistency window does not exist.
+3. **TTL is not even a read boundary.** Deletion is best-effort within roughly 48 hours of expiry,
+   and — the part that is easy to miss — **expired-but-not-yet-deleted items are still returned by
+   reads**. "Older than 30 days is gone" would therefore be false in the data, and every read path
+   would need to filter on the expiry attribute anyway. Application-level filtering plus TTL is
+   strictly more code than an explicit delete, for a weaker guarantee.
+
+TTL's real advantage is that deletes cost zero WCU. That matters when expiring millions of rows; here
+it is **one day item and its pointers per day**, so the saving is nil.
+
+The infrastructure already exists and is proven: `mootmaker-demo-data` runs on a daily EventBridge
+schedule invoking a Lambda. Expiry is the same shape, and the work per run is bounded by
+construction — one day.
+
+**TTL is still set, as a backstop, at a longer window than the operation uses.** If the scheduled job
+breaks, storage stays bounded without anyone noticing the failure. It is a safety net for the *bill*,
+not a mechanism for correctness — the operation remains the thing that makes 30 days mean 30 days.
+
+Retention composes with the booking horizon already decided. The horizon bounds how far *forward* day
+items can exist; retention bounds how far *back*. Together the table holds at most
 `horizon + retention` items — **a hard upper bound on row count, not merely a cap on the growth
-rate.** The principle is satisfied structurally rather than by a cleanup process.
-
-**The id → date pointer needs the same TTL**, expiring with the day it points at. Otherwise the
-pointers outlive their targets and become the new unbounded thing.
+rate.**
 
 Cognito is the one component that legitimately grows, since MAUs track users rather than time —
 constant usage keeps it flat, so there is nothing to bound.
+
+**Two consequences the UI has to answer.**
+
+The person calendar's "Previous week" control has **no lower bound** — `setFirstMonday(current =>
+current.subtract(7, 'day'))` pages backwards indefinitely. With retention it will walk into weeks
+that are empty because the data was deleted rather than because nothing was booked, which is
+indistinguishable to the user. The control needs a floor at the retention boundary, or an empty state
+that says why.
+
+A bookmarked or shared link to a meeting older than 30 days will stop resolving. That is an accepted
+consequence of retention rather than a defect, but `meeting(id:)` should return a "no longer
+available" result rather than a bare null that renders as a broken page.
 
 ### The item-size guarantee
 
