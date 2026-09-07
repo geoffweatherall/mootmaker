@@ -12,7 +12,7 @@ Security and privacy live here too, rather than in a hat of their own.
 
 - Keeping `production` up and behaving.
 - Environment lifecycle: creation, teardown, and noticing what has leaked.
-- Cost: keeping scale-to-zero true rather than aspirational.
+- Cost: keeping scale-to-zero true rather than aspirational, and the bill flat under steady usage.
 - AWS account guardrails — SCPs, IAM Identity Center, billing alerts.
 - Security: authentication configuration, IAM scope, credential handling.
 - Privacy: keeping [`privacy-policy-draft.md`](../showcase/privacy-policy-draft.md) accurate to what
@@ -57,6 +57,12 @@ single day in August 2026 and were found the following morning; nothing automate
 
 **Does the bill match the model?** Scale to zero means near-zero when idle. A non-trivial idle bill
 means something is running that should not be, and the state bucket is the fastest way to find it.
+
+**Is the bill flat, or creeping?** The other half of the same principle, and the one that hides. Idle
+cost can be near zero while storage costs climb every month — compare this month against the last
+two rather than against zero. A rising floor under unchanged usage means something is accumulating
+that nobody chose to keep: log groups with no retention, published Lambda versions, stored objects,
+or rows nothing deletes. See [principles.md](../process/principles.md).
 
 **Is `production` actually up?** It is the portfolio piece. `curl -o /dev/null -w '%{http_code}'
 https://www.mootmaker.com` is the whole check.

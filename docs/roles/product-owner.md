@@ -61,6 +61,9 @@ The most useful thing this hat does. Some questions worth actually asking:
 - **Is this interesting because it is valuable, or because it is fun to build?** Both are legitimate
   here; conflating them is not.
 - **What does this cost to run?** Scale to zero is a hard constraint, not a preference.
+- **What does this store, and what deletes it?** The other half of the same constraint. Anything that
+  writes rows, logs, files or versions needs an answer, because the default for all of them is
+  "grows forever".
 
 ## Definition of done
 
