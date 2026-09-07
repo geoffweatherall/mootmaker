@@ -26,14 +26,22 @@ mutation; GraphQL subscriptions for cross-client updates.
   design assumes that stays true (see Risks — subscriptions make it load-bearing).
 - Meeting update and delete. Neither exists today; adding them is a separate design.
 - Pagination beyond day ranges.
-- Cognito changes, except the optional `personId` claim recorded as a non-blocking open question.
+- Changes to the Cognito user pool's *configuration*. The pool is destroyed and recreated as part of
+  the rollout (see Rollout & migration), but its Terraform definition is unchanged, except for the
+  optional `personId` claim recorded as a non-blocking open question.
 
 ## Trade-offs and decisions
 
-**No data migration. The databases are dropped and recreated.** Both `test` and `production` are
-wiped and rebuilt rather than migrated forward. This is a demo system; `mootmaker-demo-data`
-repopulates it, and the cost of a migration path — plus the reverse path needed to make it
-reversible — buys nothing. This removes the largest risk and the longest phase from the rollout.
+**No data migration. The whole environment is destroyed and rebuilt.** Not just the tables — `test`
+and `production` are torn down in full and redeployed from nothing, Cognito user pools included.
+This is a demo system; `mootmaker-demo-data` repopulates it, and the cost of a migration path — plus
+the reverse path needed to make it reversible — buys nothing. It removes the largest risk and the
+longest phase from the rollout, and it removes the question of what to do about Cognito-linked
+Persons by removing both sides of the link at once.
+
+This is a rehearsed operation, not a novel one: both environments were destroyed and rebuilt from
+nothing by the pipeline on 2026-09-06 as `v1.0.0`, and Cognito is part of `mootmaker-api`'s
+Terraform, so the pools went with them.
 
 **No decision is carried forward for compatibility's sake.** The finished code and schema should
 look as though they were designed this way on day one. Where a shape exists only because of how the
@@ -283,15 +291,23 @@ The delta against `docs/reference/data-model.md`:
 
 ## Rollout & migration
 
-**No migration. The tables are dropped and recreated in both `test` and `production`.** Terraform
-replaces the meetings table rather than altering it, `mootmaker-demo-data` repopulates the demo
-content, and no backfill, no dual-read period and no reverse-migration path is written.
+**No migration. `test` and `production` are destroyed in full and redeployed.** Every table, every
+Cognito user pool, every user. No backfill, no dual-read period, no reverse-migration path.
 
-One consequence needs a decision rather than an assumption: **dropping the People table orphans every
-Cognito user's linked Person.** Signed-up users would keep their account and lose their identity
-inside the app. `database-repair`'s `CreateMissingPersonsRepair` can rebuild Persons from Cognito, so
-there is a path — but "drop everything" and "drop everything except People" are different operations
-and the design should say which. Meetings and Rooms carry no such linkage.
+Destroying the pools resolves the Person/Cognito linkage question by removing both sides of it. What
+comes back is created by Terraform:
+
+- `aws_cognito_user.e2e` and `aws_cognito_user.demo` are recreated automatically, with **new
+  passwords** from their `random_password` resources. Those flow to the webapp through Terraform
+  outputs, so nothing needs updating by hand.
+- The acceptance-test M2M client secret rotates too. `mootmaker-demo-data` reads its credentials from
+  the SSM parameters `mootmaker-api` publishes under `/mootmaker/<environment>/demo-data/`, so the
+  api deploy must complete before demo-data runs — which the pipeline already orders correctly.
+- No user pool carries `deletion_protection`, so nothing blocks the destroy.
+
+**Verified 2026-09-07:** `production`'s pool contains exactly two users, `e2e-tests@example.com` and
+`demo@mootmaker.com` — both Terraform-managed. There are currently no real signed-up accounts to
+lose. That is a fact about today, not a guarantee about the day this runs.
 
 Staging is otherwise conventional: ephemeral environment first, then `test`, then `production`
 through `release.yml`. The schema changes are not backward-compatible for a deployed webapp, so API
@@ -299,9 +315,14 @@ and webapp must ship together — which the release pipeline already does.
 
 ## Risks
 
-- **The data is gone, deliberately.** Dropping and recreating means `production`'s meeting history
-  does not survive. That is an accepted cost on a demo system, but it is a one-way door on the day it
-  runs, and it should not be discovered by a user rather than announced.
+- **Everything is gone, deliberately** — meetings, rooms, people, and every Cognito account. Anyone
+  who has signed up between now and the day this runs loses their login, not just their data, and
+  finds out by being unable to sign in. Re-check the pool's user list immediately before running it;
+  two Terraform-managed users is the current state, not a standing property.
+- **Recreating a Cognito user pool domain can stall.** `aws_cognito_user_pool_domain` uses
+  `<prefix>-<account-id>`, which is globally unique across AWS. Destroying and immediately recreating
+  the same domain name is the one step in this teardown with a known tendency to fail or need a wait,
+  and it sits on the critical path for the OAuth2 token endpoint the M2M clients use.
 - **Reverting is a redeploy, not a rollback.** With no migration there is also no reverse migration:
   going back means deploying the previous version against freshly recreated tables. Cheap, but not
   transparent — the same data loss happens again in the other direction.
@@ -317,7 +338,6 @@ and webapp must ship together — which the release pipeline already does.
 Sparse while Drafting — to be filled in properly before this reaches Ready.
 
 - [ ] `[Geoff]` Resolve the three remaining blocking open questions, database reset first.
-- [ ] `[Geoff]` Decide whether the People table is dropped along with the rest — see Rollout.
 - [ ] `[Claude]` Change the resolver request template to serialise `selectionSetList`, in whatever
       payload shape the new handlers want.
 - [ ] `[Claude]` Make `ListMeetingsHandler` selection-aware, with unit tests driven by recorded
@@ -328,7 +348,8 @@ Sparse while Drafting — to be filled in properly before this reaches Ready.
 
 The feature's own acceptance coverage — including the two-context real-time test — is green; the
 existing acceptance suite is still green on a real deployed environment; every touched repo's unit
-tests pass; both environments have been dropped, recreated and repopulated by `mootmaker-demo-data`
-with the result verified by direct DynamoDB reads rather than by exit codes; no code remains that
+tests pass; both environments have been destroyed in full, redeployed from nothing and repopulated
+by `mootmaker-demo-data`, with the result verified by direct DynamoDB and Cognito reads rather than
+by exit codes; no code remains that
 exists only to preserve a shape from the previous design; and everything under Documentation impacts
 is actually done.
