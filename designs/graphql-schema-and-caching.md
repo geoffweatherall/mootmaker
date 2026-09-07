@@ -45,11 +45,9 @@ under Trade-offs; **Open** means it still needs an answer.
    the one unbounded query. See "No person index" below.
 10. **`meeting(id:)` gains a real entry point** *(Decided)* — a dedicated field backed by an id → date
     pointer, replacing today's full-table scan.
-11. **Enforced size limits, with an oversized item made unreachable** *(Decided; the numbers have a
-    conflict to resolve)* — an absolute cap on meetings per day, a per-organiser daily cap, an
-    attendee cap, and a **maximum subject length, which does not exist today**. Enforced at three
-    layers so that no input a user can construct produces an item over 400 KB. See "The item-size
-    guarantee".
+11. **Enforced size limits, with an oversized item made unreachable** *(Decided)* — **320 meetings
+    per day, 20 attendees per meeting, 280-byte subjects.** Enforced at three layers so that no input
+    a user can construct produces an item over 400 KB. See "The item-size guarantee".
 12. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
 13. **Reset becomes a mutation, behind RBAC** *(Decided; the RBAC model is a follow-up)* — it stops
     being a side door, so it broadcasts like any other write. Putting a destructive operation in the
@@ -244,27 +242,38 @@ for: `Identity.requireAdmin` recognises one flat admin role, so "can add a room"
 database" would be the same permission. **The RBAC model is a follow-up in its own right** — recorded
 separately rather than designed here.
 
-**Day limits: 200 meetings, 20 attendees.** Roughly 49% of the 400 KB item cap at worst case, biased
-toward large meetings rather than many. See Technical considerations for the conflict this creates
-with the current room count.
-
-**A per-organiser daily limit, separate from the absolute one.** A user may organise at most a fixed
-number of meetings on any one date. This is a fairness and abuse control, not a size control, and the
-distinction matters: *N* organisers each at their own limit can still exceed the day cap, so the
-per-organiser rule provides no bound on the item. Only the absolute day cap does. Both exist, for
-different reasons.
-
-Its useful range is bounded by physics: an organiser cannot be in two meetings at once, and business
-hours of 08:00–17:00 on 15-minute boundaries mean one person can organise at most **36 meetings in a
-day**. A limit at or above 36 is inert. `mootmaker-demo-data` will not trip any sane value —
-`MeetingScheduler` caps rooms at two meetings a day each and never double-books a participant.
-
 **Maximum subject length — a rule that does not exist today.** `CreateMeetingHandler` checks only
 that `subject` is non-blank. There is no upper bound, so a single meeting can carry a subject of any
 size and blow the item on its own, regardless of how few meetings the day holds. **No count-based
-limit can deliver the "no oversized item" guarantee while this term is unbounded.** The limit is in
-**bytes, not characters** — a subject of emoji is four bytes per character, so a character count
-would understate the true size fourfold.
+limit can deliver the "no oversized item" guarantee while this term is unbounded.**
+
+**280 bytes, taking a tweet as the anchor and measuring in UTF-8.** UTF-8 because **DynamoDB itself
+sizes string attributes in UTF-8 bytes** — validating in the same unit the storage bills in makes the
+limit and the item cost the same quantity, rather than two numbers that can drift apart. Plain
+English text gets the full 280 characters; a subject written in simple emoji gets 70, because each
+costs four bytes. This is a
+deliberate trade: measuring characters instead would mean budgeting 1,120 bytes for every meeting on
+the chance that one of them is emoji, which costs roughly 40% of the day's entire capacity to buy a
+promise almost nobody exercises. The user-facing counter should count down in the same units it
+enforces, so someone pasting emoji sees the budget fall faster rather than being rejected on submit.
+
+**Day limits: 320 meetings, 20 attendees.** A meeting costs `212 + 37 × attendees + subjectBytes`, so
+the worst case is `212 + 740 + 280 = 1,232` bytes and a full day is ~394 KB, or **96% of the 400 KB
+cap**. That is deliberately tight: the write-time byte measurement (layer 3 below) measures the
+*actual* serialised item, so an error in this byte model produces a clean "day is full" rejection
+rather than a DynamoDB failure. Headroom buys nothing that layer 3 does not already provide.
+
+**No per-organiser limit.** Considered and dropped: the absolute day cap is the only rule that bounds
+the item, and a per-organiser cap would have been a fairness control rather than a safety one. One
+user filling a day is an acceptable outcome on a demo system.
+
+**The day cap can still bind before the rooms are full, but only just.** Ten rooms across 36
+fifteen-minute slots give a physical capacity of 360 meetings a day, so 320 refuses a booking with
+rooms free — but only once the building is 89% full, against 53% under the earlier 200-meeting
+figure. Closing the gap entirely is possible by lowering the attendee limit to 16, which makes a
+physically-full 360-meeting day fit at 95%; that trade is available if the cap ever actually binds.
+In practice it will not: `production` holds **508 meetings in total** and `mootmaker-demo-data`
+creates roughly 20 a day.
 
 **The day is the unit.** One day is a DynamoDB partition key, an AppSync fetch unit, an Apollo cache
 entity keyed by `date`, and a subscription filter value. This alignment is what makes the caching
@@ -291,6 +300,9 @@ budget without it.
 
 ## Choices you had me make
 
+- **320 meetings per day, at 96% of the item cap.** You said headroom was not needed given how
+  accurate the test is, and the arithmetic allows up to 332. I took 320 as a round number under that.
+  Raising it to 330 is defensible; the write-time byte check makes either safe.
 - **`Day` keyed by `date` rather than an opaque id.** A human-readable, client-derivable cache key
   means the webapp can construct `Day:2026-09-14` without a round trip to discover it.
 - **A payload shaped for the new handlers, not for the current ones.** An earlier draft proposed
@@ -307,16 +319,9 @@ budget without it.
 
 ### Blocking
 
-**The day limit conflicts with the room count.** 200 meetings per day is below what 10 rooms can
-physically hold — see Technical considerations. Needs one of: raise the day limit, lower the attendee
-limit, or accept that bookings are refused while rooms sit empty.
-
-**The booking horizon's length.** The maximum-booking-horizon rule is decided; the number is not.
-
-**The per-organiser daily limit's value, and the maximum subject length.** Both rules are decided;
-neither number is. The organiser limit is meaningful only in 1–36 (above that it is inert). The
-subject limit needs to be small enough that `dayLimit × subjectMaxBytes` is a minor term — at a
-200-meeting day, every 100 bytes of subject allowance costs 20 KB of the item's budget.
+**The booking horizon's length and the retention window's length.** Both rules are decided; neither
+number is. Together they set the hard bound on how many day items can exist, so they want choosing
+together. They are the last unset numbers in the design.
 
 **The shape of the top-level query.** Either three sibling root fields in one document — one HTTP
 request, three Lambda invocations, cache slots that map one-to-one onto the entities — or a single
@@ -400,20 +405,51 @@ The delta against `docs/reference/data-model.md`:
   inside the day item, so it is the one that threatens the size guarantee — but the same absence of a
   bound applies to `RoomInput.name` and `PersonInput.name`, and closing all three together is
   cheaper than revisiting the question later.
-- **The chosen day limit binds before room capacity does.** `production` has **10 rooms**, and
-  business hours of 08:00–17:00 on 15-minute boundaries give 36 slots per room — a physical capacity
-  of **360 meetings per day**. A limit of 200 therefore refuses bookings while rooms are still free,
-  which is a confusing failure to explain to a user.
-  The item cap is not what forces this. A meeting costs roughly `258 + 37 × attendees` bytes, so a
-  physically-full day of 360 meetings at 20 attendees is ~359 KB — it *fits*, at 88% of the cap with
-  little headroom. Resolving this means picking one of: raise the day limit to at least `rooms × 36`
-  and accept the tighter margin; keep 200 and accept that it binds first; or lower the attendee limit
-  (at 80% of the cap and 10 rooms, the arithmetic allows ~17 attendees). Recorded as an open question
-  rather than decided unilaterally.
-- **The limits need their own error codes.** `MeetingError` gains cases for the absolute day limit,
-  the per-organiser daily limit, the attendee limit, the subject length limit, and the booking
-  horizon. All are validation failures a client must be able to render, not exceptions — a user who
+- **The day limit is a real cap, and its failure must read as such.** Physical capacity is 360
+  meetings a day against a limit of 320, so a user can be refused while a room stands free. The
+  `MeetingError` needs to say the *day* is full, not the room — otherwise it is an unexplainable
+  rejection.
+- **Subject length must be measured in UTF-8 bytes, not `String.length()`.** Java strings are UTF-16,
+  so `length()` counts code *units*: an emoji outside the Basic Multilingual Plane counts as 2 there
+  and 4 in UTF-8. Neither number is the other. `subject.getBytes(UTF_8).length` is the only correct
+  measure, and it is the one the size budget is built on.
+- **Normalise to NFC before measuring and storing.** "é" is either one code point (2 bytes) or "e"
+  plus a combining accent (3 bytes), depending on the writer's keyboard and OS. Without
+  normalisation two visually identical subjects have different byte counts and one can be rejected,
+  which is unexplainable to the user. The contract is therefore *280 bytes of NFC-normalised UTF-8*.
+- **Reject, never truncate.** Cutting a string at a byte boundary can split a character mid-sequence
+  and produce mojibake. A client-side counter must truncate on grapheme boundaries, not bytes.
+- **"How many emoji fit" has no single answer.** A simple emoji is 4 bytes, but 👨‍👩‍👧‍👦 is four of them
+  joined by three zero-width joiners — 25 bytes — and skin-tone modifiers add 4 each. So the range is
+  roughly 70 down to 11. This does not threaten the budget at all: 280 bytes is 280 bytes whatever it
+  holds, so the item arithmetic stays exact and the variability lands on the user's character
+  counter, which is the right place for it.
+- **The limits need their own error codes.** `MeetingError` gains cases for the day limit, the
+  attendee limit, the subject length limit, and the booking horizon. All are validation failures a client must be able to render, not exceptions — a user who
   hits one should see a sentence, never a 500.
+
+### Retention: the bill stays flat under steady usage
+
+`principles.md`'s **"Nothing accumulates without a bound"** requires that under steady usage the bill
+is flat. Meeting history is the one place mootmaker currently breaks it — meetings are written and
+never deleted, so storage grows monotonically with time rather than with usage.
+
+Day items turn this from a job into a property. Expiry today would mean querying the
+`bucket-startTime-index` GSI for old `startTime`s and transactionally deleting each meeting plus its
+participant rows on a schedule — a Lambda that costs WCUs and can fail. Under day items it is **one
+numeric attribute**: DynamoDB TTL deletes cost **zero WCU**, need no scan, no schedule and no code,
+and a past day is never read again.
+
+It also composes with the booking horizon already decided. The horizon bounds how far *forward* day
+items can exist; a retention window bounds how far *back*. Together the table holds at most
+`horizon + retention` items — **a hard upper bound on row count, not merely a cap on the growth
+rate.** The principle is satisfied structurally rather than by a cleanup process.
+
+**The id → date pointer needs the same TTL**, expiring with the day it points at. Otherwise the
+pointers outlive their targets and become the new unbounded thing.
+
+Cognito is the one component that legitimately grows, since MAUs track users rather than time —
+constant usage keeps it flat, so there is nothing to bound.
 
 ### The item-size guarantee
 
@@ -423,6 +459,8 @@ individually sensible. The invariant is:
 
 ```
 dayLimit × (perMeetingBase + 37 × attendeeLimit + subjectMaxBytes) + overhead  ≤  safetyFraction × 400 KB
+
+  320       × (212            + 37 × 20            + 280)           + overhead  ≈  394 KB  (96%)
 ```
 
 Enforced at three layers, because any one of them alone can be defeated by a later change:
@@ -475,11 +513,11 @@ Without layer 1 the guarantee is a comment; without layer 3 it depends on an est
   That test fails if anyone adds a field to the persisted meeting shape without revising the limits,
   which is the actual regression to guard against.
 - **Boundary tests on each rule**: at the limit succeeds, one past it returns the right
-  `MeetingError` rather than an exception. Including the per-organiser limit, which needs a second
-  organiser in the same day to prove it is scoped per person and not per day.
-- **A multi-byte subject test.** A subject of emoji at the character limit but four times the byte
-  limit must be rejected — this is the test that proves the limit counts bytes, and it is the one
-  most likely to be missed.
+  `MeetingError` rather than an exception.
+- **Multi-byte subject tests, in both directions.** 280 ASCII characters is accepted and 281 is
+  rejected; **70 emoji is accepted and 71 is rejected**, because each is four bytes. A test using
+  only ASCII passes just as happily against a `String.length()` implementation, which is the bug
+  this is here to catch.
 - **A test that the deploy-time assertion actually fires** on a deliberately inconsistent set of
   limits, since it is the layer that keeps the guarantee true over time.
 - **An acceptance test that a user hitting the organiser limit sees a rendered message**, not a
