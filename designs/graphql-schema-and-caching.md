@@ -53,9 +53,10 @@ under Trade-offs; **Open** means it still needs an answer.
     per day, 20 attendees per meeting, 280-byte subjects.** Enforced at three layers so that no input
     a user can construct produces an item over 400 KB. See "The item-size guarantee".
 13. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
-14. **Reset becomes a mutation, behind RBAC** *(Decided; the RBAC model is a follow-up)* — it stops
-    being a side door, so it broadcasts like any other write. Putting a destructive operation in the
-    public schema has auth consequences the current flat admin role does not cover.
+14. **Whether reset becomes a mutation** *(Reopened)* — it was decided, on the grounds that a mutation
+    broadcasts. History deletion has since dropped its own notification, and `Mutation.reset` turns
+    out to have been deliberately removed because any signed-in user could call it. See Open
+    questions.
 
 ## What requires a server round trip
 
@@ -239,12 +240,20 @@ becomes a bounded, enumerable set of date keys that can be read with `BatchGetIt
 disappears along with `meeting-participants`, its transactional writes, and
 `RebuildMeetingParticipantsRepair`.
 
-**Reset becomes a mutation behind RBAC.** Routing reset through GraphQL means it broadcasts like any
-other write, so connected clients evict instead of silently showing deleted data. It also puts a
-destructive operation into the public schema, which the current authorisation model is not shaped
-for: `Identity.requireAdmin` recognises one flat admin role, so "can add a room" and "can destroy the
-database" would be the same permission. **The RBAC model is a follow-up in its own right** — recorded
-separately rather than designed here.
+**Reset becomes a mutation behind RBAC — but this now needs revisiting.** The reason for routing reset
+through GraphQL was that it would then broadcast, so connected clients evict instead of silently
+showing deleted data.
+
+Two things undercut it. First, history deletion has since dropped its own notification on complexity
+grounds; the same reasoning applies here. Second, and more seriously, **`Mutation.reset` already
+existed and was deliberately removed.** Per `mootmaker-api`'s README, it was *"callable by any signed
+-in user, which the business functionality doc called out as a known gap"*, and replacing it with the
+IAM-authenticated `database-reset` Lambda closed that gap *"since invoking it needs an explicit AWS
+permission grant rather than just being signed in to the product"*.
+
+Reintroducing it as a mutation would undo that, and an in-product RBAC role is a **weaker** boundary
+than requiring an AWS permission grant. Recorded as a blocking open question rather than left as a
+decision that quietly reverses prior work.
 
 **Maximum subject length — a rule that does not exist today.** `CreateMeetingHandler` checks only
 that `subject` is non-blank. There is no upper bound, so a single meeting can carry a subject of any
@@ -322,6 +331,13 @@ budget without it.
 ## Open questions
 
 ### Blocking
+
+**Should reset become a mutation at all?** See Trade-offs. Its only benefit was broadcasting, which
+history deletion has now dropped for itself, and it would reverse a deliberate hardening: reset was
+moved *out* of GraphQL precisely because any signed-in user could call it. Leaving it as an
+IAM-invoked Lambda keeps the stronger boundary and makes #76's RBAC work valuable on its own terms
+rather than a prerequisite. If reset stays IAM-only, connected clients are not told about a reset —
+the same accepted gap as history deletion.
 
 **The booking horizon's length.** Retention is set at 30 days; the horizon is not set. Together they
 fix the hard bound on how many day items can exist, so the horizon is the last number the storage
@@ -534,6 +550,21 @@ ephemeral environments, which never live long enough to accumulate anything.
 **The cleanup Lambda is simpler than demo-data**, because it talks to DynamoDB rather than the API:
 no SSM parameters, no M2M credentials, no Cognito token endpoint. An IAM role with permissions on the
 meetings table is the whole dependency list.
+
+**Deployed everywhere, scheduled only where it matters.** The function is deployed in every
+environment including ephemeral ones; only the EventBridge rule's `state` differs. Acceptance tests
+invoke it directly, exactly as `DatabaseReset` already invokes `database-reset` — `LambdaClient` with
+the test runner's IAM credentials, function name from an environment variable `verify.sh` computes
+the same deterministic way Terraform names it. Leaving the rule disabled in ephemeral is not only a
+cost decision: a schedule firing mid-run would make acceptance tests nondeterministic.
+
+**The job takes an explicit boundary in its payload.** An ephemeral environment created this morning
+has nothing 30 days old, so a test cannot exercise the real code path by waiting. Passing the target
+Monday in the invoke payload makes the test deterministic and independent of the calendar — and
+independent of whether past-dated bookings stay legal, which is itself an open question. This follows
+`database-repair`, which already takes `{"dryRun": true}`; a `dryRun` here would likewise let a test
+assert what *would* be deleted before anything is. When invoked with no payload, the job computes the
+boundary itself, which is what the schedule does.
 
 **It does not notify clients — for now.** Broadcasting would mean either routing the deletion through
 a mutation (pulling it into the public schema and the RBAC work in #76) or a separate
