@@ -105,3 +105,52 @@ query MeetingById($id: ID!) {
     attendees { id name }
   }
 }
+
+# ─── 7. A DAY IS INVALIDATED BY SOMEONE ELSE ────────────────────────────────
+# The subscription carries dates, never data - see the schema's Subscription
+# section for why. Payload is a handful of bytes whatever the day holds.
+
+subscription DaysInvalidated {
+  daysInvalidated {
+    dates
+  }
+}
+
+# The handler evicts and does nothing else:
+#
+#   onData({ data }) {
+#     for (const date of data.daysInvalidated.dates) {
+#       cache.evict({ id: `Day:${date}` })
+#     }
+#     cache.gc()
+#   }
+#
+# THERE IS NO REFETCH CALL. Eviction does not fetch - useFragment is cache-only
+# and simply reports complete: false. What happens is that eviction is a cache
+# change, so every useFragment on an evicted Day re-renders, the gap
+# computation re-runs, those dates are now missing, and the EXISTING query
+# fires for them. Byte-for-byte the same document as ordinary navigation:
+
+query CalendarWeeks($dates: [String!]!) {      # $dates = the evicted dates still on screen
+  days(dates: $dates) {
+    date
+    meetings {
+      id subject startTime endTime
+      room { id } organiser { id } attendees { id }
+    }
+  }
+}
+
+# So the two cases fall out with no branching:
+#
+#   Viewing that day  -> a component watches Day:<date>, the gap recomputes,
+#                        one query goes out for exactly the invalidated dates
+#                        that are on screen. One round trip and the UI updates.
+#
+#   NOT viewing it    -> nothing watches Day:<date>, so no gap recomputes and
+#                        NO QUERY IS MADE AT ALL. The entity is simply gone.
+#                        If the user navigates there later it is an ordinary
+#                        cache miss and gets fetched fresh.
+#
+# That second case is the one worth noticing: an invalidation for a day nobody
+# is looking at costs one WebSocket frame and no server work whatsoever.

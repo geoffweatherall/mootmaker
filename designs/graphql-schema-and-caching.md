@@ -910,6 +910,27 @@ and webapp must ship together — which the release pipeline already does.
 Sparse while Drafting — to be filled in properly before this reaches Ready.
 
 - [ ] `[Geoff]` Choose the top-level query shape — the only substantial question still open.
+- [ ] `[Geoff]` **Write a specific, testable definition of done for cross-client visibility.**
+      "User A's booking appears on user B's screen" is currently a sentence, not a requirement, and
+      it is the headline benefit of the whole subscription strand. Every row below is a distinct
+      behaviour that an acceptance test can either pass or fail, and several have no obvious right
+      answer:
+
+      | Scenario | Needs deciding |
+      |---|---|
+      | B is viewing that day, tab focused | How fast is "appears"? A number, not "nearly immediately" — it is the assertion timeout in the test |
+      | B is viewing that day, tab backgrounded | Does the socket stay open? Does it update on return to foreground, or only on refresh? |
+      | B is **not** viewing that day | Expected: nothing happens and no query is made. Worth stating as a requirement so it is not read as a bug |
+      | B is offline when it happens | The invalidation is missed entirely. Does reconnect trigger a resync, or does B stay stale until they navigate or refresh? |
+      | B is on the Add Meeting form for that day | **The nasty one.** A books the room B is midway through choosing. Does B's room list change under them? Does the suggestion refresh? Does B find out at submit time via `TimeRangeUnavailable`? Changing a form under someone is the layout-shift lesson again |
+      | B is an attendee of the new meeting | Any different from B being uninvolved? Today the answer is no; that may be the wrong answer |
+      | Same user, two tabs | Should behave identically to two users, but worth asserting rather than assuming |
+      | The refetch after invalidation fails | Stale data with no indication, or a visible error? |
+
+      The "not viewing that day" row is the one most likely to be mistaken for a defect later: the
+      day is evicted, nothing watches it, no query is made, and it is fetched fresh whenever the user
+      navigates there. That is correct and costs nothing — but only if it is written down as intended.
+
 - [ ] `[Geoff]` **Read up on `@aws_subscribe` properly before any of the subscription design is
       built.** Enough constraints have already turned up by accident that the rest should be found on
       purpose. Specific questions worth answering:
@@ -936,7 +957,9 @@ Sparse while Drafting — to be filled in properly before this reaches Ready.
 
 ## Definition of done
 
-The feature's own acceptance coverage — including the two-context real-time test — is green; the
+The feature's own acceptance coverage — including the two-context real-time test, which asserts every
+row of the cross-client visibility table in the checklist above rather than only the happy path — is
+green; the
 existing acceptance suite is still green on a real deployed environment; every touched repo's unit
 tests pass; both environments have been destroyed in full, redeployed from nothing and repopulated
 by `mootmaker-demo-data`, with the result verified by direct DynamoDB and Cognito reads rather than
