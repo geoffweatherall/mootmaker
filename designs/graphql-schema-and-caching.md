@@ -349,6 +349,15 @@ navigation, changing day on room availability and adding a meeting, and the muta
 their cache behaviour worked through. "What requires a server round trip" above is the evidence;
 the straw men are the two candidate answers.
 
+**The straw men recommend the composite entry point**, having first recommended the other and been
+argued out of it. The sibling-root-fields case rested on parallelism across invocations, a simpler
+cache configuration, and being the conventional shape for a public API. The first is wrong — one
+resolver already parallelises internally with `CompletableFuture`, so siblings buy the same
+concurrency at the cost of five SnapStart restores. The second was overstated: the difference is one
+object spread. The third is explicitly disclaimed by this design, which refuses to carry decisions
+for hypothetical consumers. The composite field's only real wart — a required `dates` argument on a
+field also used to fetch reference data — is removed by making the argument optional.
+
 ### Non-blocking
 
 - **`personId` as a Cognito claim.** Removes the waterfall's dependency but not the `myPerson` call,

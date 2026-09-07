@@ -41,15 +41,15 @@ of one on a cold API, and five times the compute for the same page.
 
 ## Where each is ugly
 
-**Option A** has no clean way to ask for reference data alone. `rooms` and `people` hang off a field
-that requires a `dates` argument, so a refresh of just those two has to pass an invented empty range
-(`option-a-client.graphql` §4). It is a small wart on a rare call, but it is the honest cost of
-hoisting arguments up to the composite field — which itself is not optional, because AppSync gives a
-resolver its *own* arguments typed and nested field arguments only as raw GraphQL text.
+**Option B** pays five invocations and five SnapStart restores for the one request that most decides
+perceived load speed, and splits `me`, `boundaries`, `rooms` and `people` across four handlers doing
+four trivial things.
 
-**Option B** pays five invocations for the one request that matters most for perceived speed, and
-`me`, `boundaries`, `rooms` and `people` are four separate handlers doing four separate trivial
-things.
+**Option A** had one wart — `rooms` and `people` hanging off a field that required a `dates`
+argument, so a reference-data-only refresh had to pass an invented empty list. **Making `dates`
+optional deletes it**: omitting the argument means no days are wanted, and the resolver skips that
+work exactly as it skips people and rooms when they are not selected. With that fixed, A has no
+remaining wart that B does not also have.
 
 ## Fetching only what is missing
 
@@ -220,22 +220,37 @@ Still strictly better than today's `SettingsPage`, which merges a single item in
 authoritative and replaces the cached one wholesale: no refetch, no merge logic, no race between the
 two.
 
-## Recommendation, held loosely
+## Recommendation: Option A
 
-**Option B**, on three grounds:
+Reversed from an earlier draft of this file, which recommended B. Three arguments were doing that
+work and none of them survives contact:
 
-1. The invocation difference applies to **one request per session**, and the quota rise removed the
-   argument that made it urgent.
-2. Its cache configuration is materially simpler — one field policy against one that has to treat
-   four sub-fields differently — and cache configuration is where this design is most likely to go
-   subtly wrong.
-3. It has no equivalent of the invented empty date range.
+**"B parallelises across invocations."** So does A, inside one. `ListMeetingsHandler` already runs
+its rooms and people loads concurrently with `CompletableFuture`, and these are I/O-bound DynamoDB
+calls, so threads blocked on network parallelise fine even at 512 MB where a Lambda has well under a
+full vCPU. B's five invocations do the same concurrent work in five execution environments, paying
+five SnapStart restores and five times the compute for the same wall clock.
 
-The case for **Option A** is real and worth weighing: one invocation on the request that decides
-perceived load speed, one SnapStart restore instead of five, and a schema that says plainly "this is
-what a screen needs". If cold-start latency on first paint turns out to be the thing users notice, A
-is the better answer and B cannot be tuned into it.
+**"B's cache configuration is materially simpler."** Overstated. A's merge is one extra object
+spread:
 
-What would settle it: measure a cold page load both ways. That is a real experiment, not a
-preference — and it is cheap now that an ephemeral environment can be stood up without fighting a
-concurrency limit.
+```ts
+merge(existing = {}, incoming) {
+  return { ...existing, ...incoming, days: unionByDate(existing.days, incoming.days) }
+}
+```
+
+Both need the same `unionByDate` and the same `keyArgs: false`. That is not a material difference.
+
+**"B is the shape a public API would take."** There is one known client, and the design explicitly
+refuses to carry decisions for hypothetical consumers. This should not have been weighed at all.
+
+What is left for B is that each entry point reads independently, which is aesthetic, against A's one
+invocation and one restore on the request that decides how fast the app feels. A also keeps the door
+open to sharing work inside the invocation if a screen ever does want nested names alongside the
+collections — five handlers cannot share anything.
+
+**Honest caveat**, since it is the one thing A gives up: a single invocation holds the whole response
+in memory and has one 15-second timeout for all of it, where B has 15 seconds each. At the design's
+worst case — 40 days at 320 meetings — that is a large object. At production's real shape, ~20
+meetings a day, it is nothing. Worth measuring rather than assuming, but not a reason to prefer B.

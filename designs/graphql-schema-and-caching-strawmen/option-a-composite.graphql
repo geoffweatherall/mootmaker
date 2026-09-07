@@ -14,8 +14,8 @@
 schema { query: Query, mutation: Mutation, subscription: Subscription }
 
 type Query {
-    "Everything a screen needs, in one invocation. Sub-fields not selected are not fetched: `workspace { days { ... } }` does no people or rooms lookup at all."
-    workspace(dates: [String!]!): Workspace!
+    "Everything a screen needs, in one invocation. Sub-fields not selected are not fetched: `workspace { days { ... } }` does no people or rooms lookup at all. `dates` is optional - omitting it means no days are wanted, which is how a reference-data-only refresh asks for just rooms and people."
+    workspace(dates: [String!]): Workspace!
 
     "A user action rather than screen state, so it stays a root field in both options - it has its own arguments and is never part of a page's initial load. Returns rooms free over the range with capacity >= requiredCapacity, smallest surplus first."
     suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!): [Room!]!

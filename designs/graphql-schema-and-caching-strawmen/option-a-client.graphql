@@ -16,7 +16,7 @@
 # tens of people) and slow-moving, and having them cached is what lets every
 # later query ask for ids only.
 
-query PageLoad($dates: [String!]!) {          # ["2026-09-07","2026-09-08","2026-09-09"]
+query PageLoad($dates: [String!]) {          # ["2026-09-07","2026-09-08","2026-09-09"]
   workspace(dates: $dates) {
     me { id name dateFormat timeFormat }
     rooms { id name capacity }
@@ -56,7 +56,7 @@ query PageLoad($dates: [String!]!) {          # ["2026-09-07","2026-09-08","2026
 # Back-navigation stops at boundaries.earliestRetainedDate, read at page load.
 # The client never computes that date itself.
 
-query CalendarWeeks($dates: [String!]!) {
+query CalendarWeeks($dates: [String!]) {
   workspace(dates: $dates) {
     days {
       date
@@ -74,7 +74,7 @@ query CalendarWeeks($dates: [String!]!) {
 # is one way to ask for meetings, and every screen is a different range of it.
 # Moving to an already-visited day is served entirely from cache.
 
-query OneDay($dates: [String!]!) {            # ["2026-09-15"]
+query OneDay($dates: [String!]) {            # ["2026-09-15"]
   workspace(dates: $dates) {
     days {
       date
@@ -100,15 +100,17 @@ query OneDay($dates: [String!]!) {            # ["2026-09-15"]
 # cache while it runs.
 
 query ReferenceDataRefresh {
-  workspace(dates: []) {                        # empty list
+  workspace {                                   # no dates argument at all
     rooms { id name capacity }
     people { id name }
   }
 }
 
-# The empty list is awkward, and is Option A's clearest wart: `dates` is
-# required by a field that here is being asked for something unrelated to
-# dates. Option B has no equivalent - it just asks for `rooms` and `people`.
+# `dates` is optional, so this reads exactly as well as Option B's version.
+# An earlier draft made it required and had to pass an invented empty range,
+# which was Option A's only real wart. Making the argument nullable deletes it:
+# omitting it means "no days wanted", and the resolver skips that work entirely
+# just as it skips people and rooms when they are not selected.
 
 
 # ─── 5. SUGGEST A ROOM (on demand, inside Add Meeting) ───────────────────────
