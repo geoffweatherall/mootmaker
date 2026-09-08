@@ -19,6 +19,10 @@ good practice looks like when an AI is doing most of the typing.
 
 ## Cost
 
+Two rules carry equal weight here, and every other cost decision follows from one or the other.
+**Scale to zero** governs what *runs*; **nothing accumulates without a bound** governs what *piles
+up*. Neither is sufficient alone: a system can idle at zero and still bill more every month.
+
 **Scale to zero.** Nothing should cost money while nobody is using it. Every AWS service choice is
 made against this: AppSync and Lambda over a running container, DynamoDB on-demand over provisioned
 capacity, S3 + CloudFront over a server.
@@ -41,9 +45,16 @@ of finishing the work, not a tidy-up.
 not grow but the bill does, something is accumulating that nobody chose to keep — and that is a
 defect, not a cost of doing business.
 
-This is scale-to-zero's other half, and it is easier to miss. Scale to zero is about what runs;
-this is about what *piles up*. A thing that costs nothing per hour still costs something per
+This is the harder of the two to hold, because nothing announces it. Scale to zero fails loudly — an
+idle bill is visible the moment you look. Accumulation fails silently and slowly, and by the time it
+is obvious it has been true for months. A thing that costs nothing per hour still costs something per
 gigabyte-month forever.
+
+The test is not "is anything expensive" but **"does anything grow with time rather than with usage"**.
+Logs, snapshots, published Lambda versions, stored objects, and rows nobody deletes all default to
+growing forever unless something is configured to expire them. Every one of them needs an answer to
+*what deletes this*, and "nothing" is only acceptable when the thing is genuinely bounded by
+something else.
 
 Measured rather than asserted: [running costs](../reference/running-costs.md) has the actual bill,
 the cost model it implies, and the checks that would catch this principle being broken.

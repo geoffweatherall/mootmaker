@@ -26,6 +26,10 @@ backlog item rather than a proposal.
 Running cost against scale-to-zero, and rough build effort. A recurring cost needs a
 better reason than a one-off.
 
+Also: what does it store, and what deletes that? A cost that grows with time rather than
+with usage breaks "nothing accumulates without a bound" just as surely as an idle server
+breaks scale-to-zero.
+
 ## What we are not doing
 
 The adjacent things this deliberately excludes. Usually the most useful section.
