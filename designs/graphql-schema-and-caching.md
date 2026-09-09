@@ -11,762 +11,261 @@ user's booking appears on another's screen without a refetch.
 
 ## Status
 
-**Drafting** — 2026-09-07.
+**Drafting** — 2026-09-07. All open questions closed 2026-09-09.
 
-## Pending Discussions
+## Decisions
 
-For Claude to consider and discuss.
-- [] Having a package or library to encapsulate the storage model in DynamoDB, maybe a 'repository' abstraction.  Consider whether such things are still revelant when most of the code is vibed and only selectively reviewed.  Is this more an encapsualtion that helps humans understand a complex system.  Maybe over engineering for a change in data store that is very unlikely to happen.
-- [] if "The server derives "mine" from the JWT" will this support a person that sometimes logs in via OAuth (sign in with google) and has a standard password Cognito user as well?
-- [] Claude give proposed Dynamo "schema" after this change.
-- [] expore in more detail the Apollo caching of days
-- [] when another user adds a meeting, do we broadcast that day's meetings are now invalid in the cache and reload?  What if we get a broardcast event for a day we don't currently have in the Apollo cache?
-- [] lets talk more about "The meetings item is already normalised; the redundancy is elsewhere.".  I'm thinking we can now normalise every where. 
-- [] claude to give a more detailed explaination of the Apollo client side cache, and how keys work.
-- [] consider publishing events for a Person and Meeting Room being created.  If another user happened to be looking at the rooms or persons, would their page auto update?  What if looking at a dropped down list of Persons/Rooms? 
-- [] a delete user operation, so rare that a table scan is preferred over having indexes to make this efficient.
-- [] lets go over the shape of the top level query.
+Every one is settled. Where a decision constrains implementation the reason is given; where it was
+merely argued at length, it is not.
 
-
-## Highlights
-
-The main changes, each considerable on its own. **Decided** means settled by discussion and recorded
-under Trade-offs; **Open** means it still needs an answer.
-
-1. **One DynamoDB item per day** *(Decided)* — meetings for a date live in a single item, read by
-   primary key. Buys `ConsistentRead`, which removes the read-after-write class of bug outright. Costs
-   write amplification and read-modify-write contention, and imposes a hard ceiling of roughly 1,000
-   meetings per day.
-2. **The shape of the top-level query** *(Open)* — three sibling root fields in one document, or one
-   composite entity carrying people, rooms and a date range of meetings. See "What requires a server
-   round trip" below, which exists to inform this.
-3. **Selection-aware resolvers** *(Decided)* — a query asking for `attendees { id }` does no Person
-   lookup; one asking for `{ id name }` does exactly one. Requires a request-template change first,
-   and the alias behaviour makes the selection test something to get right deliberately.
-4. **The server derives "mine" from the JWT** *(Decided)* — the client stops fetching its own id and
-   handing it back as a filter argument. This is what removes the startup waterfall.
-5. **Day-scoped bulk creation** *(Decided)* — `createMeetings(date:, meetings:)`. One operation, one
-   item write, one subscription message, one filterable field. Also sidesteps the 100-item
-   `TransactWriteItems` cap.
-6. **Real-time updates via AppSync subscriptions** *(Decided)* — one user's booking appears on
-   another's screen in tens of milliseconds. Costs pennies; the alternatives cost either ~$70/month
-   or a connection registry of their own.
-7. **Apollo cache built on day entities** *(Decided)* — `Day` keyed by `date`, so an empty day and an
-   unfetched day are distinguishable. Mutation results are written into the cache directly.
-8. **No cache persistence across refresh** *(Decided)* — see below; a refresh is a deliberate
-   stateless restart the user can always reach for.
-9. **Both meetings GSIs and the person index are deleted** *(Decided)* — every user-facing query
-   carries a date range, so no index is needed to serve one. A **maximum booking horizon** replaces
-   the one unbounded query. See "No person index" below.
-10. **`meeting(id:)` gains a real entry point** *(Decided)* — a dedicated field backed by an id → date
-    pointer, replacing today's full-table scan.
-11. **Retention of at least 30 days, against a stored Monday-aligned boundary** *(Decided)* — deleted
-    by a weekly scheduled Lambda, with **no TTL anywhere**, so it can broadcast cache invalidation and
-    delete each day with its pointers in one transaction. The boundary advances *before* anything is
-    deleted, so what is advertised is never more permissive than what exists. See "Retention".
-12. **Enforced size limits, with an oversized item made unreachable** *(Decided)* — **320 meetings
-    per day, 20 attendees per meeting, 280-byte subjects.** Enforced at three layers so that no input
-    a user can construct produces an item over 400 KB. See "The item-size guarantee".
-13. **Enforced transport limits, with an oversized response made unreachable** *(Decided)* — a
-    separate bound from storage, set by AppSync's unadjustable 5 MB response cap: `maxRooms` 200,
-    `maxPeople` 1,000, `maxDates` 31, and a dynamic `maxMeetingsPerResponse` of 2,000 that fails fast.
-    Also **240 KB on subscription payloads**, which is why a broadcast carries a list of invalidated
-    dates rather than any data at all. See "The transport bounds".
-14. **Destroy and rebuild both environments** *(Decided)* — no migration, Cognito pools included.
-15. **Reset stays an IAM-invoked Lambda** *(Decided)* — briefly proposed as a mutation so it could
-    broadcast, then reversed: `Mutation.reset` was deliberately removed once because any signed-in
-    user could call it, and an in-product role is a weaker boundary than an AWS permission grant.
-
-## What requires a server round trip
-
-Every point at which the webapp needs data it does not have. This is the input to Highlight 2 — the
-top-level query shape should be chosen against this list, not against the current page structure.
-
-**On load and authentication**
-
-| Trigger | Data needed | Today |
+| # | Decision | Why it matters when building |
 |---|---|---|
-| Any page load or refresh, signed in | Cognito claims, then the caller's Person | `MyPerson`, `network-only`, on every load |
-| Sign in | Same | Same, via `loadSession()` |
-| Sign up / confirm | None from the client | The PostConfirmation trigger creates the Person server-side |
+| 1 | **One DynamoDB item per day.** Meetings for a date live in one item, read by primary key | Buys `ConsistentRead`, removing the read-after-write bug class outright. Costs write amplification and read-modify-write contention |
+| 2 | **One composite entry point**, `workspace(dates:)` | One request, one Lambda invocation, one SnapStart restore per page load. Written out in full in [`graphql-schema-and-caching-proposal/`](graphql-schema-and-caching-proposal/) |
+| 3 | **Selection-aware resolvers** | `attendees { id }` does no Person lookup; `{ id name }` does exactly one. Requires a request-template change *first* |
+| 4 | **The server derives "mine" from the JWT**, via a `custom:personId` Cognito claim | Removes the startup waterfall. Zero lookups to know the id; one `ConsistentRead` for the mutable fields |
+| 5 | **Day-scoped bulk creation**, `createMeetings(date:, meetings:)` | One item write, one broadcast, one filterable field. Sidesteps `TransactWriteItems`' 100-item cap. Chosen over `setSubscriptionFilter` with a `contains` operator over a `dates` array, which filters *who is woken*, not how much they receive |
+| 6 | **Real-time updates via AppSync subscriptions** | Tens of milliseconds. Alternatives cost ~$70/month or a connection registry |
+| 7 | **Apollo cache built on day entities**, `Day` keyed by `date` | An empty day and an unfetched day become distinguishable |
+| 8 | **No cache persistence across refresh** | A refresh is a guaranteed stateless restart the user can always reach for |
+| 9 | **Both meetings GSIs, `meeting-participants`, and `cognitoSub-index` are deleted** | Every user-facing query carries a date range. Nothing is stored twice anywhere after this |
+| 10 | **`meeting(id:)` gains a real entry point**, backed by an id → date pointer | Replaces today's full-table scan |
+| 11 | **Retention of 30–37 days**, against a stored Monday-aligned boundary, deleted weekly, **no TTL** | The job can broadcast, and delete each day with its pointers in one transaction |
+| 12 | **A 180-day booking horizon** | With retention, bounds the table at **217 day items** — a hard cap on row count, not a growth rate |
+| 13 | **Enforced size limits**, three layers | No input a user can construct produces an item over 400 KB |
+| 14 | **Enforced transport limits** | AppSync's unadjustable 5 MB response and 240 KB subscription caps |
+| 15 | **`publishDaysInvalidated` is `@aws_iam`-only** | AppSync refuses the call before a resolver runs — a stronger boundary than any other field has |
+| 16 | **Destroy and rebuild both environments.** No migration, Cognito pools included | Removes the largest risk and the longest phase from the rollout |
+| 17 | **Reset stays an IAM-invoked Lambda** | `Mutation.reset` was deliberately removed once because any signed-in user could call it |
+| 18 | **Repository classes own the write invariants** | Not a portability abstraction — see "Repositories" |
 
-**Per page**
+**Two facts about the account that bear on this.** The Lambda concurrency limit was raised from 10 to
+**1,000** on 2026-09-07 (#72), which *weakens* rather than strengthens the case for collapsing the root
+fields — three parallel invocations no longer approach saturation, so the composite shape is justified
+by total compute and SnapStart restores, not by a ceiling. It is a smaller prize than it looked while
+the limit was 10. And **#76's RBAC work is not a prerequisite** for this design: reset stays an
+IAM-invoked Lambda, so nothing here waits on splitting the flat admin role.
 
-| Page | Data needed | Today |
-|---|---|---|
-| Home (signed in) | My meetings, today → +2 days | `ListMeetings`, blocked until `MyPerson` resolves |
-| Home (signed out) | None | Demo credentials come from runtime config |
-| About | None | — |
-| Person calendar | All people, all rooms, one person's meetings across a 40-day span (30 displayed; weekends are in the range but not shown) | Three queries; rooms and people `cache-first` |
-| Room availability | All rooms, all meetings for one date | Two queries |
-| Add meeting | All rooms, all people | Two queries, in parallel |
-| Meeting details | **One meeting** | `ListMeetings` **with no filter at all** — every meeting ever stored, then `.find()` client-side. There is no `meeting(id:)` field in the schema |
-| Settings | The caller's Person | From auth context |
-| Settings, admin sections | All rooms, all people | Two queries, both gated so neither section renders until both land |
+**No decision is carried forward for compatibility's sake.** The finished code and schema should look
+as though they were designed this way on day one. This deletes rather than adapts: `MeetingRecord`,
+`MeetingParticipant`, the constant `bucket = "ALL"` attribute, both meetings GSIs, `cognitoSub-index`,
+`BatchLoader`, the router-state handoff between `AddMeetingPage` and `RoomAvailabilityPage`, and the
+resolver payload shape today's handlers read.
 
-**On user action**
+## What the client needs, and when
 
-| Action | Round trip |
+The evidence the entry-point shape was chosen against, and still the checklist of every data need.
+
+| Page or trigger | Data needed |
 |---|---|
-| "Suggest a room" | `suggestRoom(startTime, endTime, requiredCapacity)` |
-| Create meeting | `createMeeting` |
-| Rename self | `updatePerson` |
-| Change date/time preferences | `updateMyPreferences` |
-| Create or edit a room | `createRoom` / `updateRoom`, plus a refetch **and** a direct cache write |
-| Create or edit a person | `createPerson` / `updatePerson`, same pattern |
-| Delete my account | `deleteMyAccount` |
+| Any load or refresh, signed in | The caller's own Person |
+| Home (signed in) | My meetings, today → +2 days |
+| Home (signed out), About | None — demo credentials come from runtime config |
+| Person calendar | All people, all rooms, one person's meetings across a 40-day span (30 weekdays displayed) |
+| Room availability | All rooms, all meetings for one date |
+| Add meeting | All rooms, all people |
+| Meeting details | **One meeting, by id** |
+| Settings | The caller's Person; admin sections also need all rooms and all people |
+| User actions | `suggestRoom`, `createMeeting`, `updatePerson`, `updateMyPreferences`, `createRoom`/`updateRoom`, `createPerson`, `deleteMyAccount` |
+| Caused by someone else | Another user's booking, the 18:00 NZT demo-data run, a database reset |
 
-**Caused by someone else**
+Three observations fall out. **Rooms and people are wanted by four of seven pages and change rarely** —
+fetch once, and Add Meeting becomes a zero-query page. **Meetings are always wanted as a date range**,
+and the ranges differ per page (3 days, 1 day, 40 days), which is what day-keyed entities make
+composable. And **meeting details is the one lookup that is not a date range at all** — today served by
+`ListMeetings` with no filter, fetching every meeting ever stored and filtering client-side.
 
-| Event | Today |
-|---|---|
-| Another user creates a meeting | Nothing. Stale until something refetches |
-| The daily `mootmaker-demo-data` run (18:00 NZT) | Nothing |
-| A database reset | Nothing, and the client keeps showing deleted data |
-
-Three observations fall out of this list. **Rooms and people are wanted by four of the seven pages
-and change rarely** — they are the strongest candidates for fetching once. **Meetings are always
-wanted as a date range**, and the ranges differ per page (3 days, 1 day, 40 days), which is precisely
-what day-keyed entities make composable. And **meeting details is the one lookup that is not a date
-range at all** — it is a single meeting by id, and it is currently served by scanning the entire
-table.
+Everything in the last row currently produces **nothing**: the client stays stale until something
+refetches. That is what the subscription strand exists to fix, for the first of the three.
 
 ## Scope / non-goals
 
-**In scope:** the shape of `Query`'s entry points; selection-aware fetching in the resolver Lambda;
-day-keyed meeting storage in DynamoDB; the Apollo `InMemoryCache` policy; a bulk meeting-creation
-mutation; GraphQL subscriptions for cross-client updates.
+**In scope:** `Query`'s entry points; selection-aware fetching in the resolver Lambda; day-keyed
+storage; the Apollo `InMemoryCache` policy; bulk meeting creation; subscriptions; retention.
 
 **Not in scope:**
 
 - `mootmaker-android` — it does not exist yet and should not constrain this.
-- Any change to the privacy model. Today every signed-in user can see every meeting, and this
-  design assumes that stays true (see Risks — subscriptions make it load-bearing).
+- Any change to the privacy model. Every signed-in user can see every meeting, and this design
+  assumes that stays true (see Risks — subscriptions make it load-bearing).
 - Meeting update and delete. Neither exists today; adding them is a separate design.
+- Reference-data invalidation (a new Room or Person appearing on an open page). Deferred
+  deliberately; `Invalidation` is shaped so it can be added without a breaking change.
 - Pagination beyond day ranges.
-- Changes to the Cognito user pool's *configuration*. The pool is destroyed and recreated as part of
-  the rollout (see Rollout & migration), but its Terraform definition is unchanged, except for the
-  optional `personId` claim recorded as a non-blocking open question.
+- Notifications of any kind. Row 6 of the cross-client table depends on this staying true.
 
-## Trade-offs and decisions
+## Storage: the DynamoDB schema
 
-**No data migration. The whole environment is destroyed and rebuilt.** Not just the tables — `test`
-and `production` are torn down in full and redeployed from nothing, Cognito user pools included.
-This is a demo system; `mootmaker-demo-data` repopulates it, and the cost of a migration path — plus
-the reverse path needed to make it reversible — buys nothing. It removes the largest risk and the
-longest phase from the rollout, and it removes the question of what to do about Cognito-linked
-Persons by removing both sides of the link at once.
+Three tables. After this change **nothing is stored more than once** anywhere — the only secondary
+structure is a key, not a copy.
 
-This is a rehearsed operation, not a novel one: both environments were destroyed and rebuilt from
-nothing by the pipeline on 2026-09-06 as `v1.0.0`, and Cognito is part of `mootmaker-api`'s
-Terraform, so the pools went with them.
+```
+mootmaker-<env>-meetings          PK: pk (S).  No sort key. No GSIs.
 
-**No decision is carried forward for compatibility's sake.** The finished code and schema should
-look as though they were designed this way on day one. Where a shape exists only because of how the
-current design evolved, it is replaced rather than adapted, and the cost of doing so is not a factor
-in the choice. Concretely this deletes rather than preserves: `MeetingRecord` and
-`MeetingParticipant`, the constant `bucket = "ALL"` attribute, both meetings GSIs, the
-router-state handoff between `AddMeetingPage` and `RoomAvailabilityPage`, and the resolver payload
-shape that today's handlers read. It also settles what would otherwise be a blocking question — see
-"one composite field" below.
+  DAY#2026-09-14
+    pk       S  "DAY#2026-09-14"
+    date     S  "2026-09-14"
+    version  N  7                      ← conditional write / optimistic lock
+    meetings L  [ M{ id, subject, roomId, organiserId,
+                     attendeeIds L<S>, startTime, endTime } ]
 
-**The meetings item is already normalised; the redundancy is elsewhere.** `MeetingRecord.toItem()`
-stores `roomId`, `organiserId` and `attendeeIds` as bare ids — no names, no capacities. The
-duplication is in the two `projection_type = "ALL"` GSIs on the meetings table and the
-`meeting-participants` join table. A meeting with four attendees is physically stored **eight
-times** (1 base + 2 GSI copies + 5 participant rows). Any "remove denormalisation" work should aim
-there, not at the item.
+  PTR#<meetingId>                      ← backs meeting(id:)
+    pk       S  "PTR#0f3c…"
+    date     S  "2026-09-14"
 
-**Concurrent root fields do not double cold-start latency.** AppSync resolves a query's root fields
-in parallel, so the client waits `max(restore + work)`, not the sum. What they do cost is
-*execution environments*: three root fields create three, each paying its own SnapStart restore and
-each holding a concurrency slot.
-
-The account concurrency limit was raised from 10 to 1,000 on 2026-09-07 (mootmaker#72), which
-**weakens this argument rather than strengthening it**. Three parallel root fields no longer come
-close to saturating the account, so collapsing them is now justified by total compute and by the
-number of SnapStart restores paid per page load — not by a ceiling. It is worth being honest that
-this is a smaller prize than it looked while the limit was 10.
-
-**`info.selectionSetList` is not in the resolver payload today.** This was verified empirically, not
-read from documentation. Decoding `$util.toJson($ctx)` — the exact expression in `appsync.tf`'s
-shared `direct_lambda_request_template` — from a live AppSync response gives:
-
-```json
-"info": { "fieldName": "probe", "parentTypeName": "Query", "variables": {} }
+  CONFIG#retention
+    earliestRetainedDate  S  "2026-08-10"   (Monday-aligned, stored, advanced by the job)
+    bookingHorizonDays    N  180            (a length, not a date)
 ```
 
-No `selectionSetList`, no `selectionSetGraphQL`. AWS documents this ("the values that
-`selectionSetGraphQL` and `selectionSetList` return are not serialized by default"); they appear
-only when referenced explicitly. **Selection-aware resolving therefore requires a template change
-before any handler work.**
+```
+mootmaker-<env>-people            PK: id (S).  cognitoSub-index DELETED.
 
-**There is no depth limit on `selectionSetList`.** Verified to five levels on a throwaway AppSync
-API — `l1/l2/l3/l4/l5/name` came back flattened. `meetings/attendees/name` is three levels, so the
-design's central assumption holds comfortably.
+  { id, name, dateFormat, timeFormat, cognitoSubs L<S> }
+```
 
-**Aliased fields appear under the alias only.** Also verified: querying `aliasedName: name` yields
-`l1/l2/l3/l4/aliasedName` and *no* entry for `name`. A resolver testing for specific field names
-would conclude the client did not want the name and return a stub — and because `name: String!` is
-non-null, GraphQL would null the attendee, then the list, then potentially the meeting. Selection
-tests must therefore **fail toward fetching**: treat any selection beyond the known-free fields as
-"fetch", rather than enumerating the fields that require a lookup.
+```
+mootmaker-<env>-rooms             PK: id (S).  Unchanged.
+```
+
+**Retention is stored; the horizon is computed.** Storing a horizon *date* would need its own daily
+job to advance it. Store the **length** and compute `latestBookableDate = serverToday + 180` per
+request. One authority — the server — with no second schedule.
+
+**`cognitoSubs` is a list, not an index.** `deleteMyAccount` already holds the Person item when it
+needs to delete the linked Cognito users, so the reverse lookup costs nothing. Being a list is what
+makes "user(s)" expressible if a second sign-in method is ever added.
+
+**Storing ids as binary** (16 bytes) rather than 36-char strings would raise the per-day ceiling from
+~1,000 to ~1,545 meetings; UUIDs are 63% of the payload. Not proposed — recorded as available
+headroom.
+
+## Identity: `personId` as a Cognito claim
+
+`PostConfirmationCreatePersonHandler` sets `custom:personId` alongside the `custom:class` it already
+sets. `me` then costs **zero lookups to know the id** and one `ConsistentRead` `GetItem` for the
+mutable fields. No GSI on the hot path.
+
+Seven consequences, all of which are build steps:
+
+1. **`read_attributes` gains `custom:personId`; `write_attributes` must exclude it.** The list is not
+   additive over Cognito's default, so it restates `email`/`name` too. The exclusion is a security
+   control, not a formality: self-writing `custom:class` promotes you to admin, but self-writing
+   `personId` makes you *become another user* — their preferences, their rename, bookings as them,
+   and `deleteMyAccount` on their account.
+2. **Terraform sets the claim on directly-created users.** `aws_cognito_user.demo` and
+   `aws_cognito_user.e2e` skip PostConfirmation. Terraform already generates
+   `random_uuid.demo_person_id` and writes the demo Person item, so it can set the attribute in the
+   same place. **The e2e user gains a Person and a claim too** — it has neither today, and it is the
+   identity the whole acceptance suite runs as.
+3. **`CreateMissingPersonsRepair` must also set the claim**, or it repairs into a state that still
+   does not resolve.
+4. **A missing claim resolves to `me: null`** — matching today's `myPerson` behaviour. The state is
+   reachable because `PostConfirmationCreatePersonHandler` deliberately swallows its own failures.
+5. **`cognitoSub-index` is deleted.** The claim serves sub → person; `cognitoSubs` serves the
+   reverse. That removes the last `projection_type = "ALL"` duplicate.
+6. **M2M tokens carry no claim,** so `me` is null for `mootmaker-demo-data` and the acceptance suite.
+   `client_credentials` produces an access token with no user behind it — `Identity.java` already
+   documents this and works around it with an OAuth scope. **No mutation may derive the organiser
+   from the caller;** `MeetingInput.organiserId` stays explicit.
+7. **Custom attributes can never be removed or renamed once added to a pool.** The pool is being
+   destroyed and rebuilt anyway, so this is the cheapest moment the decision will ever be available.
+
+## The API: one composite entry point
+
+The full schema and every operation the webapp sends are in
+[`graphql-schema-and-caching-proposal/`](graphql-schema-and-caching-proposal/), which also records
+what the shape cost. Two consequences to carry into the build:
+
+**Query-level errors are GraphQL errors, not typed results.** `workspace` returns `Workspace!` with
+no error channel, so "too many dates" and "response too large" carry a typed `extensions.code`. A
+non-null field erroring nulls the whole `Workspace`, so an overflow loses `rooms` and `people` too.
+Accepted: the client constructs the request, `maxDates` is a bound it never trips, and
+`maxMeetingsPerResponse` should be unreachable against production's 508 meetings in total.
+
+**One timeout for the whole response.** The resolver Lambda moves from 15 s to **25 s** — under
+AppSync's unadjustable 30 s so the Lambda fails first with a diagnosable error rather than being
+orphaned, but with room for a full-month fetch. `database-reset` and `database-repair` keep 900 s;
+the cleanup Lambda gets 300 s.
+
+## Selection-aware resolving
+
+**The template change is a prerequisite.** `info.selectionSetList` is *not* in the resolver payload
+today — verified empirically by decoding `$util.toJson($ctx)`, the exact expression in `appsync.tf`'s
+shared `direct_lambda_request_template`, from a live response, which gives only
+`{"fieldName","parentTypeName","variables"}`. AWS documents that `selectionSetGraphQL` and
+`selectionSetList` "are not serialized by default"; they appear only when referenced explicitly.
+Nothing selection-aware works until the template changes.
 
 **One selection-aware resolver, not per-field resolvers.** Attaching resolvers to `Person.name` and
-`Person.dateFormat` would fire them independently — two invocations and two DynamoDB round trips for
-two fields that live on the same item. Keeping the existing single resolver and reading nested paths
-from `selectionSetList` gives one invocation and one (or zero) `BatchGetItem`, and preserves the
-request-scoped deduplication `ListMeetingsHandler` already does. A resolver on `Meeting.attendees`
-with `max_batch_size` remains the fallback if the fat handler's projection logic becomes unwieldy;
-it costs one extra invocation per batched field and would require `ResolverDispatchHandler` to
+`Person.dateFormat` would fire them independently — two invocations and two round trips for two
+fields on the same item. One resolver reading nested paths from `selectionSetList` gives one
+invocation and one (or zero) `BatchGetItem`, and preserves request-scoped deduplication. A resolver
+on `Meeting.attendees` with `max_batch_size` remains the fallback if the projection logic becomes
+unwieldy; it costs one extra invocation per batched field and needs `ResolverDispatchHandler` to
 handle a `List` event rather than a `Map`.
 
-**The server should derive "mine", not the client.** `meetings(filter: { personId })` makes the
-client fetch its own id and hand it back, which is what creates the entire startup waterfall
-(`MyPerson` must resolve before `ListMeetings` can start). A `mine: true` filter lets the server
-resolve the caller from `identity.sub`, as `MyPersonHandler` already does. This also dodges a
-consistency hazard: `cognitoSub-index` is a GSI and GSIs reject `ConsistentRead`.
-
-**The cache-slot objection to a composite field is void.** The argument against one composite entity
-was that it moves `rooms` from `ROOT_QUERY.rooms` to `ROOT_QUERY.workspace.rooms`, missing every
-existing `cache-first` reader and forcing a permanent `cache.writeQuery` mirror. That argument is
-entirely about not disturbing client code that is now being rewritten. It no longer applies, and
-should not be weighed. The choice itself remains open — see Open questions.
-
-**No cache persistence across a refresh.** `InMemoryCache` starts empty on every page load and will
-stay that way: no `apollo3-cache-persist`, no localStorage rehydration. This is not a concession, it
-is the point — **a refresh is a guaranteed stateless restart the user can always reach for**, and
-that escape hatch is worth more than saving one round trip on a cold load. It also removes an entire
-invalidation problem: persisted caches have to answer what happens to data written by the 18:00 NZT
-demo-data run while the tab was closed, and this design never has to.
-
-**A dedicated `meeting(id:)` entry point.** Meeting details is the only need that is not a date
-range, and today it is served by fetching every meeting ever stored and filtering client-side — which
-the schema's own documentation warns against. Day-keyed storage has no id index, so this needs a
-deliberate one: an id → date pointer written alongside the day item, letting `meeting(id:)` resolve
-in two reads. Chosen over putting the date in the URL because a details link then works from
-anywhere — bookmarked, shared, or refreshed — without assuming what loaded first.
-
-**No person index, and a maximum booking horizon instead.** Every user-facing query for a person's
-meetings already carries a date range: the home page asks for three days, the calendar for forty.
-There is exactly one path that does not — `DeleteMyAccountHandler` queries the participants table for
-the caller and filters `startTime >= now`, i.e. *every upcoming meeting*, unbounded in the future
-direction. That single operation is the only thing the index exists for.
-
-Rather than keep a whole join table to serve one rare operation, the design adds a **maximum booking
-horizon**: a meeting cannot be created more than a fixed period ahead. "Every upcoming meeting" then
-becomes a bounded, enumerable set of date keys that can be read with `BatchGetItem`, and the index
-disappears along with `meeting-participants`, its transactional writes, and
-`RebuildMeetingParticipantsRepair`.
-
-**Reset stays an IAM-invoked Lambda.** An earlier draft made it a GraphQL mutation so it could
-broadcast, but that reasoning does not survive scrutiny. History deletion has since dropped its own
-notification on complexity grounds, and the same applies here. More seriously, **`Mutation.reset`
-already existed and was deliberately removed**: per `mootmaker-api`'s README it was *"callable by any
-signed-in user, which the business functionality doc called out as a known gap"*, and the
-IAM-authenticated `database-reset` Lambda closed it *"since invoking it needs an explicit AWS
-permission grant rather than just being signed in to the product"*.
-
-Reintroducing it would trade a strong boundary for a weaker one, since an in-product role is not
-equivalent to an AWS permission grant. Reset therefore keeps its current shape, and connected clients
-are not told about a reset — the same accepted gap as history deletion. A consequence worth naming:
-**#76's RBAC work stops being a prerequisite for this design** and becomes valuable on its own terms.
-The flat admin role is still worth splitting; it is no longer blocking anything here.
-
-**Maximum subject length — a rule that does not exist today.** `CreateMeetingHandler` checks only
-that `subject` is non-blank. There is no upper bound, so a single meeting can carry a subject of any
-size and blow the item on its own, regardless of how few meetings the day holds. **No count-based
-limit can deliver the "no oversized item" guarantee while this term is unbounded.**
-
-**280 bytes, taking a tweet as the anchor and measuring in UTF-8.** UTF-8 because **DynamoDB itself
-sizes string attributes in UTF-8 bytes** — validating in the same unit the storage bills in makes the
-limit and the item cost the same quantity, rather than two numbers that can drift apart. Plain
-English text gets the full 280 characters; a subject written in simple emoji gets 70, because each
-costs four bytes. This is a
-deliberate trade: measuring characters instead would mean budgeting 1,120 bytes for every meeting on
-the chance that one of them is emoji, which costs roughly 40% of the day's entire capacity to buy a
-promise almost nobody exercises. The user-facing counter should count down in the same units it
-enforces, so someone pasting emoji sees the budget fall faster rather than being rejected on submit.
-
-**Day limits: 320 meetings, 20 attendees.** A meeting costs `212 + 37 × attendees + subjectBytes`, so
-the worst case is `212 + 740 + 280 = 1,232` bytes and a full day is ~394 KB, or **96% of the 400 KB
-cap**. That is deliberately tight: the write-time byte measurement (layer 3 below) measures the
-*actual* serialised item, so an error in this byte model produces a clean "day is full" rejection
-rather than a DynamoDB failure. Headroom buys nothing that layer 3 does not already provide.
-
-**No per-organiser limit.** Considered and dropped: the absolute day cap is the only rule that bounds
-the item, and a per-organiser cap would have been a fairness control rather than a safety one. One
-user filling a day is an acceptable outcome on a demo system.
-
-**The day cap can still bind before the rooms are full, but only just.** Ten rooms across 36
-fifteen-minute slots give a physical capacity of 360 meetings a day, so 320 refuses a booking with
-rooms free — but only once the building is 89% full, against 53% under the earlier 200-meeting
-figure. Closing the gap entirely is possible by lowering the attendee limit to 16, which makes a
-physically-full 360-meeting day fit at 95%; that trade is available if the cap ever actually binds.
-In practice it will not: `production` holds **508 meetings in total** and `mootmaker-demo-data`
-creates roughly 20 a day.
-
-**The day is the unit.** One day is a DynamoDB partition key, an AppSync fetch unit, an Apollo cache
-entity keyed by `date`, and a subscription filter value. This alignment is what makes the caching
-tractable: an Apollo cache keyed by day can distinguish "no meetings that day" (entity present,
-empty list) from "never fetched that day" (entity absent) — an ambiguity that a merged canonical
-list with `keyArgs: false` cannot resolve without hand-rolled range tracking.
-
-**Bulk creation is scoped to one day.** `@aws_subscribe` pushes the mutation's return value and
-filters match against fields on it. A bulk result spanning many days has no single `date` to filter
-on, so subscribers would receive everything and filter client-side — re-creating the fan-out
-multiplier. `createMeetings(date: String!, meetings: [MeetingInput!]!)` gives one day, one item
-write, one subscription message, one filterable field. It also sidesteps `TransactWriteItems`'
-100-item cap, which a cross-day bulk of 100 meetings with attendees (~500 items) would exceed.
-
-**Subscriptions over the alternatives.** AppSync subscriptions need no new infrastructure, reuse the
-existing Cognito authoriser, and need no connection registry. SSE would mean a Lambda holding an
-idle connection and being billed wall-clock: 512 MB × 900 s is ~450 GB-s per connection per
-15-minute window, about **$0.03 per connected browser-hour**, or ~$70/month for ten users on an
-eight-hour day. The same traffic in AppSync connection-minutes is ~$0.0004. API Gateway WebSockets
-avoid the idle billing but rebuild what AppSync already provides. Rates verified against the
-published pricing and confirmed against the actual bill: August's 27,474 requests cost $0.109896,
-which is exactly `requests × $4/million`. **The free tier is not being applied to this account** —
-budget without it.
-
-## Choices you had me make
-
-- **320 meetings per day, at 96% of the item cap.** You said headroom was not needed given how
-  accurate the test is, and the arithmetic allows up to 332. I took 320 as a round number under that.
-  Raising it to 330 is defensible; the write-time byte check makes either safe.
-- **`Day` keyed by `date` rather than an opaque id.** A human-readable, client-derivable cache key
-  means the webapp can construct `Day:2026-09-14` without a round trip to discover it.
-- **A payload shaped for the new handlers, not for the current ones.** An earlier draft proposed
-  building the payload field by field specifically so that `info.fieldName`, `info.parentTypeName`
-  and `identity` stayed where they are and `ResolverDispatchHandler` and `Identity` went untouched.
-  That reasoning is void under "no decision carried forward": the template should carry exactly what
-  the handlers need in whatever shape reads best, and the handlers change to match. It stops
-  shipping every CloudFront request header to Lambda on every call either way.
-- **Day-scoped bulk over enhanced subscription filters.** `setSubscriptionFilter` with a `contains`
-  operator over a `dates` array would work, but the payload still carries every meeting — it filters
-  who is woken, not how much they receive.
-
-## Open questions
-
-### Blocking
-
-*None. Both questions that were blocking were answered on 2026-09-09.*
-
-**The shape of the top-level query — a single composite `workspace` entry point.** Chosen over
-sibling root fields: one HTTP request, one Lambda invocation and one SnapStart restore on the
-request that most decides perceived load speed. The full schema and every operation the webapp
-sends are written out in
-[`graphql-schema-and-caching-proposal/`](graphql-schema-and-caching-proposal/), which also records
-what the choice cost — partial failure, and one timeout for the whole response — and why both are
-accepted. The straw man for the shape that lost has been deleted rather than kept as a footnote.
-
-**The booking horizon — 180 days.** `deleteMyAccount` now finds a caller's meetings by scanning the
-day items rather than by a computed range of horizon dates, so the horizon no longer has to be short
-enough to keep that operation cheap, and the choice became a product one rather than a performance
-one. It bounds the table at
-`180 + 37 = 217` day items, which is the hard upper bound on row count the storage guarantee needs.
-
-*(The cleanup job's broadcast question is settled — see "Retention". It does not broadcast, for
-now.)*
-
-
-### Non-blocking
-
-- **`personId` as a Cognito claim.** Removes the waterfall's dependency but not the `myPerson` call,
-  since `name`, `dateFormat` and `timeFormat` are all mutable and must not be baked into a token.
-  Custom attributes cannot be removed or renamed once added to a pool, and M2M client-credentials
-  tokens have no user behind them, so the fallback path is permanent.
-- **A past-booking rule.** Nothing in `MeetingError` rejects a booking in the past, so history is
-  not immutable and cannot be cached permanently. Adding the rule would make past days safely
-  cacheable forever.
-- **`graphql-ws` protocol support.** Determines whether the client is a stock `GraphQLWsLink` or a
-  hand-rolled link.
-
-## Impacts on components
-
-Scope here is "everything the new design touches", not "the smallest set of files that could
-work" — see the second decision above.
-
-**`mootmaker-api`** — `api/mootmaker.graphql` (new `Day` type, composite query, `createMeetings`,
-`Subscription`; the `personId` filter argument goes away with the client that needed it);
-`deploy/terraform/appsync.tf` (request template, subscription resolvers, `@aws_subscribe`);
-`deploy/terraform/dynamodb.tf` (day-keyed meetings table, both GSIs and the `bucket` attribute
-removed). `MeetingRecord` and `MeetingParticipant` are deleted; `ListMeetingsHandler`,
-`CreateMeetingHandler`, `ResolverDispatchHandler` and `DatabaseReset` are rewritten against the new
-shapes rather than adapted.
-
-**`mootmaker-webapp`** — `apolloClient.ts` (`typePolicies`, designed around the composite shape from
-scratch); `graphql/queries.ts` and `mutations.ts` rewritten rather than edited; `HomePage`,
-`RoomAvailabilityPage`, `PersonCalendarPage`, `AddMeetingPage`, `SettingsPage`. The router-state
-workaround in `AddMeetingPage` and the paired `createdMeeting` merge in `RoomAvailabilityPage` are
-**deleted** — they exist only to work around a read-after-write window that day-keyed reads with
-`ConsistentRead` remove entirely.
-
-**`mootmaker-demo-data`** — `DemoData.java`'s `runInParallel(meetings, …createMeeting…)` becomes one
-bulk call per seeded day.
-
-**`mootmaker-release`** — no change expected, but the acceptance suite it gates changes materially.
-
-## Changes to the domain data model and data storage models
-
-The delta against `docs/reference/data-model.md`:
-
-- **Meetings table re-keyed by day.** Partition key becomes the date; a day's meetings live in one
-  item as a list. Adds a version attribute for optimistic locking.
-- **Both meetings GSIs removed.** `bucket-startTime-index` and `roomId-startTime-index` exist to
-  answer range and per-room queries that a day key answers directly. Removing them also removes the
-  constant `bucket = "ALL"` attribute, which exists solely to give the GSI a partition key.
-- **`meeting-participants` is deleted**, along with `RebuildMeetingParticipantsRepair`. Every
-  user-facing query carries a date range, and the one that did not is replaced by the booking
-  horizon.
-- **A new id → date pointer** backing `meeting(id:)`. Small, written in the same transaction as the
-  day item, and the only secondary lookup structure the design keeps.
-- **A maximum booking horizon** becomes a business rule, bounding how far ahead a meeting may be
-  created.
-- **No Cognito change**, unless the `personId` claim is adopted later.
-- **Storing ids as binary** (16 bytes) rather than 36-char strings would raise the per-day ceiling
-  from ~1,000 to ~1,545 meetings; UUIDs are 63% of the payload. Not proposed, recorded as available
-  headroom.
-
-## Technical considerations
-
-- **The template change is a prerequisite**, not a detail — nothing selection-aware works until
-  `selectionSetList` is explicitly serialised.
-- **Treat the resolver layer as a rewrite, not a refactor.** `MeetingRecord`'s split from `Meeting`
-  exists to model "id-only as persisted" against "resolved for the response"; with day items and
-  selection-aware fetching, that distinction is drawn in a different place, and the types should be
-  redrawn rather than adapted. The same applies to `ResolverDispatchHandler`'s routing key and to
-  `BatchLoader`'s interface.
-- **Aliases defeat naive field matching.** Fail toward fetching. Unit-test the selection logic
-  against recorded `selectionSetList` payloads, not only through end-to-end queries.
-- **Non-null propagation turns a stub/selection mismatch into silent data loss**, not a degraded
-  response.
-- **Subject length is currently unbounded, and so are room and person names.** Only `subject` sits
-  inside the day item, so it is the one that threatens the size guarantee — but the same absence of a
-  bound applies to `RoomInput.name` and `PersonInput.name`, and closing all three together is
-  cheaper than revisiting the question later.  (comment: Is this still true?)
-- **The day limit is a real cap, and its failure must read as such.** Physical capacity is 360
-  meetings a day against a limit of 320, so a user can be refused while a room stands free. The
-  `MeetingError` needs to say the *day* is full, not the room — otherwise it is an unexplainable
-  rejection.
-- **Subject length must be measured in UTF-8 bytes, not `String.length()`.** Java strings are UTF-16,
-  so `length()` counts code *units*: an emoji outside the Basic Multilingual Plane counts as 2 there
-  and 4 in UTF-8. Neither number is the other. `subject.getBytes(UTF_8).length` is the only correct
-  measure, and it is the one the size budget is built on.
-- **Normalise to NFC before measuring and storing.** "é" is either one code point (2 bytes) or "e"
-  plus a combining accent (3 bytes), depending on the writer's keyboard and OS. Without
-  normalisation two visually identical subjects have different byte counts and one can be rejected,
-  which is unexplainable to the user. The contract is therefore *280 bytes of NFC-normalised UTF-8*.
-- **Reject, never truncate.** Cutting a string at a byte boundary can split a character mid-sequence
-  and produce mojibake. A client-side counter must truncate on grapheme boundaries, not bytes.
-- **"How many emoji fit" has no single answer.** A simple emoji is 4 bytes, but 👨‍👩‍👧‍👦 is four of them
-  joined by three zero-width joiners — 25 bytes — and skin-tone modifiers add 4 each. So the range is
-  roughly 70 down to 11. This does not threaten the budget at all: 280 bytes is 280 bytes whatever it
-  holds, so the item arithmetic stays exact and the variability lands on the user's character
-  counter, which is the right place for it.
-- **The limits need their own error codes.** `MeetingError` gains cases for the day limit, the
-  attendee limit, the subject length limit, and the booking horizon. All are validation failures a client must be able to render, not exceptions — a user who
-  hits one should see a sentence, never a 500.
-
-### Retention: the bill stays flat under steady usage
-
-`principles.md`'s **"Nothing accumulates without a bound"** requires that under steady usage the bill
-is flat. Meeting history is the one place mootmaker currently breaks it — meetings are written and
-never deleted, so storage grows with time rather than with usage.
-
-**Historic meetings are kept for at least 30 days**, bounded by a **stored** earliest-retained date
-rather than one computed from the clock.
-
-The date is held as a config item in the meetings table, always aligned to a **Monday**, and read
-with `ConsistentRead`. Consistency is not incidental: an eventually-consistent read could return a
-stale, *more permissive* boundary, which is exactly the failure the ordering below exists to prevent.
-
-Monday alignment means the calendar's week windows and the boundary are the same kind of thing, so
-"is this week reachable" is an exact comparison rather than a straddling judgement. The cost is that
-retention becomes a range — between 30 and 37 days depending on where in the week the job falls — so
-**the storage bound uses 37 as its worst case**.
-
-#### The cleanup order, and why it is that way
-
-Each run, in this order:
-
-1. **Advance the stored date** to the appropriate Monday.
-2. *(Deferred)* **Notify clients**, on the same subscription channel as every other write, so they
-   evict `Day` entities before the new boundary.
-3. **Delete the data** before it — day items and their `id → date` pointers, transactionally.
-
-(Step 2 is deferred — see "It does not notify clients" below. The ordering of 1 and 3 is what
-matters, and it stands on its own.)
-
-The invariant this protects is that **the advertised boundary must never be more permissive than
-reality**. Deleting first would open a window where the stored date still promises data that is
-already gone, and clients asking for those days get empty results indistinguishable from "nothing was
-booked". Advancing first opens the opposite window — data that still exists but is no longer
-advertised — which is harmless. The ordering holds even if the job dies between steps, which is the
-real test of it.
-
-It is also catch-up safe: a job that has not run for weeks advances to the correct Monday and deletes
-everything before it, in one pass, with one notification.
-
-**Deletion is an explicit weekly operation, not a DynamoDB TTL.** TTL is the obvious answer and it is
-the wrong one here, for four reasons:
-
-0. **TTL bakes the policy into the data.** The expiry attribute is written per item, so changing the
-   retention window means rewriting every existing item to correct a value that is now wrong. A
-   scheduled job reads the policy at run time, so changing retention is a config change. The
-   attribute's value is also a function of the *meeting's* date rather than the write time, which is
-   one more thing to compute correctly on a path where getting it wrong deletes real data.
-
-1. **TTL cannot tell anyone.** A connected client holding `Day:2026-08-08` learns nothing when that
-   day disappears. An operation can broadcast on the same subscription channel as every other write,
-   which is the same argument that makes reset a mutation rather than a side door.
-2. **TTL is not atomic across items.** The day item and its `id → date` pointers would expire
-   independently, so `meeting(id:)` can resolve a pointer whose day is already gone. An operation
-   deletes the day and its pointers in one transaction, so the inconsistency window does not exist.
-3. **TTL is not even a read boundary.** Deletion is best-effort within roughly 48 hours of expiry,
-   and — the part that is easy to miss — **expired-but-not-yet-deleted items are still returned by
-   reads**. "Older than 30 days is gone" would therefore be false in the data, and every read path
-   would need to filter on the expiry attribute anyway. Application-level filtering plus TTL is
-   strictly more code than an explicit delete, for a weaker guarantee.
-
-TTL's real advantage is that deletes cost zero WCU. That matters when expiring millions of rows; here
-it is **seven day items and their pointers per week**, so the saving is nil.
-
-**No TTL at all, not even as a backstop.** An earlier draft kept one at a longer window to protect the
-bill if the job broke. That is worse than it looks: a backstop that silently covers for a failed job
-means **the failure is never discovered** — the bill stays flat and nothing surfaces. It would also
-need a window strictly longer than 37 days or it would delete data the stored boundary still
-advertises, breaking the very invariant the ordering exists to protect.
-
-The principle is instead held by **one mechanism plus a check**: if the cleanup has not succeeded
-within a defined window, that is a fault to be raised, not absorbed.
-
-**The stored boundary is its own dead-man's switch.** If the job has not run, `earliestRetainedDate`
-has not advanced, so "is the stored date within 37 days of today?" detects the exact failure using a
-value the system already holds and already returns to clients. No metric, no alarm, no new resource,
-no cost. A CloudWatch alarm would add only *automatic* notification, and it is not free — $0.10 per
-alarm metric per month, a standing charge that does not scale to zero, against an account currently
-running zero alarms and $0 of CloudWatch spend. For a weekly job whose failure mode is gradual
-storage growth, the recurring check in #77 is the proportionate answer; an alarm is an optional
-convenience to be decided on its own merits.
-
-**Cadence: weekly, on an EventBridge scheduled rule.** It pairs with Monday alignment — one run, one
-Monday, one week of data — and the work per run is bounded by construction.
-
-The shape is already proven here: `mootmaker-demo-data`'s `schedule.tf` is an
-`aws_cloudwatch_event_rule` with a cron expression, an `aws_cloudwatch_event_target`, and an
-`aws_lambda_permission` scoped to that rule with `events.amazonaws.com` as principal. **It costs
-nothing** — scheduled rules targeting an AWS service directly are not billed, only publishing custom
-events is, and the invocation falls inside Lambda's always-free tier. Confirmed against the bill:
-EventBridge does not appear as a line item at all despite demo-data running daily.
-
-Two details worth carrying across. The target should set `input = jsonencode({})` explicitly rather
-than letting EventBridge send its own event envelope, so the handler's payload is a contract rather
-than an accident. And the rule's `state` should be enabled in `test` and `production` but not in
-ephemeral environments, which never live long enough to accumulate anything.
-
-**The cleanup Lambda is simpler than demo-data**, because it talks to DynamoDB rather than the API:
-no SSM parameters, no M2M credentials, no Cognito token endpoint. An IAM role with permissions on the
-meetings table is the whole dependency list.
-
-**Deployed everywhere, scheduled only where it matters.** The function is deployed in every
-environment including ephemeral ones; only the EventBridge rule's `state` differs. Acceptance tests
-invoke it directly, exactly as `DatabaseReset` already invokes `database-reset` — `LambdaClient` with
-the test runner's IAM credentials, function name from an environment variable `verify.sh` computes
-the same deterministic way Terraform names it. Leaving the rule disabled in ephemeral is not only a
-cost decision: a schedule firing mid-run would make acceptance tests nondeterministic.
-
-**The test creates its own history, and the job runs with no payload.** An ephemeral environment
-created this morning has nothing 30 days old, so the test seeds past-dated day items directly into
-DynamoDB — it already holds IAM credentials for invoking the Lambda, so writing table items needs no
-new access. Doing it this way rather than passing an override boundary means the job **computes its
-own boundary during the test**, which is the logic most likely to be wrong and the part an override
-would bypass. It is also independent of whether past-dated bookings stay legal through the API, which
-is its own open question.
-
-A `dryRun` payload is still worth having, following `database-repair`'s `{"dryRun": true}`, so a test
-can assert what *would* be removed before anything is.
-
-**It does not notify clients — for now.** Broadcasting would mean either routing the deletion through
-a mutation (pulling it into the public schema and the RBAC work in #76) or a separate
-broadcast-only call, and neither earns its complexity yet. The consequence is bounded: the ordering
-still protects every reader who fetches the boundary *after* it advances, which is every new page
-load. Only a session already in flight keeps a stale boundary, and it can then navigate to a
-just-deleted week and see it as empty. A refresh corrects it completely — which is exactly the
-stateless restart the no-cache-persistence decision guarantees. Worth revisiting once subscriptions
-exist and the marginal cost is one more channel.
-
-Retention composes with the booking horizon already decided. The horizon bounds how far *forward* day
-items can exist; retention bounds how far *back*. Together the table holds at most
-`horizon + retention` items — **a hard upper bound on row count, not merely a cap on the growth
-rate.**
-
-Cognito is the one component that legitimately grows, since MAUs track users rather than time —
-constant usage keeps it flat, so there is nothing to bound.
-
-**Two consequences the UI has to answer.**
-
-The person calendar's "Previous week" control has **no lower bound** — `setFirstMonday(current =>
-current.subtract(7, 'day'))` pages backwards indefinitely. With retention it will walk into weeks
-that are empty because the data was deleted rather than because nothing was booked, which is
-indistinguishable to the user. It needs a floor at the retention boundary. (comment: lets add a constrant on date navigation in the webapp to only the window that can have meetings.  I belieeve this date range is implicitly returned in the top level query, lets discuss where it should be stored backend.)
-
-**The server publishes that boundary; the client never computes it.** The top-level query returns the
-stored `earliestRetainedDate`, and the client disables "Previous week" against it. The alternative —
-having the client work out "30 days before today" for itself — puts **two authorities on one fact**:
-the deletion job uses the server's date, the browser uses the user's. A user in UTC+13, or with a
-skewed clock, then asks for a day the server already considers expired. Padding the client's limit by
-a day would hide that disagreement rather than remove it, and a test would not catch it, because the
-test would encode the same assumption the code does. Because the date is stored and Monday-aligned,
-the comparison is exact rather than exact-if-the-clocks-agree.
-
-**A client already viewing a week that falls out of retention is not moved.** The invalidation
-notification updates the boundary and empties the affected days; it does not navigate anyone. Moving
-a viewport in response to a background event the user did not cause is the same family of defect as
-the layout shifts behind webapp#44, #46 and #50 — the fix for which was, in every case, to stop
-things moving underneath the user. The control disables itself where they stand and the empty week
-says why. In practice this is close to unreachable anyway: the boundary advances once a week, so a
-user would have to be viewing the oldest retained week at the moment the job runs.
-
-A bookmarked or shared link to a meeting older than 30 days stops resolving, and **`meeting(id:)`
-simply returns not-found** — the same answer as an id that never existed. No distinct "expired"
-result: it is one less state for every caller to handle, and it avoids confirming that a given id was
-once valid, which a separate expired response would. The page renders its ordinary not-found state.
-
-### The transport bounds: AppSync's hard limits
-
-The 400 KB DynamoDB item cap bounds what can be *stored* in a day. Three AppSync quotas bound what
-can be *moved*, and they are different numbers with different consequences. None is adjustable.
-
-| Quota | Value | What it binds |
+**Selection tests must fail toward fetching.** Aliased fields appear under the alias *only* —
+verified: querying `aliasedName: name` yields `…/aliasedName` and no entry for `name`. A resolver
+enumerating known field names would conclude the client did not want the name and return a stub;
+because `name: String!` is non-null, GraphQL then nulls the attendee, then the list, then potentially
+the meeting. **Non-null propagation turns a stub/selection mismatch into silent data loss, not a
+degraded response.** So treat any selection beyond the known-free fields as "fetch".
+
+## Repositories
+
+`DayRepository`, `PersonRepository`, `RoomRepository` — **instances constructed once at init**, held
+as handler fields, inside the SnapStart snapshot alongside `DynamoDbClientProvider.client()`.
+Standing rule: **nothing in the snapshot may hold state that must differ per restore** — no cached
+clock, no seeded random, no per-invocation counters as fields.
+
+This is **not** a portability abstraction; a datastore swap is not anticipated and would not justify
+it. It is an *invariant-ownership* abstraction. Five places write a day item — `createMeeting`,
+`createMeetings`, `deleteMyAccount`, the cleanup Lambda, and the retention test's seeding — and every
+one must do the version-conditional write, the retry-on-conflict, the byte measurement before
+`PutItem`, and the pointer in the same transaction. Written inline five times that drifts, and layer
+3 of the size guarantee stops being a guarantee and becomes a convention.
+
+`DayRepository` is therefore the **only** code that writes a day item. It owns: `ConsistentRead` day
+reads; version-conditional writes with `PTR#` items in the same `TransactWriteItems`; byte
+measurement immediately before `PutItem`; retry-on-conflict; transactional day+pointer deletion; a
+scan of all days; and the `CONFIG#retention` item.
+
+**`BatchLoader` is absorbed and deleted.** It is a generic "batch-get by id from a named table"
+helper, and only people and rooms are ever batch-loaded. Folding it into
+`PersonRepository.loadByIds(Set)` and `RoomRepository.loadByIds(Set)` removes the table-name argument
+from exactly the call sites where the selection logic is hardest to read.
+
+**Explicitly not:** interfaces with a single implementation, in-memory fakes, or a generic repository
+framework.
+
+## Limits, and the two guarantees
+
+Two separate bounds with different consequences: what can be **stored** (400 KB DynamoDB item) and
+what can be **moved** (AppSync's quotas). None of the AppSync quotas is adjustable.
+
+| Limit | Value | Bounds |
 |---|---|---|
-| Request execution time | **30 s** | Every query and mutation |
-| Resolver/handler response size | **5 MB** | The composite query's whole result |
-| **Subscription payload size** | **240 KB** | Anything broadcast |
+| `maxMeetingsPerDay` | **320** | The day item |
+| `maxAttendees` | **20** | Per meeting |
+| `maxSubjectBytes` | **280** | NFC-normalised UTF-8 |
+| `maxRoomNameBytes` | **100** | Unbounded today |
+| `maxPersonNameBytes` | **100** | Unbounded today |
+| `maxRooms` | **200** | `rooms`, an unfiltered scan |
+| `maxPeople` | **1,000** | `people`, same |
+| `maxDates` | **42** | One request |
+| `maxMeetingsPerResponse` | **2,000** | The one that makes the response bound unbreakable |
+| Request execution time | **30 s** | AppSync, every query and mutation |
+| Resolver response size | **5 MB** | AppSync |
+| Subscription payload | **240 KB** | AppSync — the tightest limit in the design |
 
-**Lambda timeouts align below the 30 seconds, not at it.** The resolver function is currently 15 s.
-It moves to **25 s**: under AppSync's limit so the Lambda fails first with a diagnosable error rather
-than being orphaned while AppSync has already given up, but with room for a full-month fetch that 15 s
-does not comfortably allow. `database-reset` and `database-repair` keep their 900 s — they are never
-fronted by AppSync. The history-cleanup Lambda is not AppSync-fronted either and its work is bounded
-by construction, so 300 s is ample.
-
-**The subscription cap invalidates part of the mutation design.** A worst-case day is roughly
-**618 KB** of JSON, so a `Day` cannot be broadcast. Mutations may still return the whole `Day`,
-because they answer against the 5 MB budget.
-
-**Subscriptions carry invalidated dates, not data.** The broadcast is a list of dates whose contents
-have changed; the client evicts those `Day` entities and lets its ordinary fetch path refill them.
-This was chosen over broadcasting the created meeting, and it is better for reasons beyond fitting
-the cap:
-
-- **The payload is uniform and tiny** whatever the day holds, so the 240 KB limit stops being a
-  design constraint rather than being narrowly satisfied.
-- **One channel serves every kind of change** — `createMeeting`, `createMeetings`, and later history
-  deletion or reset, which a meeting-carrying subscription could never express.
-- **It is idempotent.** The same invalidation twice is harmless; merging the same meeting twice needs
-  deduplication.
-- **The publish-only mutation becomes trivial**, carrying dates rather than domain objects — which
-  also removes the return-type-match awkwardness, since there is only ever one payload type.
-
-**How it actually triggers a refetch**, which is the part worth being precise about. Eviction does
-not fetch: `useFragment` is cache-only, so evicting `Day:<date>` makes it report `complete: false`
-and issues no request. What works is that eviction *is* a cache change, so the fragment re-renders,
-the gap computation re-runs, the date is now missing from the cache, and the existing `useQuery`
-fires for it. **The same code path as ordinary navigation** — no special case and no separate
-`refetch` call.
-
-The costs, stated plainly: one extra round trip before the user sees the change, and every client
-viewing that date refetches at once. The second is a classic invalidation stampede and is irrelevant
-at this scale, where concurrent viewers are counted in single figures.
-
-| | Payload | Budget | Client work |
-|---|---|---|---|
-| `createMeeting` response | The whole `Day` | 5 MB | None — `Day` is an entity, Apollo replaces it |
-| `daysInvalidated` subscription | A list of dates | 240 KB, unreachable | Evict; the gap fetch refills |
-
-One consequence worth banking: **this makes notifying on history deletion cheap later.** The cleanup
-Lambda was left silent because routing it through a mutation was disproportionate. With a
-dates-only publish mutation it can call the same channel with the dates it removed, needing no new
-machinery.
-
-**JSON is much larger than the stored form**, which is easy to get wrong. A worst-case meeting is
-~1,232 bytes in DynamoDB and **~1,931 bytes as JSON** — attribute names are repeated per object, and
-Apollo adds `__typename` to every selection set. At 20 attendees that is 23 objects per meeting and
-roughly 480 bytes of `__typename` alone, a quarter of the payload.
-
-### How subscriptions end
-
-Relevant because it decides whether anything has to be cleaned up, and because it is the question
-that separates AppSync from a hand-rolled WebSocket.
-
-**Believed, with reasonable confidence:**
-
-- **Subscriptions are scoped to the WebSocket connection.** When the connection goes, every
-  subscription on it goes with it. There is no server-side registry of subscribers to reap — which
-  is precisely the work API Gateway WebSockets would have required, where stale connection ids must
-  be detected on a failed `PostToConnection` and deleted by hand.
-- **AppSync sends periodic keep-alive (`ka`) messages**, and the `connection_ack` it returns at
-  connect time carries a `connectionTimeoutMs` telling the client how long it may wait between
-  messages before treating the connection as dead.
-- **A machine switched off mid-session closes nothing.** No WebSocket close frame and no TCP FIN
-  is sent, so the connection is discovered as dead only when AppSync next tries to write to it — a
-  keep-alive or a subscription message — and that write fails, or the timeout elapses. Detection is
-  therefore in the order of tens of seconds to a couple of minutes, not instant.
-- **Billing accrues until detection.** Connection-minutes keep counting for a dead-but-undiscovered
-  connection. At $0.08 per million connection-minutes this is not worth engineering around.
-
-**Not verified, and on the reading list above:** the default `connectionTimeoutMs`, the keep-alive
-interval, whether AppSync enforces a maximum connection lifetime (24 hours is the figure I associate
-with it, without confidence), and whether a subscription can outlive a reconnect or must always be
-re-established.
-
-The practical consequence either way: **nothing in this design has to clean up after a disappeared
-client.** That is a property of AppSync rather than of anything written here, and it is one of the
-stronger reasons for choosing it over the alternatives.
-
-### The response bound, and the limits that make it unbreakable
-
-The requirement is the same as for item size: **no request a client can construct may produce a
-response over the limit.** That needs every contributing quantity bounded.
-
-```
-response  =  maxRooms × roomJson
-          +  maxPeople × personJson
-          +  totalMeetings × meetingJson          ≤  safetyFraction × 5 MB
-```
-
-**Static limits, all newly required:**
-
-| Limit | Value | Why |
-|---|---|---|
-| `maxRooms` | 200 | Bounds `rooms`, which is an unfiltered scan |
-| `maxPeople` | 1,000 | Bounds `people`, same |
-| `maxRoomNameBytes` | 100 | Unbounded today |
-| `maxPersonNameBytes` | 100 | Unbounded today |
-| `maxDates` | 31 | One request covers the calendar's 30 weekdays |
-| `maxMeetingsPerResponse` | 2,000 | The one that actually makes it unbreakable |
-
-The last is the important one. `maxDates × maxMeetingsPerDay` is 31 × 320 = 9,920 meetings, which at
-1,931 bytes each is 19 MB — **the static limits alone permit a request that cannot be answered.**
-Lowering `maxDates` to make the product safe would put it at 6, which is useless for a calendar.
-
-So the bound is enforced dynamically instead: the resolver accumulates days in order and **fails fast
-with a typed error once the running meeting count would exceed 2,000**, before building a response it
-cannot send. 2,000 × 1,931 ≈ 3.9 MB, plus 200 rooms (~37 KB) and 1,000 people (~178 KB), against a
-5 MB ceiling.
-
-That cap is unreachable in practice — `production` holds 508 meetings in total — but it is what turns
-"the response is probably fine" into a guarantee with a test behind it.
-
-**New `MeetingError`/query error cases**: too many dates requested, and response would be too large.
-Both are validation failures a client renders, never a 500. (comment: lets consider limits on how many days of meetings you can ask for at once)
+**`maxDates` is 42 because the calendar needs 30.** `WEEKS_SHOWN = 6` × `WORK_DAYS_PER_WEEK = 5` is
+30 weekday dates spanning 39 calendar days. 42 covers the whole span with a week to spare, and keeps
+working if the UI ever shows weekends — a tighter bound would not.
 
 ### The item-size guarantee
 
-The requirement is absolute: **there must be no input a user can construct that produces a DynamoDB
-item over 400 KB.** Meeting it needs the limits to be provably consistent with each other, not merely
-individually sensible. The invariant is:
+**No input a user can construct may produce an item over 400 KB.** The invariant:
 
 ```
 dayLimit × (perMeetingBase + 37 × attendeeLimit + subjectMaxBytes) + overhead  ≤  safetyFraction × 400 KB
@@ -774,204 +273,603 @@ dayLimit × (perMeetingBase + 37 × attendeeLimit + subjectMaxBytes) + overhead 
   320       × (212            + 37 × 20            + 280)           + overhead  ≈  394 KB  (96%)
 ```
 
-Enforced at three layers, because any one of them alone can be defeated by a later change:
+Deliberately tight: layer 3 measures the *actual* serialised item, so an error in the byte model
+produces a clean "day is full" rejection rather than a DynamoDB failure. Headroom buys nothing layer
+3 does not already provide.
+
+**Three layers, because any one alone can be defeated by a later change:**
 
 1. **At deploy.** The handler asserts the invariant during initialisation and refuses to start if the
-   configured limits cannot fit. SnapStart makes this land in exactly the right place: publishing a
-   version *executes init*, so an inconsistent set of limits fails the **deploy**, not a user's
-   booking. This is what stops the guarantee decaying when someone later raises a limit, or adds a
-   field to the persisted meeting shape without revisiting the arithmetic.
-2. **At validation.** Per-request checks on day count, organiser count, attendee count, subject
-   bytes, and horizon, each returning a `MeetingError`.
-3. **At write.** The serialised item is measured immediately before `PutItem` and rejected if it
-   exceeds the safety threshold. This is the backstop that holds even if the byte model itself is
-   wrong — and it will drift, because the model is an estimate of DynamoDB's own accounting.
+   limits cannot fit. SnapStart lands this exactly right: publishing a version *executes init*, so an
+   inconsistent set of limits fails the **deploy**, not a user's booking. Without this the guarantee
+   decays the moment someone raises a limit or adds a field to the persisted shape.
+2. **At validation.** Per-request checks on day count, attendee count, subject bytes, and range, each
+   returning a `MeetingError`.
+3. **At write, in `DayRepository`.** The serialised item is measured immediately before `PutItem`.
+   The backstop that holds even if the byte model is wrong — and it will drift, being an estimate of
+   DynamoDB's own accounting.
 
-Without layer 1 the guarantee is a comment; without layer 3 it depends on an estimate being exact.
+**The day cap can bind before the rooms are full, but only just.** Ten rooms × 36 fifteen-minute
+slots is a physical capacity of 360, so 320 refuses a booking with rooms free — at 89% of the
+building. Lowering attendees to 16 would make a full 360-meeting day fit at 95% if it ever binds. In
+practice `production` holds **508 meetings in total** and demo-data creates ~20 a day.
 
-- **The day-count check is a read-modify-write.** Two concurrent creates can both observe 199 and both
-  decide they fit. The conditional write on the day item's version attribute resolves it: the loser
-  retries and re-validates against the updated count, rather than re-validating against a stale read.
-- **Write amplification.** Adding one meeting rewrites the whole day: on-demand billing is 1 WRU per
-  KB, so a full 400 KB day costs ~400 WRU per booking against roughly 10 today. At demo scale a day
-  is ~20 KB and this barely matters, but it grows linearly and the last booking pays for every
-  earlier one.
-- **Write contention is the sharper risk.** One item per day means read-modify-write with a version
-  attribute and conditional-write retry, replacing today's lock-free independent `PutItem`s.
-  `DemoData`'s parallel creates would collide immediately — which the day-scoped bulk mutation
-  resolves.
-- **The 15-second Lambda timeout** needs checking against a bulk create; validation should get
-  faster (load the day once, check overlaps in memory) but that is an assumption to measure.
-- **Subscriptions bill per delivery, per subscriber.** Filtering to the days a client is displaying
-  is a cost control, not just a correctness one.
-- **What this leaves behind.** Subscriptions add AppSync real-time connection logging to the existing
-  log group, which already has a retention policy — no new unbounded store. The day items replace
-  per-meeting items rather than adding to them. Nothing in this design creates a new class of
-  artefact that accumulates without a bound.
+**The failure must read as such:** `DayIsFull` says the *day*, not the room. A rejection naming the
+room is unexplainable when a room stands free.
 
-## Testing impacts
+**No per-organiser limit.** Considered and dropped — the absolute day cap is the only rule that
+bounds the item; a per-organiser cap would be a fairness control. One user filling a day is
+acceptable on a demo system.
 
-(comment: I'd like a test that covers two concurrent users, one creates a meeting, the other one's page (which happens to be showing meetings for that day) is updated without the second user refreshig the page.)
+### Subject length: 280 bytes of NFC-normalised UTF-8
 
-- **Cross-user real-time tests are new machinery.** No spec under `webapp/tests/` currently uses
-  `browser.newContext()`; every test runs in the single storage state from `auth.setup.ts`. Testing
-  that user A's booking appears on user B's screen needs two contexts with separate storage states,
-  asserting B's DOM updates with no navigation or reload. Both users already exist —
-  `e2e_user_email` and `demo_user_email` are Terraform outputs — so no new Cognito plumbing.
-- **Existing acceptance tests change, not just grow.** Anything that depends on `ListMeetings`
-  argument shapes or on the `createdMeeting` router-state handoff will need rewriting.
-- **The cleanup job's test asserts what survives, not just what goes.** A job that deletes too much
-  passes a test that only checks the old data is gone. The test seeds day items either side of the
-  boundary and asserts: everything before it is deleted, **everything on or after it is untouched**,
-  the `id → date` pointers went with their days, and the stored boundary advanced to the expected
-  Monday. The day falling exactly *on* the boundary is the off-by-one worth an explicit case.
-- **And the invariant itself is checkable.** After any run, no day item may exist earlier than the
-  stored boundary — that single assertion is the property the whole advance-then-delete ordering
-  exists to produce, and it holds regardless of how the job is invoked.
-- **Catch-up is a test case, not just a claim.** Seed several weeks of past days, run once, assert
-  all are cleared and the boundary lands on the correct Monday.
-- **Idempotency.** A second run immediately after the first changes nothing.
-- **The response bound needs the same treatment as the item bound.** Build a request at every static
-  limit at once — `maxDates` days, each holding `maxMeetingsPerDay` meetings at the attendee and
-  subject limits, alongside `maxRooms` rooms and `maxPeople` people — and assert the request is
-  **rejected** by the `maxMeetingsPerResponse` check rather than producing an oversized response. The
-  mirrored case, one meeting under the cap, must succeed.
-- **A test that measures the real serialised response**, not the modelled one. The byte model above
-  is an estimate of JSON with `__typename` included; the test should serialise an actual maximal
-  response and assert it is inside 5 MB, so the estimate being wrong fails a test rather than a user.
-- **A subscription payload test.** The 240 KB cap is the tightest limit in the design and the easiest
-  to breach by accident — a single change to broadcast a `Day` instead of a `Meeting` would do it.
-- **The size guarantee needs tests that assert the guarantee, not the limits.** Specifically: build a
-  day at *every* cap simultaneously — the day limit's worth of meetings, each with the attendee limit
-  and a maximum-length subject — then serialise it and assert the real byte size is inside budget.
-  That test fails if anyone adds a field to the persisted meeting shape without revising the limits,
-  which is the actual regression to guard against.
-- **Boundary tests on each rule**: at the limit succeeds, one past it returns the right
-  `MeetingError` rather than an exception.
-- **Multi-byte subject tests, in both directions.** 280 ASCII characters is accepted and 281 is
-  rejected; **70 emoji is accepted and 71 is rejected**, because each is four bytes. A test using
-  only ASCII passes just as happily against a `String.length()` implementation, which is the bug
-  this is here to catch.
-- **A test that the deploy-time assertion actually fires** on a deliberately inconsistent set of
-  limits, since it is the layer that keeps the guarantee true over time.
-- **An acceptance test that a user hitting the organiser limit sees a rendered message**, not a
-  server error.
-- **Unit coverage for selection parsing**, driven by recorded payloads including aliases and
-  fragments.
-- **`DatabaseReset` interacts with connected subscribers** — see the blocking open question.
+- **UTF-8 because DynamoDB itself sizes string attributes in UTF-8 bytes.** Validating in the unit
+  the storage bills in makes the limit and the item cost the same quantity rather than two numbers
+  that drift.
+- **Not `String.length()`.** Java strings are UTF-16, so `length()` counts code *units*: an emoji
+  outside the BMP is 2 there and 4 in UTF-8. `subject.getBytes(UTF_8).length` is the only correct
+  measure.
+- **Normalise to NFC before measuring and storing.** "é" is one code point (2 bytes) or "e" plus a
+  combining accent (3 bytes) depending on keyboard and OS. Without normalisation two visually
+  identical subjects have different byte counts and one can be rejected — unexplainable to the user.
+- **Reject, never truncate.** Cutting at a byte boundary splits characters and produces mojibake. A
+  client-side counter must truncate on grapheme boundaries.
+- **"How many emoji fit" has no single answer** — a simple emoji is 4 bytes, 👨‍👩‍👧‍👦 is 25, skin-tone
+  modifiers add 4 each, so the range is ~70 down to 11. This does not threaten the budget: 280 bytes
+  is 280 bytes whatever it holds. The variability lands on the user's character counter, which is the
+  right place for it. The counter must count down in the same units it enforces.
+
+Measuring characters instead would mean budgeting 1,120 bytes per meeting on the chance one of them
+is emoji — roughly 40% of the day's capacity to buy a promise almost nobody exercises.
+
+### The response bound
+
+```
+response  =  maxRooms × roomJson  +  maxPeople × personJson  +  totalMeetings × meetingJson
+          ≤  safetyFraction × 5 MB
+```
+
+**The static limits alone permit a request that cannot be answered.** `maxDates × maxMeetingsPerDay`
+is 42 × 320 = 13,440 meetings, which at 1,931 bytes each is 26 MB. Lowering `maxDates` to make the
+product safe would put it around 6, which is useless for a calendar.
+
+So the bound is enforced **dynamically**: the resolver accumulates days in order and fails fast with a
+typed error once the running meeting count would exceed **2,000**, before building a response it
+cannot send. 2,000 × 1,931 ≈ 3.9 MB, plus 200 rooms (~37 KB) and 1,000 people (~178 KB), against
+5 MB. Unreachable in practice, but it turns "the response is probably fine" into a guarantee with a
+test behind it.
+
+**JSON is much larger than the stored form.** A worst-case meeting is ~1,232 bytes in DynamoDB and
+**~1,931 bytes as JSON** — attribute names repeat per object, and Apollo adds `__typename` to every
+selection set. At 20 attendees that is 23 objects per meeting and roughly 480 bytes of `__typename`
+alone, a quarter of the payload.
+
+## Retention
+
+`principles.md`'s **"Nothing accumulates without a bound"** requires the bill to be flat under steady
+usage. Meeting history is the one place mootmaker breaks it.
+
+**Historic meetings are kept for at least 30 days**, bounded by a **stored** earliest-retained date
+rather than one computed from the clock, always aligned to a **Monday**, read with `ConsistentRead`.
+Consistency is not incidental: an eventually-consistent read could return a stale, *more permissive*
+boundary — exactly the failure the ordering below prevents. Monday alignment makes "is this week
+reachable" an exact comparison rather than a straddling judgement, at the cost of retention becoming
+a range of **30 to 37 days**, so **the storage bound uses 37 as its worst case**.
+
+**Initialised by Terraform** as a table item, the same way `demo_person` already is, so the boundary
+exists the moment the table does. **It needs `lifecycle { ignore_changes = [item] }`**: computing
+`Monday(today − 30d)` requires `timestamp()`, which is re-evaluated on every plan, and without the
+lifecycle block every `terraform apply` would rewrite the boundary *backwards* — resurrecting the
+very "advertised boundary more permissive than reality" failure the ordering exists to prevent, and
+doing it silently.
+
+### The cleanup order
+
+Each run, in this order:
+
+1. **Advance the stored date** to the appropriate Monday.
+2. **Delete the data before it** — day items and their `id → date` pointers, transactionally.
+
+**The advertised boundary must never be more permissive than reality.** Deleting first opens a window
+where the stored date promises data that is already gone, and clients asking for those days get empty
+results indistinguishable from "nothing was booked". Advancing first opens the opposite window — data
+that still exists but is no longer advertised — which is harmless. **The ordering holds even if the
+job dies between steps**, which is the real test of it. It is also catch-up safe: a job that has not
+run for weeks advances to the correct Monday and deletes everything before it in one pass.
+
+**It does not notify clients — for now.** Broadcasting would mean routing deletion through a mutation
+or a separate broadcast-only call. The consequence is bounded: the ordering protects every reader who
+fetches the boundary *after* it advances, which is every new page load. Only a session already in
+flight keeps a stale boundary and can navigate to a just-deleted week and see it as empty; a refresh
+corrects it completely. Worth revisiting once subscriptions exist — with a dates-only publish mutation
+the marginal cost is one more call, needing no new machinery.
+
+### No TTL, not even as a backstop
+
+TTL is the obvious answer and the wrong one, for four reasons:
+
+0. **TTL bakes the policy into the data.** The expiry attribute is written per item, so changing the
+   retention window means rewriting every existing item. A scheduled job reads the policy at run
+   time. The value is also a function of the *meeting's* date rather than write time — one more thing
+   to compute correctly on a path where getting it wrong deletes real data.
+1. **TTL cannot tell anyone.** A client holding `Day:2026-08-08` learns nothing when it disappears.
+2. **TTL is not atomic across items.** Day items and their pointers would expire independently, so
+   `meeting(id:)` could resolve a pointer whose day is gone.
+3. **TTL is not even a read boundary.** Deletion is best-effort within ~48 hours, and
+   **expired-but-not-yet-deleted items are still returned by reads.** Every read path would need to
+   filter on the expiry attribute anyway — strictly more code, for a weaker guarantee.
+
+TTL's real advantage is that deletes cost zero WCU. That matters for millions of rows; here it is
+**seven day items and their pointers per week**, so the saving is nil.
+
+**A backstop TTL is worse than none.** It would silently cover for a failed job, so **the failure is
+never discovered** — the bill stays flat and nothing surfaces. It would also need a window strictly
+longer than 37 days or it would delete data the boundary still advertises.
+
+**The stored boundary is its own dead-man's switch.** If the job has not run, `earliestRetainedDate`
+has not advanced, so "is the stored date within 37 days of today?" detects the exact failure using a
+value the system already holds and already returns to clients. No metric, no alarm, no new resource,
+no cost. A CloudWatch alarm adds only *automatic* notification and is not free — $0.10 per alarm
+metric per month, a standing charge that does not scale to zero, against an account running zero
+alarms and $0 of CloudWatch spend. The recurring check in #77 is the proportionate answer.
+
+### Cadence and deployment
+
+**Weekly, on an EventBridge scheduled rule** — it pairs with Monday alignment, and the work per run is
+bounded by construction. The shape is proven: `mootmaker-demo-data`'s `schedule.tf` is an
+`aws_cloudwatch_event_rule` with a cron expression, an `aws_cloudwatch_event_target`, and an
+`aws_lambda_permission` scoped to that rule. **It costs nothing** — scheduled rules targeting an AWS
+service directly are not billed, and the invocation falls inside Lambda's always-free tier. Confirmed
+against the bill: EventBridge does not appear as a line item despite demo-data running daily.
+
+Two details to carry across: set `input = jsonencode({})` explicitly rather than letting EventBridge
+send its own envelope, so the handler's payload is a contract rather than an accident; and enable the
+rule's `state` in `test` and `production` but **not** in ephemeral environments, which never live
+long enough to accumulate anything — and where a schedule firing mid-run would make acceptance tests
+nondeterministic.
+
+**Deployed everywhere, scheduled only where it matters.** Acceptance tests invoke it directly, exactly
+as `DatabaseReset` already invokes `database-reset` — `LambdaClient` with the test runner's IAM
+credentials, function name from an environment variable `verify.sh` computes the same deterministic
+way Terraform names it. The Lambda is simpler than demo-data because it talks to DynamoDB rather than
+the API: no SSM parameters, no M2M credentials, no Cognito token endpoint.
+
+A `dryRun` payload is worth having, following `database-repair`'s `{"dryRun": true}`, so a test can
+assert what *would* be removed before anything is.
+
+**The test seeds history through the API**, using `createMeetings` with past dates inside
+`[earliestRetainedDate, earliestRetainedDate + 6]`, then runs the job and asserts those days are gone
+and later ones are not. Seeding through the real write path means the seeded items go through
+`DayRepository` — there is exactly one implementation of the day-item format, and the test proves it
+rather than duplicating it. `verify/` has no DynamoDB SDK and no dependency on `impl`, and this keeps
+it that way.
+
+**This is why past bookings stay legal permanently.** It closes what was an open question: adding a
+past-booking rule later would break the retention test three files from the symptom. What it costs is
+that past days can never be treated as permanently cacheable.
+
+**Writes are therefore bounded in both directions:** `[earliestRetainedDate, today + 180]`. Without
+the backward bound a meeting could be created for 1970 and the 217-item storage bound would not be a
+bound at all. `OutsideBookableRange` covers both ends, and the same pair of dates bounds viewing —
+there is no third concept.
+
+### What the UI must do
+
+**The server publishes both boundaries; the client never computes either.** Having the client work out
+"30 days before today" puts **two authorities on one fact**: the deletion job uses the server's date,
+the browser uses the user's. A user in UTC+13, or with a skewed clock, then asks for a day the server
+already considers expired. Padding by a day would hide the disagreement rather than remove it, and a
+test would not catch it because the test would encode the same assumption the code does.
+
+**Both nav directions need a bound.** `PersonCalendarPage` pages backwards *and* forwards without
+limit — `subtract(7, 'day')` at line 168 and `add(7, 'day')` at line 177. Disable each against
+`earliestRetainedDate` and `latestBookableDate` respectively.
+
+**A client already viewing a week that falls out of retention is not moved.** The control disables
+itself where they stand and the empty week says why. Moving a viewport in response to a background
+event the user did not cause is the same family of defect as webapp#44, #46 and #50 — the fix for
+which was, in every case, to stop things moving underneath the user. In practice this is nearly
+unreachable: the boundary advances once a week.
+
+**A link to a meeting older than retention returns not-found** — the same answer as an id that never
+existed. One less state for every caller, and it avoids confirming that a given id was once valid.
+
+Retention composes with the horizon: the horizon bounds how far *forward* day items can exist,
+retention how far *back*. Together the table holds at most **217 items** — a hard upper bound on row
+count, not merely a cap on the growth rate. Cognito is the one component that legitimately grows,
+since MAUs track users rather than time.
+
+## Real-time updates
+
+**How `@aws_subscribe` works, since the constraints all follow from it.** A subscription field has no
+resolver. It declares "when mutation X succeeds, push me a copy of what it returned". The mutation's
+return value *is* the broadcast payload — there is nothing else, and the subscription field's type
+must equal the mutation's return type so the subscriber's selection set fits the pushed object.
+
+Three consequences shaped the design:
+
+1. One subscription cannot span mutations with different return types, so it cannot cover both
+   `createMeeting` (`CreateMeetingResult`) and `createMeetings` (`CreateMeetingsResult`).
+2. A **rejected** `createMeeting` returns successfully with a typed `errors` array — validation is
+   data, not a transport error — so subscribing to it directly would broadcast failed bookings.
+3. The payload inherits the response's size, and a worst-case `Day` is **~618 KB** of JSON against a
+   **240 KB** subscription cap.
+
+**Hence a publish-only mutation, and a payload of invalidated dates rather than data.**
+`publishDaysInvalidated(dates:) : Invalidation` exists only to be broadcast, so its return type is
+free to be designed as the payload. Beyond fitting the cap this is better on the merits: the payload
+is uniform and tiny whatever the day holds; one channel serves every kind of change including future
+history deletion; and it is idempotent, where merging the same meeting twice needs deduplication.
+
+| | Payload | Budget | Client work |
+|---|---|---|---|
+| `createMeeting` response | The whole `Day` | 5 MB | None — `Day` is an entity, Apollo replaces it |
+| `daysInvalidated` broadcast | A list of dates | 240 KB, unreachable | Evict; the gap fetch refills |
+
+**`Invalidation` is a wrapper object, not a bare `[String!]!`.** Adding a field to a GraphQL output
+type is backward compatible, so deferred reference-data flags (`rooms`, `people`) can be added later
+without breaking a deployed client. Typing the subscription as a bare list would have made that a
+breaking change. This is the one thing locked in now.
+
+### `publishDaysInvalidated` must be `@aws_iam`
+
+The API is single-mode `AMAZON_COGNITO_USER_POOLS` with `default_action = "ALLOW"` and no `@aws_auth`
+anywhere, so **every valid token can reach every field**. The `"Admin only."` docstrings on
+`createRoom`/`createPerson` are enforced in the Lambda by `Identity.requireAdmin`, not at the gateway.
+A publish mutation left on the default mode would be callable by any signed-in user — reintroducing
+exactly the flaw that got `Mutation.reset` removed.
+
+The change is small, because **the default auth mode covers everything unannotated**:
+
+```hcl
+authentication_type = "AMAZON_COGNITO_USER_POOLS"   # unchanged
+additional_authentication_provider { authentication_type = "AWS_IAM" }
+```
+
+```graphql
+publishDaysInvalidated(dates: [String!]!): Invalidation @aws_iam
+type Invalidation @aws_iam @aws_cognito_user_pools { dates: [String!]! }
+```
+
+Every other field, type, input and enum stays bare. `Invalidation` needs both because it is read by
+two principals: the Lambda writes it under IAM, Cognito subscribers read the pushed copy.
+
+**Two independent locks.** The schema annotation says "IAM principals only"; the resolver role's
+`appsync:GraphQL` grant is scoped to the single field ARN
+(`…/types/Mutation/fields/publishDaysInvalidated`). Neither alone is trusted. That is an AWS
+permission grant rather than an in-product role — the distinction the reset decision turns on, and
+stronger than anything else in the schema currently has.
+
+**The call itself** is a SigV4-signed HTTPS POST from the resolver Lambda back to its own AppSync
+endpoint, using its execution role. The role has no `appsync:GraphQL` permission today. `impl` needs
+an SigV4 signer (`AwsV4HttpSigner`) and an HTTP client, having neither.
+
+**A failed publish must not fail the mutation.** The write has committed and is correct, and the user
+who made the change already has the new state in their own mutation response. Log and move on; other
+clients stay stale until they navigate or refresh — the same accepted gap as reset and history
+deletion. Failing a successful booking because a notification failed is strictly worse.
+
+### Why AppSync over the alternatives
+
+No new infrastructure, reuses the existing Cognito authoriser, no connection registry. SSE would mean
+a Lambda holding an idle connection billed wall-clock: 512 MB × 900 s is ~450 GB-s per connection per
+15-minute window, about **$0.03 per connected browser-hour**, or ~$70/month for ten users on an
+eight-hour day. The same traffic in AppSync connection-minutes is ~$0.0004. API Gateway WebSockets
+avoid the idle billing but rebuild what AppSync already provides.
+
+Rates verified against the bill: August's 27,474 requests cost $0.109896, exactly
+`requests × $4/million`. **The free tier is not being applied to this account** — budget without it.
+
+**Nothing has to clean up after a disappeared client.** Subscriptions are scoped to the WebSocket
+connection; when it goes, they go. There is no server-side registry to reap — precisely the work API
+Gateway WebSockets would have required. A machine switched off mid-session sends no close frame and
+no FIN, so the connection is discovered as dead only when AppSync next tries to write to it or the
+timeout elapses — tens of seconds to a couple of minutes. Connection-minutes accrue until then; at
+$0.08 per million this is not worth engineering around.
+
+**Subscriptions bill per delivery, per subscriber**, so cost scales with `mutations × subscribers`.
+
+## The Apollo cache
+
+`apolloClient.ts` is currently a bare `new InMemoryCache()` with no `typePolicies` — all of this is
+new. Full mechanics, including the gap computation and the mutation-payload analysis, are in the
+proposal directory's README. Three policies carry the design:
+
+```ts
+Day: { keyFields: ['date'] },                // → cache key "Day:2026-09-14"
+Workspace: { keyFields: false },             // not an entity; inline under ROOT_QUERY
+Query: { fields: { workspace: { keyArgs: false, merge: /* days union, rest replace */ } } }
+```
+
+**`keyArgs: false` is easy to miss and expensive to omit.** Without it every distinct `dates` array
+gets its own `workspace` slot, caching the same rooms and people again under each. Because the array
+changes on every navigation those slots accumulate as junk that is never read. Getting this wrong
+produces a cache that silently refetches everything on every navigation — slower, not broken, so
+tests still pass. It needs its own test.
+
+**Three hazards that surface as intermittent failures, not reproducible ones:**
+
+- **Cache presence must be the only record of what has been fetched.** A separate "dates I've asked
+  for" set in React state would survive an eviction that clears the cache, so the gap check concludes
+  the day is still held and that client is stale forever — on one machine, with no error.
+- **An in-flight fetch can race an invalidation.** A writes at t0; B's fetch was issued at t−1 and
+  lands at t+1 with pre-write data, *after* B evicted at t0. B is stale with nothing left to trigger a
+  refetch. A per-date "last invalidated at" marker, re-evicting when a response was requested before
+  it, closes it.
+- **A client receives its own invalidation.** The tab that just booked is also a subscriber, so it
+  evicts the `Day` its own mutation response authoritatively wrote, and refetches — a wasted round
+  trip, and a window where `useFragment` reports `complete: false` and the component renders empty.
+  **The person who made the booking sees their own screen flicker, on every create.** The client must
+  record the dates its own mutations wrote and ignore invalidations for them for a few seconds.
+
+**Open sub-question:** `days` is specified above as an accumulating `merge`. A `read` policy mapping
+`args.dates` onto constructed refs never accumulates, never leaves dangling references after an
+eviction, and makes `workspace.days` mean "the days I asked for". It looks better and has not been
+tried. Resolve before the cache work starts, not during it.
+
+## Still to verify
+
+Facts already established by experiment are stated in the sections above. These are not, and are to
+be answered empirically on a throwaway AppSync API before the subscription work is built — enough
+constraints have turned up by accident that the rest should be found on purpose.
+
+- **The return-type match.** Confirm a subscription typed to the publish mutation's return type
+  delivers, and that a mismatch silently does not.
+- **Rejected mutations.** Does a `createMeeting` returning a typed `errors` array broadcast? Can
+  `$extensions.setSubscriptionFilter()` exclude it? (Moot if the publish-only mutation is used, but it
+  determines whether that is the *only* option.)
+- **The `Invalidation` type's directives.** Whether `@aws_iam @aws_cognito_user_pools` on the type is
+  required, or whether the field directive suffices. Failure mode is
+  `Not Authorized to access dates on type Invalidation` at subscribe or publish time — not at deploy.
+- **Whether `default_action` is ignored** once additional authorization modes are configured. If so
+  it becomes dead config rather than a live setting, and should not be left looking meaningful.
+- **The 240 KB payload cap.** Confirm a dates-only payload cannot approach it.
+- **Connection lifecycle:** the default `connectionTimeoutMs`, the keep-alive interval, whether
+  AppSync enforces a maximum connection lifetime (24 hours is the figure associated with it, without
+  confidence), and whether a subscription can outlive a reconnect.
+- **`graphql-ws` protocol support** — whether the client is a stock `GraphQLWsLink` or a hand-rolled
+  link. This is a fork in the webapp work, not a detail.
+
+## Changes to the data model
+
+The delta against `docs/reference/data-model.md`:
+
+- **Meetings table re-keyed by day**, with a version attribute for optimistic locking.
+- **Both meetings GSIs removed** — `bucket-startTime-index` and `roomId-startTime-index`, along with
+  the constant `bucket = "ALL"` attribute that exists solely to give a GSI a partition key.
+- **`meeting-participants` deleted**, along with `RebuildMeetingParticipantsRepair`.
+- **`cognitoSub-index` deleted**, replaced by the `custom:personId` claim forward and a `cognitoSubs`
+  list attribute in reverse.
+- **A new id → date pointer** backing `meeting(id:)` — the only secondary lookup structure kept.
+- **A `CONFIG#retention` item**, Terraform-initialised.
+- **A maximum booking horizon** as a business rule, and a matching floor at the retention boundary.
+
+## Impacts on components
+
+Scope is "everything the new design touches", not the smallest set of files that could work.
+
+**`mootmaker-api`** — `api/mootmaker.graphql` (new `Day`, `Workspace`, `Boundaries`, `Invalidation`;
+`createMeetings`; `Subscription`; the `personId` filter argument goes with the client that needed it);
+`appsync.tf` (request template, subscription resolvers, `@aws_subscribe`, the IAM auth provider);
+`dynamodb.tf` (day-keyed table, GSIs and `bucket` removed, `cognitoSub-index` removed, the retention
+config item); `cognito.tf` (the `custom:personId` attribute, read/write attribute lists, claims and
+Persons for the demo and e2e users); `iam.tf` (`appsync:GraphQL` scoped to one field). `MeetingRecord`
+and `MeetingParticipant` are deleted; `BatchLoader` is absorbed into the repositories;
+`ListMeetingsHandler`, `CreateMeetingHandler`, `ResolverDispatchHandler`, `DeleteMyAccountHandler`,
+`PostConfirmationCreatePersonHandler`, `CreateMissingPersonsRepair` and `DatabaseReset` are rewritten
+against the new shapes rather than adapted. A new history-cleanup Lambda and its EventBridge rule.
+
+**`mootmaker-webapp`** — `apolloClient.ts` (`typePolicies`, the subscription link, designed around the
+composite shape from scratch); `graphql/queries.ts` and `mutations.ts` rewritten; `HomePage`,
+`RoomAvailabilityPage`, `PersonCalendarPage`, `AddMeetingPage`, `SettingsPage`. The router-state
+workaround in `AddMeetingPage` and the paired `createdMeeting` merge in `RoomAvailabilityPage` are
+**deleted** — they exist only to work around a read-after-write window that day-keyed reads with
+`ConsistentRead` remove entirely. Date navigation gains bounds in both directions.
+
+**`mootmaker-demo-data`** — `DemoData.java`'s `runInParallel(meetings, …createMeeting…)` becomes one
+bulk call per seeded day. This is also what resolves its parallel creates colliding on the day item's
+version attribute.
+
+**`mootmaker-release`** — no change expected, but the acceptance suite it gates changes materially.
+
+## Testing
+
+**Cross-client visibility — the headline benefit, and the definition of done for it.** No spec under
+`webapp/tests/` currently uses `browser.newContext()`; every test runs in the single storage state
+from `auth.setup.ts`. This needs two contexts with separate storage states. Both users already exist —
+`e2e_user_email` and `demo_user_email` are Terraform outputs — so no new Cognito plumbing.
+
+The trigger for a refetch is **a live `useFragment` watching that `Day`**, not "the user is looking at
+it". Cache residency and being watched are independent, which is what rows 3a and 3b distinguish.
+
+| # | Scenario | Requirement |
+|---|---|---|
+| 1 | B watching that day, tab focused | B's DOM shows the meeting **within 3 s**, no navigation or reload |
+| 2 | B watching that day, tab backgrounded | No guarantee while hidden; current **within 3 s** of returning to foreground |
+| 3a | Day cached but **not watched** | The entity is evicted and the cached data discarded. **No network request** |
+| 3b | Day **not in the cache** | `cache.evict` returns `false`. Complete no-op |
+| 4 | B offline when it happens | On reconnect, on-screen days are re-fetched — same mechanism as row 2 |
+| 5 | B on the Add Meeting form | **The form does not change under them.** They find out at submit, via `TimeRangeUnavailable` |
+| 6 | B is an attendee | **No difference.** Stated as intended, not an oversight — there is no notification concept |
+| 7 | Same user, two tabs | Behaves as two users, and the booking tab must not flicker (see the self-invalidation hazard) |
+| 8 | The refetch fails | A visible, non-blocking stale indicator with retry — never silently stale |
+
+**Rows 2 and 4 are one requirement.** Both are "the connection was not continuously open", and B never
+needs to know *what* it missed — only to distrust what is on screen. On reconnect or on return to
+foreground, evict the displayed days and let the gap fetch refill them. No sequence numbers, no
+server-side replay. This also settles the socket question honestly: browsers freeze background tabs and
+AppSync will drop the connection, so **correctness must not depend on the socket surviving.**
+
+**Row 5 is deliberate restraint.** The server already rejects the overlap at submit, so the failure path
+exists and is correct; changing a form under someone is the defect class webapp#44, #46 and #50 were
+fixed by *stopping*. The room must not silently vanish from the dropdown, and `suggestRoom` must re-run
+only when the user changes the time, never spontaneously.
+
+**Row 3a is the one most likely to be mistaken for a defect later** — the day is evicted, nothing
+watches it, no query is made, and it is fetched fresh whenever the user navigates there. That is correct
+and costs nothing, but only if it is written down as intended.
+
+**The guarantees need tests that assert the guarantee, not the limits:**
+
+- **A day at every cap simultaneously** — the day limit's worth of meetings, each at the attendee limit
+  with a maximum-length subject — serialised, with the real byte size asserted inside budget. That test
+  fails if anyone adds a field to the persisted shape without revising the limits, which is the actual
+  regression to guard against.
+- **A request at every static limit at once** — `maxDates` days each holding `maxMeetingsPerDay`
+  meetings, alongside `maxRooms` rooms and `maxPeople` people — asserted **rejected** by the
+  `maxMeetingsPerResponse` check rather than producing an oversized response. The mirrored case, one
+  meeting under the cap, must succeed.
+- **A test that measures the real serialised response**, not the modelled one, so the estimate being
+  wrong fails a test rather than a user.
+- **A subscription payload test.** 240 KB is the tightest limit in the design and the easiest to breach
+  by accident — one change to broadcast a `Day` instead of dates would do it.
+- **A test that the deploy-time assertion fires** on a deliberately inconsistent set of limits.
+- **Multi-byte subject tests in both directions**: 280 ASCII accepted and 281 rejected; **70 emoji
+  accepted and 71 rejected**. A test using only ASCII passes just as happily against a `String.length()`
+  implementation, which is the bug this exists to catch.
+- **Boundary tests on each rule** — at the limit succeeds, one past it returns the right `MeetingError`
+  rather than an exception.
+- **An acceptance test that a user hitting a limit sees a rendered message**, not a server error.
+
+**Retention tests:**
+
+- **Assert what survives, not just what goes.** A job that deletes too much passes a test that only
+  checks the old data is gone. Seed either side of the boundary; assert everything before it is deleted,
+  **everything on or after it is untouched**, the pointers went with their days, and the boundary
+  advanced to the expected Monday. The day falling exactly *on* the boundary is the off-by-one worth an
+  explicit case.
+- **The invariant itself:** after any run, no day item may exist earlier than the stored boundary.
+- **Catch-up:** seed several weeks of past days, run once, assert all cleared and the boundary correct.
+- **Idempotency:** a second run immediately after the first changes nothing.
+
+**Also:** unit coverage for selection parsing driven by recorded `selectionSetList` payloads including
+aliases and fragments; a test that the cache does not refetch reference data on navigation (the
+`keyArgs: false` regression); and rewrites of anything depending on `ListMeetings` argument shapes or the
+`createdMeeting` router-state handoff.
 
 ## Documentation impacts
 
 - `docs/reference/data-model.md` — day-keyed storage, GSI removal, participants table outcome.
 - `mootmaker-api/api/` schema documentation strings, which are extensive and load-bearing.
-- `mootmaker-api/testing-strategy.md` and `mootmaker-webapp`'s equivalent — the multi-context test
-  layer.
+- `mootmaker-api/testing-strategy.md` and `mootmaker-webapp`'s equivalent — the multi-context layer.
 - `docs/reference/running-costs.md` — real-time charges are a new line item.
-- Note: `designs/README.md` currently states "there is no longer a long-lived `test` environment",
-  which stopped being true on 2026-09-03. Worth fixing, though not part of this design.
+- `designs/README.md` states "there is no longer a long-lived `test` environment", which stopped being
+  true on 2026-09-03. Worth fixing, though not part of this design.
 
 ## Rollout & migration
 
 **No migration. `test` and `production` are destroyed in full and redeployed.** Every table, every
-Cognito user pool, every user. No backfill, no dual-read period, no reverse-migration path.
+Cognito user pool, every user. No backfill, no dual-read period, no reverse-migration path. This is a
+demo system; `mootmaker-demo-data` repopulates it, and a migration path — plus the reverse path needed
+to make it reversible — buys nothing. It also removes the question of what to do about Cognito-linked
+Persons by removing both sides of the link at once.
 
-Destroying the pools resolves the Person/Cognito linkage question by removing both sides of it. What
-comes back is created by Terraform:
+This is a rehearsed operation, not a novel one: both environments were destroyed and rebuilt from
+nothing by the pipeline on 2026-09-06 as `v1.0.0`, and Cognito is part of `mootmaker-api`'s Terraform,
+so the pools went with them. Tracked as #67.
 
-- `aws_cognito_user.e2e` and `aws_cognito_user.demo` are recreated automatically, with **new
-  passwords** from their `random_password` resources. Those flow to the webapp through Terraform
-  outputs, so nothing needs updating by hand.
-- The acceptance-test M2M client secret rotates too. `mootmaker-demo-data` reads its credentials from
-  the SSM parameters `mootmaker-api` publishes under `/mootmaker/<environment>/demo-data/`, so the
-  api deploy must complete before demo-data runs — which the pipeline already orders correctly.
+What comes back is created by Terraform:
+
+- `aws_cognito_user.e2e` and `aws_cognito_user.demo` are recreated with **new passwords** from their
+  `random_password` resources, flowing to the webapp through Terraform outputs.
+- The acceptance-test M2M client secret rotates. `mootmaker-demo-data` reads its credentials from the
+  SSM parameters `mootmaker-api` publishes, so the api deploy must complete before demo-data runs —
+  which the pipeline already orders correctly.
 - No user pool carries `deletion_protection`, so nothing blocks the destroy.
 
 **Verified 2026-09-07:** `production`'s pool contains exactly two users, `e2e-tests@example.com` and
-`demo@mootmaker.com` — both Terraform-managed. There are currently no real signed-up accounts to
-lose. That is a fact about today, not a guarantee about the day this runs.
+`demo@mootmaker.com`, both Terraform-managed. There are no real signed-up accounts to lose. **That is a
+fact about that day, not a standing property** — re-check immediately before running it.
 
-Staging is otherwise conventional: ephemeral environment first, then `test`, then `production`
-through `release.yml`. The schema changes are not backward-compatible for a deployed webapp, so API
-and webapp must ship together — which the release pipeline already does.
+Staging is otherwise conventional: ephemeral environment first, then `test`, then `production` through
+`release.yml`. The schema changes are not backward-compatible for a deployed webapp, so API and webapp
+must ship together — which the release pipeline already does.
 
 ## Risks
 
-- **Everything is gone, deliberately** — meetings, rooms, people, and every Cognito account. Anyone
-  who has signed up between now and the day this runs loses their login, not just their data, and
-  finds out by being unable to sign in. Re-check the pool's user list immediately before running it;
-  two Terraform-managed users is the current state, not a standing property.
+- **Everything is gone, deliberately** — meetings, rooms, people, and every Cognito account. Anyone who
+  has signed up between now and the day this runs loses their login, not just their data, and finds out
+  by being unable to sign in.
 - **Recreating a Cognito user pool domain can stall.** `aws_cognito_user_pool_domain` uses
-  `<prefix>-<account-id>`, which is globally unique across AWS. Destroying and immediately recreating
-  the same domain name is the one step in this teardown with a known tendency to fail or need a wait,
-  and it sits on the critical path for the OAuth2 token endpoint the M2M clients use.
-- **Reverting is a redeploy, not a rollback.** With no migration there is also no reverse migration:
-  going back means deploying the previous version against freshly recreated tables. Cheap, but not
-  transparent — the same data loss happens again in the other direction.
+  `<prefix>-<account-id>`, globally unique across AWS. Destroying and immediately recreating the same
+  domain is the one step in this teardown with a known tendency to fail or need a wait, and it sits on
+  the critical path for the OAuth2 token endpoint the M2M clients use.
+- **Reverting is a redeploy, not a rollback.** With no migration there is no reverse migration: going
+  back means deploying the previous version against freshly recreated tables. Cheap, but the same data
+  loss happens again in the other direction.
 - **Broadcast visibility becomes load-bearing.** Subscriptions push to everyone matching the filter.
-  That is safe only while every user may see every meeting. This design should not be built on if
-  meeting privacy is anticipated.
-- **Write contention on a day item** is a new failure mode with no current analogue.
-- **The day ceiling is a hard rejection.** Without enforced limits and a deliberate answer at ~80%
+  Safe only while every user may see every meeting. **This design should not be built on if meeting
+  privacy is anticipated.**
+- **Write contention on a day item** is a new failure mode with no current analogue. Two concurrent
+  creates can both observe 199 and both decide they fit; the conditional write on the version attribute
+  resolves it, and the loser re-validates against the updated count rather than a stale read.
+- **Write amplification.** Adding one meeting rewrites the whole day: at 1 WRU per KB, a full 400 KB day
+  costs ~400 WRU per booking against roughly 10 today. At demo scale a day is ~20 KB and this barely
+  matters, but it grows linearly and the last booking pays for every earlier one.
+- **The day ceiling is a hard rejection.** Without enforced limits and a deliberate answer near
   capacity, the first symptom is a failed booking.
 
-## Implementation checklist
+## Implementation plan
 
-Sparse while Drafting — to be filled in properly before this reaches Ready.
+Five slices, each verifiable on its own ephemeral environment. Slices 2 and 3 must ship together — the
+schema break is not backward-compatible for a deployed webapp.
 
-- [ ] `[Geoff]` Choose the top-level query shape — the only substantial question still open.
-- [ ] `[Geoff]` **Write a specific, testable definition of done for cross-client visibility.**
-      "User A's booking appears on user B's screen" is currently a sentence, not a requirement, and
-      it is the headline benefit of the whole subscription strand. Every row below is a distinct
-      behaviour that an acceptance test can either pass or fail, and several have no obvious right
-      answer:
+**Slice 1 — the request template and selection-aware resolving.** Independently shippable and valuable
+on its own: it removes an existing over-fetch where `meetings { id subject }` still batch-loads every
+room and person. No schema change.
 
-      | Scenario | Needs deciding |
-      |---|---|
-      | B is viewing that day, tab focused | How fast is "appears"? A number, not "nearly immediately" — it is the assertion timeout in the test |
-      | B is viewing that day, tab backgrounded | Does the socket stay open? Does it update on return to foreground, or only on refresh? |
-      | B is **not** viewing that day | Expected: nothing happens and no query is made. Worth stating as a requirement so it is not read as a bug |
-      | B is offline when it happens | The invalidation is missed entirely. Does reconnect trigger a resync, or does B stay stale until they navigate or refresh? |
-      | B is on the Add Meeting form for that day | **The nasty one.** A books the room B is midway through choosing. Does B's room list change under them? Does the suggestion refresh? Does B find out at submit time via `TimeRangeUnavailable`? Changing a form under someone is the layout-shift lesson again |
-      | B is an attendee of the new meeting | Any different from B being uninvolved? Today the answer is no; that may be the wrong answer |
-      | Same user, two tabs | Should behave identically to two users, but worth asserting rather than assuming |
-      | The refetch after invalidation fails | Stale data with no indication, or a visible error? |
+- [ ] Change the resolver request template to serialise `selectionSetList`, in whatever payload shape
+      the new handlers want. It stops shipping every CloudFront request header to Lambda either way.
+- [ ] Make `ListMeetingsHandler` selection-aware, with unit tests driven by recorded payloads including
+      aliases and fragments.
 
-      The "not viewing that day" row is the one most likely to be mistaken for a defect later: the
-      day is evicted, nothing watches it, no query is made, and it is fetched fresh whenever the user
-      navigates there. That is correct and costs nothing — but only if it is written down as intended.
+**Slice 2 — storage, repositories and the guarantees.**
 
-- [ ] `[Geoff]` **Read up on `@aws_subscribe` properly before any of the subscription design is
-      built.** Enough constraints have already turned up by accident that the rest should be found on
-      purpose. Specific questions worth answering:
-      - The return-type match. `@aws_subscribe` pushes the *mutation's* return value and the
-        subscription field's type must equal the mutation's return type — does that rule out one
-        subscription covering both `createMeeting` and `createMeetings`, whose result types differ?
-      - Rejected mutations. A failed `createMeeting` returns successfully with a typed `errors`
-        array, so does it broadcast? Can `$extensions.setSubscriptionFilter()` exclude it?
-      - The **240 KB payload cap** — the reason a broadcast carries invalidated dates rather than
-        data. Worth confirming a dates-only payload can never approach it.
-      - **Connection lifecycle**: what ends a subscription when a client vanishes without closing
-        cleanly. See "How subscriptions end" below for what is currently believed and what is not
-        verified.
-      - Whether AppSync's `graphql-ws` protocol support is current enough for a stock Apollo
-        `GraphQLWsLink`, or whether the client needs a hand-rolled link.
-      - Real-time billing shape: per delivery per subscriber, so cost scales with
-        `mutations × subscribers`.
-- [ ] `[Geoff]` Resolve the day-limit / room-capacity conflict, and set the booking horizon's length.
-- [ ] `[Claude]` Change the resolver request template to serialise `selectionSetList`, in whatever
-      payload shape the new handlers want.
-- [ ] `[Claude]` Make `ListMeetingsHandler` selection-aware, with unit tests driven by recorded
-      payloads including aliases. Independently shippable and valuable on its own — it removes an
-      existing over-fetch where `meetings { id subject }` still batch-loads every room and person.
+- [ ] `DayRepository`, `PersonRepository`, `RoomRepository` as init-constructed instances; `BatchLoader`
+      absorbed and deleted.
+- [ ] Day-keyed table, GSIs and `bucket` removed, `meeting-participants` and
+      `RebuildMeetingParticipantsRepair` deleted, the `PTR#` pointer, the Terraform-initialised
+      `CONFIG#retention` item **with `ignore_changes`**.
+- [ ] The three size-guarantee layers, the limits, and the `MeetingError` cases.
+- [ ] `custom:personId`: the Cognito attribute, read/write attribute lists, the PostConfirmation
+      trigger, `CreateMissingPersonsRepair`, Persons and claims for the demo and e2e users,
+      `cognitoSub-index` deleted, `cognitoSubs` added.
+- [ ] `deleteMyAccount` by scan, Cognito users deleted last.
+
+**Slice 3 — the composite schema and the webapp.** Ships with slice 2.
+
+- [ ] `Query.workspace`, `Boundaries`, `createMeetings`, `meeting(id:)`.
+- [ ] `apolloClient.ts` typePolicies; queries and mutations rewritten; the five pages; date navigation
+      bounded in both directions; the router-state and `createdMeeting` workarounds deleted.
+- [ ] `mootmaker-demo-data` one bulk call per seeded day.
+- [ ] Resolve the `days` `merge`-versus-`read` sub-question first.
+
+**Slice 4 — retention.**
+
+- [ ] The cleanup Lambda, its EventBridge rule (enabled in `test`/`production` only), `dryRun`, and the
+      acceptance tests including catch-up, idempotency and the on-boundary off-by-one.
+
+**Slice 5 — real-time.**
+
+- [ ] Answer everything under "Still to verify" empirically first.
+- [ ] `publishDaysInvalidated` with `@aws_iam`, the IAM auth provider, the field-scoped role grant, the
+      SigV4 call from the resolver.
+- [ ] The subscription link in the webapp, the self-invalidation guard, the in-flight-race marker, and
+      the reconnect/foreground resync.
+- [ ] The two-context acceptance test asserting every row of the cross-client table.
+
+**Not done by Claude:** destroying and rebuilding `test` and `production` (#67). It sits on the critical
+path for a globally-unique Cognito domain with a known tendency to stall, and the pool's user list is a
+judgement call about real accounts rather than a scripted step.
 
 ## Definition of done
 
-The feature's own acceptance coverage — including the two-context real-time test, which asserts every
-row of the cross-client visibility table in the checklist above rather than only the happy path — is
-green; the
-existing acceptance suite is still green on a real deployed environment; every touched repo's unit
-tests pass; both environments have been destroyed in full, redeployed from nothing and repopulated
-by `mootmaker-demo-data`, with the result verified by direct DynamoDB and Cognito reads rather than
-by exit codes; no code remains that
-exists only to preserve a shape from the previous design; and everything under Documentation impacts
-is actually done.
+The feature's own acceptance coverage — including the two-context real-time test, which asserts **every
+row** of the cross-client table rather than only the happy path — is green; the existing acceptance suite
+is still green on a real deployed environment; every touched repo's unit tests pass; no code remains that
+exists only to preserve a shape from the previous design; and everything under Documentation impacts is
+actually done.
+
+Completed separately, by Geoff: both environments destroyed in full, redeployed from nothing and
+repopulated by `mootmaker-demo-data`, with the result verified by direct DynamoDB and Cognito reads
+rather than by exit codes.
