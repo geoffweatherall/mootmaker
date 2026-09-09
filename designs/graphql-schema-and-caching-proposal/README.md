@@ -109,18 +109,16 @@ the array changes on every navigation, those slots accumulate as junk that is ne
 happens through `useFragment`. Getting this wrong produces a cache that silently refetches
 everything on every navigation: slower, not broken, so tests still pass. It deserves its own test.
 
-**One sub-question still open.** `days` is written above as an accumulating `merge`. The alternative
-is a `read` policy that maps `args.dates` onto constructed refs:
+**`days` is a `read` policy, not the accumulating `merge` above** *(decided 2026-09-09)*:
 
 ```ts
 days: { read: (_, { args, toReference }) =>
   args.dates.map((date) => toReference({ __typename: 'Day', date })) }
 ```
 
-That never accumulates, leaves no dangling references after an eviction, and makes
-`workspace.days` mean "the days I asked for" rather than "every day this session has ever seen". The
-`merge` version is the one written up and it works; the `read` version looks better and has not been
-tried. Worth resolving before the cache work starts, not during it.
+It never accumulates, leaves no dangling references after an eviction, and makes `workspace.days`
+mean "the days I asked for" rather than "every day this session has ever seen". The `merge` version
+works — Apollo filters dangling refs from lists on read — but it grows for the life of the tab.
 
 ## Subscriptions
 

@@ -568,11 +568,11 @@ requested graphql-ws              → negotiated "graphql-ws", connection_ack, k
 requested graphql-transport-ws    → negotiated "",           close 1006
 ```
 
-**So `GraphQLWsLink` is ruled out**, and the open question resolves to its other branch: either AWS's
-own `aws-appsync-subscription-link`, or a link written here against the protocol above. Preferring the
-hand-rolled one is defensible — the protocol is small, and the design already refuses to carry
-dependencies for hypothetical consumers — but it is now a decision to take deliberately rather than a
-detail to discover during slice 5.
+**So `GraphQLWsLink` is ruled out.** The approach *(decided 2026-09-09)* is to **try
+`aws-appsync-subscription-link` first and hand-roll if it fights** — least initial effort, with the
+protocol now documented well enough above that falling back is a known quantity rather than a
+research task. The risk to watch is committing surrounding code to the dependency's shape before
+knowing it fits; keep the link behind the smallest possible seam so replacing it stays cheap.
 
 **`connectionTimeoutMs` is 300,000 — five minutes.** Returned in the `connection_ack` payload as
 `{"connectionTimeoutMs":300000}`. It is how long the client may wait between messages before treating
@@ -639,10 +639,18 @@ tests still pass. It needs its own test.
   **The person who made the booking sees their own screen flicker, on every create.** The client must
   record the dates its own mutations wrote and ignore invalidations for them for a few seconds.
 
-**Open sub-question:** `days` is specified above as an accumulating `merge`. A `read` policy mapping
-`args.dates` onto constructed refs never accumulates, never leaves dangling references after an
-eviction, and makes `workspace.days` mean "the days I asked for". It looks better and has not been
-tried. Resolve before the cache work starts, not during it.
+**`days` is a `read` policy, not an accumulating `merge`** *(decided 2026-09-09)*:
+
+```ts
+days: { read: (_, { args, toReference }) =>
+  args.dates.map((date) => toReference({ __typename: 'Day', date })) }
+```
+
+It maps the requested dates onto `Day` references rather than keeping a list. So it never
+accumulates across a session, never leaves dangling references after an eviction, and
+`workspace.days` means "the days I asked for" rather than "every day this session has seen". The
+accumulating `merge` works too — Apollo filters dangling refs from lists on read — but it grows for
+the life of the tab and needs a `unionByDate` nobody has to write under this version.
 
 ## Still to verify
 
@@ -874,6 +882,11 @@ room and person. No schema change.
 **Slice 3 — the composite schema and the webapp.** Ships with slice 2.
 
 - [ ] `Query.workspace`, `Boundaries`, `createMeetings`, `meeting(id:)`.
+- [ ] **Correct `StartMissaligned`/`EndMissaligned` to `StartMisaligned`/`EndMisaligned`** *(decided
+      2026-09-09)*. A misspelling in the live enum, mirrored in the Java enum and rendered by the
+      webapp. It is only free while the contract is already being broken and both environments are
+      being rebuilt, so it happens here or it becomes permanent. Its own commit — it is unrelated to
+      everything else in the slice.
 - [ ] `apolloClient.ts` typePolicies; queries and mutations rewritten; the five pages; date navigation
       bounded in both directions; the router-state and `createdMeeting` workarounds deleted.
 - [ ] `mootmaker-demo-data` one bulk call per seeded day.
