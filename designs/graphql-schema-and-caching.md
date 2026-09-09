@@ -551,6 +551,41 @@ who made the change already has the new state in their own mutation response. Lo
 clients stay stale until they navigate or refresh — the same accepted gap as reset and history
 deletion. Failing a successful booking because a notification failed is strictly worse.
 
+### Verified: the transport is AWS's own protocol, not `graphql-ws`
+
+Probed against a deployed API on 2026-09-09, because this decides a client dependency rather than a
+detail.
+
+**AppSync refuses the `graphql-transport-ws` subprotocol.** That is the protocol the `graphql-ws` npm
+package speaks, and therefore what Apollo's stock `GraphQLWsLink` sends. Requesting it negotiates *no*
+subprotocol and the socket closes with code 1006 before a single message is exchanged — with the token
+in the `connection_init` payload and with it in the query string alike. Only AWS's own `graphql-ws`
+subprotocol connects, and despite the shared name it is a different message format (`ka` rather than
+`ping`, `start`/`data` rather than `subscribe`/`next`).
+
+```
+requested graphql-ws              → negotiated "graphql-ws", connection_ack, ka
+requested graphql-transport-ws    → negotiated "",           close 1006
+```
+
+**So `GraphQLWsLink` is ruled out**, and the open question resolves to its other branch: either AWS's
+own `aws-appsync-subscription-link`, or a link written here against the protocol above. Preferring the
+hand-rolled one is defensible — the protocol is small, and the design already refuses to carry
+dependencies for hypothetical consumers — but it is now a decision to take deliberately rather than a
+detail to discover during slice 5.
+
+**`connectionTimeoutMs` is 300,000 — five minutes.** Returned in the `connection_ack` payload as
+`{"connectionTimeoutMs":300000}`. It is how long the client may wait between messages before treating
+the connection as dead, and it bounds how stale a client can be before the reconnect resync in rows 2
+and 4 of the cross-client table fires.
+
+**Keep-alive interval: 60 seconds.** Measured over a 150-second connection — gaps of 59,958 ms and
+59,836 ms. So the five-minute timeout is five missed keep-alives, not one, which is a comfortable
+margin rather than a tight one.
+
+This does not change the conclusion that nothing has to clean up after a disappeared client — that
+remains a property of connection-scoped subscriptions. It changes only how the client is built.
+
 ### Why AppSync over the alternatives
 
 No new infrastructure, reuses the existing Cognito authoriser, no connection registry. SSE would mean
@@ -626,11 +661,9 @@ constraints have turned up by accident that the rest should be found on purpose.
 - **Whether `default_action` is ignored** once additional authorization modes are configured. If so
   it becomes dead config rather than a live setting, and should not be left looking meaningful.
 - **The 240 KB payload cap.** Confirm a dates-only payload cannot approach it.
-- **Connection lifecycle:** the default `connectionTimeoutMs`, the keep-alive interval, whether
-  AppSync enforces a maximum connection lifetime (24 hours is the figure associated with it, without
-  confidence), and whether a subscription can outlive a reconnect.
-- **`graphql-ws` protocol support** — whether the client is a stock `GraphQLWsLink` or a hand-rolled
-  link. This is a fork in the webapp work, not a detail.
+- **Connection lifetime:** whether AppSync enforces a maximum (24 hours is the figure associated with
+  it, without confidence), and whether a subscription can outlive a reconnect. The timeout and
+  keep-alive interval are now measured — see "Verified: the transport is AWS's own protocol".
 
 ## Changes to the data model
 
