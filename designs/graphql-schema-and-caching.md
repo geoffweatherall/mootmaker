@@ -13,6 +13,21 @@ user's booking appears on another's screen without a refetch.
 
 **Drafting** — 2026-09-07.
 
+## Pending Discussions
+
+For Claude to consider and discuss.
+- [] Having a package or library to encapsulate the storage model in DynamoDB, maybe a 'repository' abstraction.  Consider whether such things are still revelant when most of the code is vibed and only selectively reviewed.  Is this more an encapsualtion that helps humans understand a complex system.  Maybe over engineering for a change in data store that is very unlikely to happen.
+- [] if "The server derives "mine" from the JWT" will this support a person that sometimes logs in via OAuth (sign in with google) and has a standard password Cognito user as well?
+- [] Claude give proposed Dynamo "schema" after this change.
+- [] expore in more detail the Apollo caching of days
+- [] when another user adds a meeting, do we broadcast that day's meetings are now invalid in the cache and reload?  What if we get a broardcast event for a day we don't currently have in the Apollo cache?
+- [] lets talk more about "The meetings item is already normalised; the redundancy is elsewhere.".  I'm thinking we can now normalise every where. 
+- [] claude to give a more detailed explaination of the Apollo client side cache, and how keys work.
+- [] consider publishing events for a Person and Meeting Room being created.  If another user happened to be looking at the rooms or persons, would their page auto update?  What if looking at a dropped down list of Persons/Rooms? 
+- [] a delete user operation, so rare that a table scan is preferred over having indexes to make this efficient.
+- [] lets go over the shape of the top level query.
+
+
 ## Highlights
 
 The main changes, each considerable on its own. **Decided** means settled by discussion and recorded
@@ -437,7 +452,7 @@ The delta against `docs/reference/data-model.md`:
 - **Subject length is currently unbounded, and so are room and person names.** Only `subject` sits
   inside the day item, so it is the one that threatens the size guarantee — but the same absence of a
   bound applies to `RoomInput.name` and `PersonInput.name`, and closing all three together is
-  cheaper than revisiting the question later.
+  cheaper than revisiting the question later.  (comment: Is this still true?)
 - **The day limit is a real cap, and its failure must read as such.** Physical capacity is 360
   meetings a day against a limit of 320, so a user can be refused while a room stands free. The
   `MeetingError` needs to say the *day* is full, not the room — otherwise it is an unexplainable
@@ -602,7 +617,7 @@ constant usage keeps it flat, so there is nothing to bound.
 The person calendar's "Previous week" control has **no lower bound** — `setFirstMonday(current =>
 current.subtract(7, 'day'))` pages backwards indefinitely. With retention it will walk into weeks
 that are empty because the data was deleted rather than because nothing was booked, which is
-indistinguishable to the user. It needs a floor at the retention boundary.
+indistinguishable to the user. It needs a floor at the retention boundary. (comment: lets add a constrant on date navigation in the webapp to only the window that can have meetings.  I belieeve this date range is implicitly returned in the top level query, lets discuss where it should be stored backend.)
 
 **The server publishes that boundary; the client never computes it.** The top-level query returns the
 stored `earliestRetainedDate`, and the client disables "Previous week" against it. The alternative —
@@ -753,7 +768,7 @@ That cap is unreachable in practice — `production` holds 508 meetings in total
 "the response is probably fine" into a guarantee with a test behind it.
 
 **New `MeetingError`/query error cases**: too many dates requested, and response would be too large.
-Both are validation failures a client renders, never a 500.
+Both are validation failures a client renders, never a 500. (comment: lets consider limits on how many days of meetings you can ask for at once)
 
 ### The item-size guarantee
 
@@ -803,6 +818,8 @@ Without layer 1 the guarantee is a comment; without layer 3 it depends on an est
   artefact that accumulates without a bound.
 
 ## Testing impacts
+
+(comment: I'd like a test that covers two concurrent users, one creates a meeting, the other one's page (which happens to be showing meetings for that day) is updated without the second user refreshig the page.)
 
 - **Cross-user real-time tests are new machinery.** No spec under `webapp/tests/` currently uses
   `browser.newContext()`; every test runs in the single storage state from `auth.setup.ts`. Testing
