@@ -11,7 +11,9 @@ user's booking appears on another's screen without a refetch.
 
 ## Status
 
-**Drafting** — 2026-09-07. All open questions closed 2026-09-09.
+**Ready** — 2026-09-09, promoted by Geoff. Every blocking open question is closed. The items
+under "Still to verify" are non-blocking: they are AppSync behaviours to be answered empirically
+during slice 5, not decisions still to be made.
 
 ## Decisions
 
