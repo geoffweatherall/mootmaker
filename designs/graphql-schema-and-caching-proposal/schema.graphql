@@ -1,0 +1,239 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# The proposed GraphQL schema.
+#
+# Supporting material for ../graphql-schema-and-caching.md. This is the decided
+# shape, not a candidate: one composite entry point, chosen 2026-09-09 over
+# sibling root fields. See the README for what was given up in choosing it.
+#
+# Everything a screen needs hangs off a single field, so one query is ONE
+# AppSync resolver invocation. Arguments are hoisted onto `workspace` rather
+# than sitting on the nested fields they filter: AppSync gives a resolver its
+# own arguments typed, but nested field arguments only as raw GraphQL text in
+# info.selectionSetGraphQL, which would mean parsing GraphQL inside a Java
+# Lambda to recover a filter.
+# ═════════════════════════════════════════════════════════════════════════════
+
+schema { query: Query, mutation: Mutation, subscription: Subscription }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Query
+# ─────────────────────────────────────────────────────────────────────────────
+
+type Query {
+    "Everything a screen needs, in one invocation. Sub-fields not selected are not fetched: `workspace { days { ... } }` does no people or rooms lookup at all. `dates` is optional - omitting it means no days are wanted, which is how a reference-data-only refresh asks for just rooms and people."
+    workspace(dates: [String!]): Workspace!
+
+    "A user action rather than screen state, so it stays a root field - it has its own arguments and is never part of a page's initial load. Returns rooms free over the range with capacity >= requiredCapacity, smallest surplus first."
+    suggestRoom(startTime: String!, endTime: String!, requiredCapacity: Int!): [Room!]!
+
+    "The one lookup that is not a date range. Backed by an id -> date pointer written alongside the day item, so it resolves in two reads rather than the full-table scan it takes today. Returns null for an id that never existed AND for one whose day has passed out of retention - deliberately the same answer, so callers handle one case and nothing confirms that an id was once valid."
+    meeting(id: ID!): Meeting
+}
+
+type Workspace {
+    "The signed-in caller's own Person. Resolved from the `custom:personId` Cognito claim, so it costs ZERO lookups to know the id and one ConsistentRead GetItem for the mutable fields - no GSI on the hot path. This is what removes the old MyPerson -> ListMeetings waterfall. Null for a machine-to-machine client_credentials token (no user behind it), and null for a confirmed user whose PostConfirmation trigger failed - that trigger swallows its own errors by design, so the state is reachable and CreateMissingPersonsRepair is the fix."
+    me: Person
+    "Every person. Small and slow-moving; fetching once at page load makes every later `attendees { id }` resolvable from the Apollo cache with no further round trip. Bounded at 1,000 (maxPeople)."
+    people: [Person!]!
+    "Every room. Same reasoning as `people`. Bounded at 200 (maxRooms)."
+    rooms: [Room!]!
+    "One entry per requested date, in the same order, including dates with no meetings. Never sparse - a returned empty day means empty, not unfetched. The list is explicit rather than a range so a warm client can ask for exactly the days it is missing."
+    days: [Day!]!
+    "Retention and booking bounds. Cheap, and clients must not compute either for themselves - see the design's \"the server publishes that boundary\"."
+    boundaries: Boundaries!
+}
+
+"What the server will and will not accept, so no client has to compute either boundary for itself. The pair is the SAME window for viewing and for booking - there is no third concept."
+type Boundaries {
+    "The earliest date still retained, always a Monday. STORED as a config item and advanced by the weekly cleanup job before it deletes anything, so it is never more permissive than reality. Initialised by Terraform when the table is created, so it exists from the moment an environment does. Clients bound their back-navigation by it, and writes before it are rejected."
+    earliestRetainedDate: String!
+    "The latest date a meeting may be booked on. COMPUTED per request as serverToday + 180 days from a stored horizon length, rather than stored as a date - a stored date would need its own daily job to advance. Clients bound their forward-navigation by it. The other half of the bound on how many day items can exist."
+    latestBookableDate: String!
+}
+
+# NOTE: `dates` is an explicit list, NOT a from/to range.
+#
+# A range cannot express a discontiguous set, and a discontiguous set is exactly what a warm cache
+# asks for: if Tuesday and Thursday are already held, the client wants Mon/Wed/Fri and nothing else.
+# Apollo will not work that out - a cache read returns a complete result or nothing, and on nothing
+# the query goes to the network with the variables AS GIVEN. There is no mechanism to rewrite
+# variables to fetch a subset. So the client computes the gap, and the argument has to be able to
+# carry it.
+#
+# Bounded at 42 dates (maxDates). The person calendar shows WEEKS_SHOWN=6 x WORK_DAYS_PER_WEEK=5 =
+# 30 weekday dates spanning 39 calendar days, so 42 covers the whole span with a week to spare -
+# and keeps working if the UI ever shows weekends, which a tighter bound would not. Over the limit
+# is a validation error, not a truncation.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Query-level errors
+#
+# `workspace` returns `Workspace!` with no error channel, so "too many dates requested" and
+# "response would be too large" are GraphQL errors carrying a typed `extensions.code`, not entries
+# in a typed errors array. That is a DELIBERATE consequence of choosing the plain composite shape:
+# a non-null field erroring nulls the whole Workspace, so an overflow loses rooms and people too.
+# Accepted because the client is what constructs the request - maxDates is a bound the client can
+# simply never trip, and maxMeetingsPerResponse (2,000) is a backstop that should be unreachable
+# against production's 508 meetings in total. Wrapping `days` in a result type to buy back partial
+# failure was considered and rejected as not worth the schema cost.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Core types
+# ─────────────────────────────────────────────────────────────────────────────
+
+"A single date's meetings. The unit of storage (one DynamoDB item), of fetching, of Apollo cache identity, and of bulk creation."
+type Day {
+    "ISO-8601 calendar date, e.g. \"2026-09-14\". The cache key: Apollo's `Day` typePolicy sets keyFields: [\"date\"], so the client can construct Day:2026-09-14 without a round trip to discover it."
+    date: String!
+    "Every meeting starting on this date, in no particular order. An empty list means the day is genuinely empty - distinct from the day not having been fetched, which is what makes day-keyed caching tractable. At most 320 (maxMeetingsPerDay)."
+    meetings: [Meeting!]!
+}
+
+type Meeting {
+    id: ID!
+    "Selecting only `id` on room/organiser/attendees costs no lookup - the ids are already on the stored meeting. Selecting any further field triggers exactly one batched lookup for all of them. See the design's \"selection-aware resolvers\"."
+    room: Room!
+    organiser: Person!
+    "At most 20 (maxAttendees)."
+    attendees: [Person!]!
+    "At most 280 bytes of NFC-normalised UTF-8. Plain text gets 280 characters; simple emoji get 70. Measured in UTF-8 bytes because that is the unit DynamoDB itself sizes string attributes in."
+    subject: String!
+    "ISO-8601 local date-time, no offset, 15-minute boundary, e.g. \"2026-09-14T14:30:00\"."
+    startTime: String!
+    endTime: String!
+}
+
+type Room {
+    id: ID!
+    "At most 100 bytes (maxRoomNameBytes). Unbounded today."
+    name: String!
+    capacity: Int!
+}
+
+type Person {
+    id: ID!
+    "At most 100 bytes (maxPersonNameBytes). Unbounded today."
+    name: String!
+    dateFormat: DateFormat!
+    timeFormat: TimeFormat!
+}
+
+enum DateFormat { Usa British Iso }
+enum TimeFormat { TwentyFourHour AmPm }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mutation
+# ─────────────────────────────────────────────────────────────────────────────
+
+type Mutation {
+    "Returns BOTH the created meeting and its whole updated Day. The client picks by selection: `{ meeting { id } }` for a small response, `{ day { date meetings { ... } } }` to have Apollo merge the new day state into the cache with no update function at all - Day is normalised on `date`, so a returned Day replaces the cached one automatically. Selecting the day is usually free rather than wasteful; see the README."
+    createMeeting(meeting: MeetingInput!): CreateMeetingResult!
+
+    "Day-scoped bulk creation. One operation, one item write, one broadcast with one filterable `date`. mootmaker-demo-data's per-meeting fan-out collapses into one call per seeded day, which is also what resolves DemoData's parallel creates colliding on the day item's version attribute. Also sidesteps TransactWriteItems' 100-item cap, which a cross-day bulk would exceed."
+    createMeetings(date: String!, meetings: [MeetingInput!]!): CreateMeetingsResult!
+
+    createRoom(room: RoomInput!): CreateRoomResult!
+    updateRoom(id: ID!, room: RoomInput!): UpdateRoomResult!
+    createPerson(person: PersonInput!): CreatePersonResult!
+    updatePerson(id: ID!, person: PersonInput!): UpdatePersonResult!
+    updateMyPreferences(preferences: PreferencesInput!): UpdateMyPreferencesResult!
+
+    "Cancels every UPCOMING meeting the caller organises and removes them from every upcoming meeting they only attend; past meetings are left untouched, as today. Finds them by scanning the meetings table rather than by an index - after this design the table holds at most 217 day items (180 horizon + 37 retention), so a scan is trivial and, unlike a BatchGetItem over computed horizon dates, cannot miss a day the arithmetic got wrong. Then deletes the Person and, LAST, every Cognito user linked to it. Order matters for the same reason the retention job advances before deleting: Person-gone-but-login-works is recoverable, the reverse orphans meetings with no way to retry. The Person carries a `cognitoSubs` list attribute, so \"user(s)\" is expressible without any index."
+    deleteMyAccount: Boolean!
+
+    "NOT FOR CLIENT USE. A publish-only mutation on a NONE data source, called by the resolver Lambda over IAM-signed HTTP after a successful write, purely to drive the subscription below. It exists because @aws_subscribe pushes the MUTATION'S return value and requires the subscription field's type to match it - so subscribing directly to createMeeting would (a) broadcast rejected bookings, which return successfully with a typed errors array rather than failing, and (b) be unable to cover createMeetings as well, whose result type differs."
+    publishDaysInvalidated(dates: [String!]!): Invalidation
+}
+
+type CreateMeetingResult {
+    "Populated when the meeting was created."
+    meeting: Meeting
+    "The affected day, in full, after the write. Select this to update the cache in one hit."
+    day: Day
+    errors: [MeetingError!]!
+}
+
+type CreateMeetingsResult {
+    "The day after all of them were applied. Whole-day replacement is the natural cache update for a whole-day write."
+    day: Day
+    "One entry per rejected input, by index. Empty when every meeting was created."
+    failures: [MeetingFailure!]!
+}
+
+type MeetingFailure {
+    "Index into the `meetings` argument."
+    index: Int!
+    errors: [MeetingError!]!
+}
+
+"Room and person mutations return the whole collection, not just the changed item. Apollo normalises entities by id, so returning one Room updates that Room everywhere - but it does NOT add it to the cached `rooms` list, which is a separate cache field. Returning the list makes the mutation self-sufficient. Both collections are small enough that this costs nothing."
+type CreateRoomResult { rooms: [Room!]!, room: Room, errors: [RoomError!]! }
+type UpdateRoomResult { rooms: [Room!]!, room: Room, errors: [RoomError!]! }
+type CreatePersonResult { people: [Person!]!, person: Person, errors: [PersonError!]! }
+type UpdatePersonResult { people: [Person!]!, person: Person, errors: [PersonError!]! }
+type UpdateMyPreferencesResult { person: Person, errors: [PreferencesError!]! }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Subscription
+# ─────────────────────────────────────────────────────────────────────────────
+
+"A set of dates whose contents have changed. Deliberately a WRAPPER OBJECT rather than a bare [String!]! - adding a field to a GraphQL output type is backward compatible, so reference-data invalidation (`rooms`/`people` flags, deferred) can be added later without breaking a deployed client. Typing the subscription as a bare list would have made that a breaking change."
+type Invalidation {
+    dates: [String!]!
+}
+
+type Subscription {
+    "Carries invalidated DATES, never data. AppSync caps a subscription payload at 240 KB against 5 MB for a resolver response, and a worst-case Day is ~618 KB of JSON - so a broadcast cannot carry a day even though a mutation response can. Beyond fitting the cap: the payload is uniform and tiny whatever the day holds, one channel serves every kind of change (create, bulk create, and later history deletion), and it is idempotent - the same invalidation twice is harmless, where merging the same meeting twice needs deduplication. The client evicts Day:<date> and its ordinary gap fetch refills it."
+    daysInvalidated: Invalidation @aws_subscribe(mutations: ["publishDaysInvalidated"])
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Inputs
+# ─────────────────────────────────────────────────────────────────────────────
+
+input MeetingInput {
+    roomId: ID!
+    "Explicit, and it must STAY explicit. `me` is derived from the caller's JWT claim, but no mutation may derive the organiser that way: mootmaker-demo-data and the acceptance suite authenticate as machine-to-machine client_credentials clients with no user behind the token, so a caller-derived organiser would break both silently."
+    organiserId: ID!
+    attendeeIds: [ID!]!
+    subject: String!
+    startTime: String!
+    endTime: String!
+}
+
+input RoomInput { name: String!, capacity: Int! }
+input PersonInput { name: String! }
+input PreferencesInput { dateFormat: DateFormat!, timeFormat: TimeFormat! }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Errors
+# ─────────────────────────────────────────────────────────────────────────────
+
+enum MeetingError {
+    StartMissaligned
+    EndMissaligned
+    SpansMultipleDays
+    EndBeforeStart
+    InsufficientCapacity
+    TimeRangeUnavailable
+    RoomRequired
+    RoomNotFound
+    OrganiserRequired
+    OrganiserNotFound
+    AttendeeNotFound
+    SubjectRequired
+    OrganiserIsAttendee
+    "New: the day already holds the maximum number of meetings. The DAY, not the room - physical capacity is 360 meetings a day against a limit of 320, so a booking can be refused with rooms still free, and an error naming the room would be unexplainable."
+    DayIsFull
+    "New: more than the per-meeting attendee limit of 20."
+    TooManyAttendees
+    "New: subject exceeds 280 bytes of NFC-normalised UTF-8. Reject, never truncate - cutting at a byte boundary can split a character and produce mojibake."
+    SubjectTooLong
+    "New, and symmetric in both directions: startTime is after latestBookableDate, or before earliestRetainedDate. The backward half is not optional - past bookings stay legal (the retention acceptance test seeds history through this API), so without a floor the table has no bound on how many day items can exist and the whole storage guarantee collapses."
+    OutsideBookableRange
+}
+
+enum RoomError { NameRequired CapacityTooLow RoomNotFound NameTooLong }
+enum PersonError { NameRequired PersonNotFound NameTooLong }
+enum PreferencesError { NoLinkedPerson }

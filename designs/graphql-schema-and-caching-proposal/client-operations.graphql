@@ -1,0 +1,292 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# What the webapp actually sends, against the schema in schema.graphql.
+#
+# Invocation counts assume selection-aware resolvers: a sub-field that is not
+# selected is not fetched, and `room { id }` / `attendees { id }` cost NO
+# DynamoDB lookup because those ids are already on the stored meeting.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+# ─── 1. PAGE LOAD ────────────────────────────────────────────────────────────
+# One request. One Lambda invocation. Replaces today's three sequential steps
+# (Cognito claims -> MyPerson -> ListMeetings), which could not overlap because
+# the meetings filter needed the person id.
+#
+# `people` and `rooms` are fetched in full ONCE here. They are small (10 rooms,
+# tens of people) and slow-moving, and having them cached is what lets every
+# later query ask for ids only.
+
+query PageLoad($dates: [String!]) {          # ["2026-09-07","2026-09-08","2026-09-09"]
+  workspace(dates: $dates) {
+    me { id name dateFormat timeFormat }
+    rooms { id name capacity }
+    people { id name }
+    boundaries { earliestRetainedDate latestBookableDate }
+    days {
+      date
+      meetings {
+        id subject startTime endTime
+        room { id }                            # id only - no room lookup
+        organiser { id }                       # id only - no person lookup
+        attendees { id }                       # id only - no person lookup
+      }
+    }
+  }
+}
+
+# Names are resolved client-side from `rooms`/`people` in the same result.
+# Apollo normalises them as Room:<id> / Person:<id>, so a component can also
+# read one directly with useFragment rather than threading a lookup map down.
+
+
+# ─── 2. CALENDAR: user pages back a week ─────────────────────────────────────
+# Only the new days. `people`, `rooms`, `me` and `boundaries` are NOT selected,
+# so the resolver does not fetch them - that is the whole point of
+# selection-aware resolving. One invocation, one small response.
+#
+# The client asks only for days it does not already hold. Day is normalised on
+# `date`, so if Tuesday and Thursday are cached, $dates is ["Mon","Wed","Fri"]
+# and nothing else is fetched. If every day is cached the query is skipped
+# entirely and the render costs nothing.
+#
+# Apollo does NOT compute that gap - see the README's "Fetching only what is
+# missing". The client works out the missing dates and passes them; the array
+# argument exists precisely so it can.
+#
+# Back-navigation stops at boundaries.earliestRetainedDate, read at page load.
+# The client never computes that date itself.
+
+query CalendarWeeks($dates: [String!]) {
+  workspace(dates: $dates) {
+    days {
+      date
+      meetings {
+        id subject startTime endTime
+        room { id } organiser { id } attendees { id }
+      }
+    }
+  }
+}
+
+
+# ─── 3. ROOM AVAILABILITY: move to another day ───────────────────────────────
+# Structurally identical to #2 with a one-day range - which is the point. There
+# is one way to ask for meetings, and every screen is a different range of it.
+# Moving to an already-visited day is served entirely from cache.
+
+query OneDay($dates: [String!]) {            # ["2026-09-15"]
+  workspace(dates: $dates) {
+    days {
+      date
+      meetings {
+        id subject startTime endTime
+        room { id } organiser { id } attendees { id }
+      }
+    }
+  }
+}
+
+
+# ─── 4. ADD MEETING PAGE ─────────────────────────────────────────────────────
+# No query at all.
+#
+# The form needs rooms (name + capacity) and people (name). Both were fetched
+# at page load and neither has changed, so opening the page costs nothing. This
+# is the strongest argument for fetching them eagerly: it converts a two-query
+# page into a zero-query one.
+#
+# If a session is long enough that staleness matters, this is the query - but
+# it is a refresh, not a prerequisite, so the form renders immediately from
+# cache while it runs.
+
+query ReferenceDataRefresh {
+  workspace {                                   # no dates argument at all
+    rooms { id name capacity }
+    people { id name }
+  }
+}
+
+# `dates` is optional, which is what makes this read cleanly. An earlier draft
+# made it required and had to pass an invented empty range — the composite
+# shape's one real wart. Making the argument nullable deletes it: omitting it
+# means "no days wanted", and the resolver skips that work entirely just as it
+# skips people and rooms when they are not selected.
+
+
+# ─── 4b. MEETING DETAILS (a bookmarked or shared link) ───────────────────────
+# The one need that is not a date range, and today the worst query in the app:
+# ListMeetings with NO filter at all, fetching every meeting ever stored and
+# filtering client-side.
+#
+# Backed by an id -> date pointer written in the same transaction as the day
+# item, so it resolves in two reads. A root field rather than a date in the URL
+# so the link works from anywhere — bookmarked, shared, or refreshed — without
+# assuming what loaded first.
+#
+# Names ARE selected here, unlike every other meetings query: a details page
+# reached cold has no cached rooms or people to resolve ids against.
+
+query MeetingDetails($id: ID!) {
+  meeting(id: $id) {
+    id subject startTime endTime
+    room { id name capacity }
+    organiser { id name }
+    attendees { id name }
+  }
+}
+
+# Returns null for an id that never existed AND for one whose day has aged out
+# of retention — the same answer deliberately, so the page has one not-found
+# state and nothing confirms that a given id was once valid.
+
+
+# ─── 5. SUGGEST A ROOM (on demand, inside Add Meeting) ───────────────────────
+# Not modelled as part of the workspace: it is a user action with its own
+# arguments, not part of a screen's initial state.
+
+query SuggestRoom($startTime: String!, $endTime: String!, $requiredCapacity: Int!) {
+  suggestRoom(startTime: $startTime, endTime: $endTime, requiredCapacity: $requiredCapacity) {
+    id
+  }
+}
+
+
+# ─── 6. CREATE A MEETING — the cache-update payload ──────────────────────────
+# This is the shape worth looking at hardest.
+#
+# `day` is the WHOLE affected day after the write. Because Day is normalised on
+# `date`, Apollo merges it straight over the cached Day:<date> - with NO update
+# function, NO refetchQueries, and no client code that has to know a meeting
+# belongs to a day. The mutation is self-sufficient.
+#
+# It also removes the read-after-write hazard entirely: the response IS the new
+# state, so nothing is re-read. The router-state workaround in AddMeetingPage
+# and the paired createdMeeting merge in RoomAvailabilityPage both disappear.
+#
+# And it is usually not extra data. AddMeetingPage navigates to the room
+# availability view FOR THAT DATE on success - which needs exactly this day.
+# Returning it is the next screen's query arriving early, not overhead.
+
+mutation CreateMeeting($meeting: MeetingInput!) {
+  createMeeting(meeting: $meeting) {
+    errors
+    meeting { id }
+    day {
+      date
+      meetings {
+        id subject startTime endTime
+        room { id } organiser { id } attendees { id }
+      }
+    }
+  }
+}
+
+# When the day is NOT wanted - a background or bulk caller with nowhere to
+# navigate - the client simply does not select it, and the resolver does not
+# build it. Same mutation, two costs, chosen by the caller:
+#
+#   mutation { createMeeting(meeting: $m) { errors meeting { id } } }
+
+
+# ─── 7. BULK CREATE (mootmaker-demo-data) ────────────────────────────────────
+# One call per seeded day instead of one per meeting. Returns the finished day,
+# so a client watching that date is correct immediately.
+
+mutation CreateMeetings($date: String!, $meetings: [MeetingInput!]!) {
+  createMeetings(date: $date, meetings: $meetings) {
+    failures { index errors }
+    day { date meetings { id startTime endTime room { id } } }
+  }
+}
+
+
+# ─── 8. ADMIN: create a room ─────────────────────────────────────────────────
+# Returns the whole `rooms` collection, not just the new room.
+#
+# IMPORTANT, and different from the Day case above. Apollo auto-merges
+# ENTITIES: returning a Room updates Room:<id> everywhere it is referenced, and
+# returning a Day replaces Day:<date> INCLUDING its meetings list, because that
+# list is a field on a normalised entity. Neither is true of a bare list. A
+# `rooms` array in a mutation result normalises its members but does NOT append
+# them to ROOT_QUERY.rooms, which is a different cache field entirely.
+#
+# So this one still needs an update function - but a trivial one, because every
+# byte it needs is already in the response:
+#
+#   update(cache, { data }) {
+#     cache.writeQuery({ query: ROOMS, data: { rooms: data.createRoom.rooms } })
+#   }
+#
+# That is strictly better than today's SettingsPage, which merges a single item
+# into the cached list AND fires a refetch because the merge alone is not
+# sufficient. Here there is no refetch and no merge logic - the server's list is
+# authoritative and replaces the cached one wholesale. Ten rooms is nothing to
+# send.
+#
+# Only `createMeeting`/`createMeetings` are genuinely update-function-free, and
+# only because Day is an entity.
+
+mutation CreateRoom($room: RoomInput!) {
+  createRoom(room: $room) {
+    errors
+    rooms { id name capacity }
+  }
+}
+
+mutation CreatePerson($person: PersonInput!) {
+  createPerson(person: $person) {
+    errors
+    people { id name }
+  }
+}
+
+# ─── 9. A DAY IS INVALIDATED BY SOMEONE ELSE ────────────────────────────────
+# The subscription carries dates, never data - see the schema's Subscription
+# section for why. Payload is a handful of bytes whatever the day holds.
+
+subscription DaysInvalidated {
+  daysInvalidated {
+    dates
+  }
+}
+
+# The handler evicts and does nothing else:
+#
+#   onData({ data }) {
+#     for (const date of data.daysInvalidated.dates) {
+#       cache.evict({ id: `Day:${date}` })
+#     }
+#     cache.gc()
+#   }
+#
+# THERE IS NO REFETCH CALL. Eviction does not fetch - useFragment is cache-only
+# and simply reports complete: false. What happens is that eviction is a cache
+# change, so every useFragment on an evicted Day re-renders, the gap
+# computation re-runs, those dates are now missing, and the EXISTING query
+# fires for them. Byte-for-byte the same document as ordinary navigation:
+
+query CalendarWeeks($dates: [String!]) {       # $dates = the evicted dates still on screen
+  workspace(dates: $dates) {
+    days {
+      date
+      meetings {
+        id subject startTime endTime
+        room { id } organiser { id } attendees { id }
+      }
+    }
+  }
+}
+
+# So the two cases fall out with no branching:
+#
+#   Viewing that day  -> a component watches Day:<date>, the gap recomputes,
+#                        one query goes out for exactly the invalidated dates
+#                        that are on screen. One round trip and the UI updates.
+#
+#   NOT viewing it    -> nothing watches Day:<date>, so no gap recomputes and
+#                        NO QUERY IS MADE AT ALL. The entity is simply gone.
+#                        If the user navigates there later it is an ordinary
+#                        cache miss and gets fetched fresh.
+#
+# That second case is the one worth noticing: an invalidation for a day nobody
+# is looking at costs one WebSocket frame and no server work whatsoever.
