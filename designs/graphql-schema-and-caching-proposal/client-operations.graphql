@@ -1,5 +1,5 @@
 # ═════════════════════════════════════════════════════════════════════════════
-# OPTION A — what the webapp actually sends
+# What the webapp actually sends, against the schema in schema.graphql.
 #
 # Invocation counts assume selection-aware resolvers: a sub-field that is not
 # selected is not fetched, and `room { id }` / `attendees { id }` cost NO
@@ -106,11 +106,38 @@ query ReferenceDataRefresh {
   }
 }
 
-# `dates` is optional, so this reads exactly as well as Option B's version.
-# An earlier draft made it required and had to pass an invented empty range,
-# which was Option A's only real wart. Making the argument nullable deletes it:
-# omitting it means "no days wanted", and the resolver skips that work entirely
-# just as it skips people and rooms when they are not selected.
+# `dates` is optional, which is what makes this read cleanly. An earlier draft
+# made it required and had to pass an invented empty range — the composite
+# shape's one real wart. Making the argument nullable deletes it: omitting it
+# means "no days wanted", and the resolver skips that work entirely just as it
+# skips people and rooms when they are not selected.
+
+
+# ─── 4b. MEETING DETAILS (a bookmarked or shared link) ───────────────────────
+# The one need that is not a date range, and today the worst query in the app:
+# ListMeetings with NO filter at all, fetching every meeting ever stored and
+# filtering client-side.
+#
+# Backed by an id -> date pointer written in the same transaction as the day
+# item, so it resolves in two reads. A root field rather than a date in the URL
+# so the link works from anywhere — bookmarked, shared, or refreshed — without
+# assuming what loaded first.
+#
+# Names ARE selected here, unlike every other meetings query: a details page
+# reached cold has no cached rooms or people to resolve ids against.
+
+query MeetingDetails($id: ID!) {
+  meeting(id: $id) {
+    id subject startTime endTime
+    room { id name capacity }
+    organiser { id name }
+    attendees { id name }
+  }
+}
+
+# Returns null for an id that never existed AND for one whose day has aged out
+# of retention — the same answer deliberately, so the page has one not-found
+# state and nothing confirms that a given id was once valid.
 
 
 # ─── 5. SUGGEST A ROOM (on demand, inside Add Meeting) ───────────────────────

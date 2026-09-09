@@ -350,33 +350,25 @@ budget without it.
 
 ### Blocking
 
-**The booking horizon's length.** Retention is set at 30 days; the horizon is not set. Together they
-fix the hard bound on how many day items can exist, so the horizon is the last number the storage
-bound is waiting on.
+*None. Both questions that were blocking were answered on 2026-09-09.*
 
-*(The cleanup job's broadcast question is settled — see "Retention". It does not broadcast, for now.)*
+**The shape of the top-level query — a single composite `workspace` entry point.** Chosen over
+sibling root fields: one HTTP request, one Lambda invocation and one SnapStart restore on the
+request that most decides perceived load speed. The full schema and every operation the webapp
+sends are written out in
+[`graphql-schema-and-caching-proposal/`](graphql-schema-and-caching-proposal/), which also records
+what the choice cost — partial failure, and one timeout for the whole response — and why both are
+accepted. The straw man for the shape that lost has been deleted rather than kept as a footnote.
 
-**The shape of the top-level query.** Either sibling root fields in one document — one HTTP request,
-one Lambda invocation per field, cache slots that map one-to-one onto the entities — or a single
-composite entity carrying people, rooms and a date range of meetings, giving one invocation. The
-cache-slot argument that previously made this urgent is void (see Trade-offs), so this is now a
-straight choice between invocation count and schema shape, with no legacy pressure either way.
+**The booking horizon — 180 days.** `deleteMyAccount` now finds a caller's meetings by scanning the
+day items rather than by a computed range of horizon dates, so the horizon no longer has to be short
+enough to keep that operation cheap, and the choice became a product one rather than a performance
+one. It bounds the table at
+`180 + 37 = 217` day items, which is the hard upper bound on row count the storage guarantee needs.
 
-**Both are written out in full in
-[`graphql-schema-and-caching-strawmen/`](graphql-schema-and-caching-strawmen/)** — two complete
-schemas sharing byte-identical types, the queries the webapp would send for page load, calendar
-navigation, changing day on room availability and adding a meeting, and the mutation payloads with
-their cache behaviour worked through. "What requires a server round trip" above is the evidence;
-the straw men are the two candidate answers.
+*(The cleanup job's broadcast question is settled — see "Retention". It does not broadcast, for
+now.)*
 
-**The straw men recommend the composite entry point**, having first recommended the other and been
-argued out of it. The sibling-root-fields case rested on parallelism across invocations, a simpler
-cache configuration, and being the conventional shape for a public API. The first is wrong — one
-resolver already parallelises internally with `CompletableFuture`, so siblings buy the same
-concurrency at the cost of five SnapStart restores. The second was overstated: the difference is one
-object spread. The third is explicitly disclaimed by this design, which refuses to carry decisions
-for hypothetical consumers. The composite field's only real wart — a required `dates` argument on a
-field also used to fetch reference data — is removed by making the argument optional.
 
 ### Non-blocking
 
