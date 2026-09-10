@@ -193,11 +193,11 @@ A few things worth flagging separately since they shape *how* you'd test rather 
 - Several rules (validation messages, `OrganiserIsAttendee`, capacity math) are enforced
   server-side and only mirrored client-side for UX — worth deciding whether these get covered at
   the UI layer, the API acceptance-test layer, or both.
-- There's one known-hard-to-automate race called out in the webapp README: the organiser-defaulting
-  effect on Add Meeting racing a user picking themselves as an attendee before their own `personId`
-  resolves. Automating it needs a real signed-up test account with a linked Person (not the bare
-  e2e/demo accounts, which have none), plus a deterministic way to win or lose the race against the
-  `myPerson` query.
+- The organiser-defaulting race that used to be listed here as hard to automate is **closed**, not
+  merely still open: `AddMeetingPage` no longer renders an interactive form until the signed-in
+  Person has resolved, so no user interaction can precede it. The premises behind the old note also
+  both expired — the e2e account has a linked Person now, and the `myPerson` query it named no
+  longer exists.
 - `AddRoomPage.tsx` exists in the webapp codebase but isn't wired into any route — dead code, not a
   real use case.
 - Not yet tagged per-frontend (universal vs. webapp-only vs. android-only) — e.g. #36 and #97's
