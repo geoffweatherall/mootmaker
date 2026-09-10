@@ -721,6 +721,9 @@ which is worth noticing on its own: **cache behaviour is the part of a design mo
 wrong, because it is the part you cannot check by reading.** Recorded here rather than quietly
 patched, so the next person does not re-derive them.
 
+A fourth entry follows them. It is not a wrong claim but an unstated consequence — what serving reads
+from a cache does to the *order* things finish in — and it belongs here for the same reason.
+
 ### Eviction does not leave a gap to fetch
 
 The design says the client "evicts `Day:<date>` and its ordinary gap fetch refills it". It does not.
@@ -758,6 +761,31 @@ explicitly.
 Recorded already in `apolloClient.ts`, repeated here because it is a design-level claim: `dates` is an
 argument of `workspace`, not of `days`, so a field policy on `days` receives no `args`. Replacing the
 list (`merge: false`) achieves what the read policy was chosen for.
+
+### Making reads faster re-orders races the old latency was hiding
+
+Not a claim this design got wrong — a consequence it does not mention, and the one that cost the most
+to find, because it presents as an unrelated bug somewhere else entirely.
+
+Add Meeting gated its form on the reference-data query. The Organiser field defaults to the signed-in
+user's own Person, which arrives from a *different* query (`workspace { me }`, in `AuthProvider`).
+Two independent loads, one gate — so the form rendered interactive, and submittable, while Organiser
+was still blank. A fast submit sent `organiserId: ""` and the server answered `OrganiserRequired`,
+while the field visibly filled in with the user's own name a moment later.
+
+That was harmless for as long as reference data always cost a round trip. It was reliably slower than
+the session query, so the Person always won and the gap never opened. **Serving reference data from
+the cache — the point of this design — reverses the order on any second visit.**
+
+The race is not new. It was unreachable, and the old latency was the only thing making it so.
+
+Worth stating as a general caution for anything this design speeds up: a caching change does not only
+reduce waiting. It changes which of two independent loads finishes first, everywhere two of them feed
+one screen. Every such pair is worth re-checking against the cached timing, not just the cold one.
+
+The symptom set is also worth recording, because none of it names an organiser: a failed navigation
+assertion, and two Playwright `element was detached from the DOM, retrying` timeouts caused by the
+option list being rebuilt when `organiserId` finally changed.
 
 ## Changes to the data model
 
