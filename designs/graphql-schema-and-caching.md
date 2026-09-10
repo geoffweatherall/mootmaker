@@ -971,45 +971,65 @@ must ship together — which the release pipeline already does.
 Five slices, each verifiable on its own ephemeral environment. Slices 2 and 3 must ship together — the
 schema break is not backward-compatible for a deployed webapp.
 
+**Every box below was ticked on 2026-09-11 by checking the code, not from memory.** That distinction
+earned its keep: two items looked done and were not. `mootmaker-demo-data` still called three root
+fields the composite entry point had deleted, and an IAM policy still justified a permission by a table
+that no longer existed. Both had been "done" for as long as nobody looked. Where what shipped differs
+from what was planned, the item says so rather than being quietly reworded.
+
 **Slice 1 — the request template and selection-aware resolving.** Independently shippable and valuable
 on its own: it removes an existing over-fetch where `meetings { id subject }` still batch-loads every
 room and person. No schema change.
 
-- [ ] Change the resolver request template to serialise `selectionSetList`, in whatever payload shape
+- [x] Change the resolver request template to serialise `selectionSetList`, in whatever payload shape
       the new handlers want. It stops shipping every CloudFront request header to Lambda either way.
-- [ ] Make `ListMeetingsHandler` selection-aware, with unit tests driven by recorded payloads including
-      aliases and fragments.
+- [x] Make the meetings resolver selection-aware, with unit tests driven by recorded payloads including
+      aliases and fragments — `SelectionSet` plus `SelectionSetTest`. *Shipped against `WorkspaceHandler`
+      rather than `ListMeetingsHandler`, which slice 3 deleted; the selection logic is shared.* The alias
+      case earned its own test: an aliased field returned as a stub nulls a non-null field and cascades.
 
 **Slice 2 — storage, repositories and the guarantees.**
 
-- [ ] `DayRepository`, `PersonRepository`, `RoomRepository` as init-constructed instances; `BatchLoader`
+- [x] `DayRepository`, `PersonRepository`, `RoomRepository` as init-constructed instances; `BatchLoader`
       absorbed and deleted.
-- [ ] Day-keyed table, GSIs and `bucket` removed, `meeting-participants` and
+- [x] Day-keyed table, GSIs and `bucket` removed, `meeting-participants` and
       `RebuildMeetingParticipantsRepair` deleted, the `PTR#` pointer, the Terraform-initialised
       `CONFIG#retention` item **with `ignore_changes`**.
-- [ ] The three size-guarantee layers, the limits, and the `MeetingError` cases.
-- [ ] `custom:personId`: the Cognito attribute, read/write attribute lists, the PostConfirmation
+- [x] The three size-guarantee layers, the limits, and the `MeetingError` cases.
+- [x] `custom:personId`: the Cognito attribute, read/write attribute lists, the PostConfirmation
       trigger, `CreateMissingPersonsRepair`, Persons and claims for the demo and e2e users,
-      `cognitoSub-index` deleted, `cognitoSubs` added.
-- [ ] `deleteMyAccount` by scan, Cognito users deleted last.
+      `cognitoSub-index` deleted, `cognitoSubs` added. *Giving the e2e user a Person removed the only
+      fixture five acceptance tests had for the no-linked-Person path; a third account, personless on
+      purpose and never created in production, replaced it — mootmaker-api#48.*
+- [x] `deleteMyAccount` by scan, Cognito users deleted last.
 
 **Slice 3 — the composite schema and the webapp.** Ships with slice 2.
 
-- [ ] `Query.workspace`, `Boundaries`, `createMeetings`, `meeting(id:)`.
-- [ ] **Correct `StartMissaligned`/`EndMissaligned` to `StartMisaligned`/`EndMisaligned`** *(decided
+- [x] `Query.workspace`, `Boundaries`, `createMeetings`, `meeting(id:)`.
+- [x] **Correct `StartMissaligned`/`EndMissaligned` to `StartMisaligned`/`EndMisaligned`** *(decided
       2026-09-09)*. A misspelling in the live enum, mirrored in the Java enum and rendered by the
       webapp. It is only free while the contract is already being broken and both environments are
       being rebuilt, so it happens here or it becomes permanent. Its own commit — it is unrelated to
       everything else in the slice.
-- [ ] `apolloClient.ts` typePolicies; queries and mutations rewritten; the five pages; date navigation
-      bounded in both directions; the router-state and `createdMeeting` workarounds deleted.
-- [ ] `mootmaker-demo-data` one bulk call per seeded day.
-- [ ] Resolve the `days` `merge`-versus-`read` sub-question first.
+- [x] `apolloClient.ts` typePolicies; queries and mutations rewritten; the five pages; date navigation
+      bounded in both directions; the router-state and `createdMeeting` workarounds deleted. *Bounding is
+      on `PersonCalendarPage`, which is what this design specifies by name. `RoomAvailabilityPage`'s
+      day-at-a-time navigation is still unbounded — raised as mootmaker-webapp#60 rather than decided
+      here, since the design does not ask for it.*
+- [x] `mootmaker-demo-data` one bulk call per seeded day — mootmaker-demo-data#22. *Doing it found
+      that component broken against the deployed schema in four separate ways, none of which any of its
+      45 unit tests could see: three deleted root fields, an invalid `createPerson` selection its own
+      fake had been agreeing with, and a window computed from the local clock rather than the server's.*
+- [x] Resolve the `days` `merge`-versus-`read` sub-question first. *Answered by building it: the read
+      policy is not implementable as written, because `dates` is an argument of `workspace`, not of
+      `days`. See "Corrections from implementation".*
 
 **Slice 4 — retention.**
 
-- [ ] The cleanup Lambda, its EventBridge rule (enabled in `test`/`production` only), `dryRun`, and the
-      acceptance tests including catch-up, idempotency and the on-boundary off-by-one.
+- [x] The cleanup Lambda, its EventBridge rule (enabled in `test`/`production` only), `dryRun`, and the
+      acceptance tests including catch-up, idempotency and the on-boundary off-by-one. *Catch-up and the
+      backwards-boundary refusal are unit-tested; the deployed suite covers the on-boundary case,
+      idempotency and `dryRun`.*
 
 **Slice 5 — real-time.**
 
