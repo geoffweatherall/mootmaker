@@ -942,10 +942,12 @@ room and person. No schema change.
 
 - [x] Answer the AppSync behaviour questions empirically first — done, see "Verified: AppSync
       subscription behaviour".
-- [ ] `publishDaysInvalidated` with `@aws_iam`, the IAM auth provider, the field-scoped role grant, the
-      SigV4 call from the resolver.
-- [ ] The subscription link in the webapp, the self-invalidation guard, the in-flight-race marker, and
-      the reconnect/foreground resync.
+- [x] `publishDaysInvalidated` with `@aws_iam`, the IAM auth provider, the field-scoped role grant, the
+      SigV4 call from the resolver — mootmaker-api#47.
+- [x] The subscription client in the webapp, the self-invalidation guard, the in-flight-race marker, and
+      the reconnect/foreground resync — mootmaker-webapp#53. **Not an Apollo link**: AppSync refuses the
+      `graphql-transport-ws` subprotocol every library speaks, and the broadcast carries dates that
+      nothing renders, so there is no `useSubscription` and no link to order.
 - [ ] The two-context acceptance test asserting every row of the cross-client table.
 
 **Not done by Claude:** destroying and rebuilding `test` and `production` (#67). It sits on the critical
