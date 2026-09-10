@@ -506,7 +506,7 @@ history deletion; and it is idempotent, where merging the same meeting twice nee
 | | Payload | Budget | Client work |
 |---|---|---|---|
 | `createMeeting` response | The whole `Day` | 5 MB | None — `Day` is an entity, Apollo replaces it |
-| `daysInvalidated` broadcast | A list of dates | 240 KB, unreachable | Evict; the gap fetch refills |
+| `daysInvalidated` broadcast | A list of dates | 240 KB, unreachable | Evict, **then refetch active queries** — see "Corrections from implementation" |
 
 **`Invalidation` is a wrapper object, not a bare `[String!]!`.** Adding a field to a GraphQL output
 type is backward compatible, so deferred reference-data flags (`rooms`, `people`) can be added later
@@ -714,6 +714,51 @@ working session — **does not change the design**. The client must already resu
 on reconnect, because it must handle the drop it cannot prevent. That is the "reconnect/foreground
 resync" already in the slice 5 checklist, and it is load-bearing rather than defensive.
 
+## Corrections from implementation
+
+Three claims in this design turned out to be wrong when built. All three are about the Apollo cache,
+which is worth noticing on its own: **cache behaviour is the part of a design most likely to be
+wrong, because it is the part you cannot check by reading.** Recorded here rather than quietly
+patched, so the next person does not re-derive them.
+
+### Eviction does not leave a gap to fetch
+
+The design says the client "evicts `Day:<date>` and its ordinary gap fetch refills it". It does not.
+Measured, immediately after evicting a watched day:
+
+```
+cache.diff(...) -> complete: true, result: { workspace: { days: [] } }
+```
+
+`workspace.days` still holds a reference to the evicted `Day`, and Apollo filters dangling references
+out of a list on read. So the query reads back **complete with one fewer day**, not incomplete —
+there is no gap, nothing refetches, and the screen shows "no meetings" indefinitely.
+
+The client therefore refetches active queries after an eviction that actually removed something. A
+test pins the Apollo behaviour, and says so explicitly: if a future version makes that read
+incomplete, the test fails and the refetch should be deleted rather than left as folklore.
+
+**Only the cross-client acceptance test could see this.** Every unit test passed — they asserted the
+eviction happened, and it did. The defect was in what eviction *means* to a watching query.
+
+### Returning a collection does not add to a cached list
+
+The schema comments say returning the whole `rooms`/`people` collection "makes the mutation
+self-sufficient". It does not, on its own: Apollo normalises `Room` and `Person` by id, so a created
+entity is stored, but `CreateRoomResult.rooms` and `Workspace.rooms` are **different cache fields**
+and nothing tells Apollo they are the same list.
+
+The symptom is easy to misread: Settings shows the new room, because it renders straight from the
+mutation result, while Add Meeting's cache-first reference-data query still serves the list it loaded
+with. No error anywhere. The client now writes the returned collection into the cached `workspace`
+explicitly.
+
+### The `days` read policy is not implementable as written
+
+Recorded already in `apolloClient.ts`, repeated here because it is a design-level claim: `dates` is an
+argument of `workspace`, not of `days`, so a field policy on `days` receives no `args`. Replacing the
+list (`merge: false`) achieves what the read policy was chosen for.
+
 ## Changes to the data model
 
 The delta against `docs/reference/data-model.md`:
@@ -780,7 +825,7 @@ it". Cache residency and being watched are independent, which is what rows 3a an
 
 **Rows 2 and 4 are one requirement.** Both are "the connection was not continuously open", and B never
 needs to know *what* it missed — only to distrust what is on screen. On reconnect or on return to
-foreground, evict the displayed days and let the gap fetch refill them. No sequence numbers, no
+foreground, evict the displayed days and refetch. No sequence numbers, no
 server-side replay. This also settles the socket question honestly: browsers freeze background tabs and
 AppSync will drop the connection, so **correctness must not depend on the socket surviving.**
 
@@ -948,7 +993,12 @@ room and person. No schema change.
       the reconnect/foreground resync — mootmaker-webapp#53. **Not an Apollo link**: AppSync refuses the
       `graphql-transport-ws` subprotocol every library speaks, and the broadcast carries dates that
       nothing renders, so there is no `useSubscription` and no link to order.
-- [ ] The two-context acceptance test asserting every row of the cross-client table.
+- [x] The cross-client acceptance test — mootmaker-webapp#53. Three tests covering the rows a browser
+      can observe: another client's booking appearing with no user action, a booking on another day
+      leaving the viewed day untouched (row 3a), and the booking tab not losing its own write (row 7).
+      The second client books over the API rather than in a second browser: the design's own list of
+      change sources names the nightly demo-data run alongside another user, so a direct API caller is
+      a first-class case rather than a stand-in.
 
 **Not done by Claude:** destroying and rebuilding `test` and `production` (#67). It sits on the critical
 path for a globally-unique Cognito domain with a known tendency to stall, and the pool's user list is a
