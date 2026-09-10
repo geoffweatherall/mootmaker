@@ -108,6 +108,36 @@ aws dynamodb list-tables    --query "length(TableNames[?starts_with(@,'<name>-')
 aws s3 ls s3://remote-state-<account-id>/          # the environment prefix should be gone
 ```
 
+### And then check the account, not just your environment
+
+Those checks ask "is anything still named after *my* environment?". That is the right question and
+an incomplete one: it cannot see anything that was never named that way. A resource created by hand
+while debugging, one a partially-failed `terraform destroy` left behind after the state file was
+already gone, or one belonging to a service nobody thought to look at, all pass every check above.
+
+So the last step of finishing a piece of work is to ask the wider question — **is there anything in
+this account that no infrastructure-as-code claims?**
+
+```bash
+mootmaker-bootstrap-aws-accounts/list-unmanaged-resources.sh
+```
+
+It subtracts every Terraform state file and every CloudFormation stack from what is actually live,
+and reports the difference. `Nothing needs attention` is the answer you want. It never deletes
+anything, so running it costs nothing but time.
+
+**Do this after a release, too.** A release creates and destroys ephemeral environments as part of
+its own pipeline, which is precisely the situation that leaves debris — and unlike a session you are
+sitting in front of, nobody is watching it happen.
+
+Two things worth knowing before you trust a clean result:
+
+- It reports **coverage gaps** as well as unmanaged resources — resource types it cannot enumerate.
+  A clean report with an open coverage gap means "nothing found where I looked", which is weaker
+  than "nothing there". Read both halves.
+- The account it was written against had been fully torn down. A clean run against a small account
+  proves less than a clean run against a populated one.
+
 ## How it works mechanically
 
 Environments are just a name passed to each repository's scripts — there is no registry, and any
