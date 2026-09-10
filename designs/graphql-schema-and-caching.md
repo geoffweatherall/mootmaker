@@ -11,9 +11,9 @@ user's booking appears on another's screen without a refetch.
 
 ## Status
 
-**Ready** — 2026-09-09, promoted by Geoff. Every blocking open question is closed. The items
-under "Still to verify" are non-blocking: they are AppSync behaviours to be answered empirically
-during slice 5, not decisions still to be made.
+**Ready** — 2026-09-09, promoted by Geoff. Every blocking open question is closed. The AppSync
+behaviours that were outstanding have since been answered empirically — see "Verified: AppSync
+subscription behaviour".
 
 ## Decisions
 
@@ -652,26 +652,67 @@ accumulates across a session, never leaves dangling references after an eviction
 accumulating `merge` works too — Apollo filters dangling refs from lists on read — but it grows for
 the life of the tab and needs a `unionByDate` nobody has to write under this version.
 
-## Still to verify
+## Verified: AppSync subscription behaviour
 
-Facts already established by experiment are stated in the sections above. These are not, and are to
-be answered empirically on a throwaway AppSync API before the subscription work is built — enough
-constraints have turned up by accident that the rest should be found on purpose.
+All six questions previously listed here were answered empirically on a throwaway AppSync API
+(Cognito user pools as default auth, `AWS_IAM` as an additional provider — the same pairing this
+design uses), with a Node 24 client using the built-in `WebSocket` and hand-rolled SigV4. The probe
+is deleted; what it established is below.
 
-- **The return-type match.** Confirm a subscription typed to the publish mutation's return type
-  delivers, and that a mismatch silently does not.
-- **Rejected mutations.** Does a `createMeeting` returning a typed `errors` array broadcast? Can
-  `$extensions.setSubscriptionFilter()` exclude it? (Moot if the publish-only mutation is used, but it
-  determines whether that is the *only* option.)
-- **The `Invalidation` type's directives.** Whether `@aws_iam @aws_cognito_user_pools` on the type is
-  required, or whether the field directive suffices. Failure mode is
-  `Not Authorized to access dates on type Invalidation` at subscribe or publish time — not at deploy.
-- **Whether `default_action` is ignored** once additional authorization modes are configured. If so
-  it becomes dead config rather than a live setting, and should not be left looking meaningful.
-- **The 240 KB payload cap.** Confirm a dates-only payload cannot approach it.
-- **Connection lifetime:** whether AppSync enforces a maximum (24 hours is the figure associated with
-  it, without confidence), and whether a subscription can outlive a reconnect. The timeout and
-  keep-alive interval are now measured — see "Verified: the transport is AWS's own protocol".
+**The theme: AppSync's subscription failures are overwhelmingly silent.** Four of the six findings
+are a case where the publisher sees success and the subscriber simply never receives anything. Only
+one failure mode is loud, and it is the one the design was most worried about. Build the client so a
+missing broadcast is survivable, because nothing will tell you it went missing.
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | Return-type match | **Loud, at deploy.** A subscription typed to something other than the mutation's return type is rejected at schema creation: `Schema has the following errors: - The subscription has an invalid output type.` The feared silent non-delivery does not exist |
+| 2 | Rejected mutations | **They broadcast.** A `createMeeting` returning `errors: ["RoomUnavailable"]` reached subscribers exactly like a success. Filtering can exclude them — see below |
+| 3 | `Invalidation` type directives | **Type-level directives are required.** With only the field directive, subscribing succeeds (`start_ack`) and the subscriber then silently receives nothing forever; the sole symptom is on the *publisher's* response: `Not Authorized to access dates on type Invalidation` |
+| 4 | `default_action` | **Not dead config — forced.** AppSync refuses the API update outright: `Additional authentication providers cannot be specified when setting DENY for top level user pool authentication type.` `ALLOW` is the only legal value here, so it should stay and stay `ALLOW` |
+| 5 | 240 KB payload cap | **Real, size-based, and silent.** 18,800 dates (244,440 B) delivered; 19,000 (247,040 B) did not — bracketing the documented 245,760 B. Both publishes returned success |
+| 6 | Connection lifetime | A subscription **cannot** outlive its connection, and there is no replay |
+
+### Subscription filters do not fail — they mislead
+
+`$extensions.setSubscriptionFilter()` can exclude rejected mutations, but only against a field and
+operator that actually work, and a filter that does not work is never reported as an error. Measured
+against the same publish, on the same API:
+
+| Filter | Result |
+|---|---|
+| `ok eq true` (top-level scalar) | **Correct** — success delivered, reject excluded |
+| `meeting.id eq "m-1"` (nested path) | Correct — nested paths do work |
+| `meeting.id beginsWith "m-"` | **Silently matched nothing** — even the success was dropped |
+| `errors notContains "RoomUnavailable"` (list field) | **Silently matched everything** — the reject was delivered |
+
+The same path with `eq` and with `beginsWith` gave opposite results, so it is the operator, not the
+path. Two unsupported combinations failed in *opposite directions*, and neither raised an error.
+
+**Consequence for this design:** prefer a top-level scalar with `eq`. Anything else must be proven by
+a test that asserts both that the wanted message arrives and that the unwanted one does not — a test
+that only checks delivery would pass against a filter matching everything.
+
+This is a further argument for the publish-only mutation already chosen in Decision 5: it broadcasts
+a payload built for broadcasting, so there is nothing to filter out in the first place.
+
+### The cap is nowhere near reachable
+
+The 217-day ceiling implied by Decision 12 (180-day horizon plus retention) is the largest dates
+array this system can ever broadcast. Measured on the wire it is **2,861 bytes — about 1.2% of the
+240 KB cap**, roughly an 83× margin. A dates-only payload cannot approach it, which is what
+Decision 5's day-scoped broadcast was chosen to guarantee.
+
+### Reconnection is the client's problem, entirely
+
+`connection_ack` reports `{"connectionTimeoutMs":300000}`. A connection dropped without sending
+`stop` loses its subscriptions: reconnecting and sending only `connection_init` received nothing, and
+a publish made while no one was connected was lost outright rather than buffered.
+
+So whether AppSync also enforces a 24-hour maximum — untested, as it cannot be observed within a
+working session — **does not change the design**. The client must already resubscribe *and refetch*
+on reconnect, because it must handle the drop it cannot prevent. That is the "reconnect/foreground
+resync" already in the slice 5 checklist, and it is load-bearing rather than defensive.
 
 ## Changes to the data model
 
@@ -899,7 +940,8 @@ room and person. No schema change.
 
 **Slice 5 — real-time.**
 
-- [ ] Answer everything under "Still to verify" empirically first.
+- [x] Answer the AppSync behaviour questions empirically first — done, see "Verified: AppSync
+      subscription behaviour".
 - [ ] `publishDaysInvalidated` with `@aws_iam`, the IAM auth provider, the field-scoped role grant, the
       SigV4 call from the resolver.
 - [ ] The subscription link in the webapp, the self-invalidation guard, the in-flight-race marker, and
