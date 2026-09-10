@@ -75,6 +75,12 @@ session's work. Not as a follow-up — it will not happen.
 **Do not create long-lived environments.** See [environments.md](environments.md). Ephemeral
 environments cost real money and have leaked before; tearing yours down is part of finishing.
 
+**Finishing includes checking the account, not just your own environment.** Run
+[`list-unmanaged-resources.sh`](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/blob/main/list-unmanaged-resources.sh)
+and expect `Nothing needs attention`. Checking for resources named after your environment cannot
+find one that was never named that way — a hand-made resource, or something a partially-failed
+destroy left behind. See [environments.md](environments.md#and-then-check-the-account-not-just-your-environment).
+
 ## When something here is wrong
 
 These documents describe the current agreement, not a permanent one. If following a rule produces a
