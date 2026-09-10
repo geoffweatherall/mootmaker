@@ -506,7 +506,7 @@ history deletion; and it is idempotent, where merging the same meeting twice nee
 | | Payload | Budget | Client work |
 |---|---|---|---|
 | `createMeeting` response | The whole `Day` | 5 MB | None — `Day` is an entity, Apollo replaces it |
-| `daysInvalidated` broadcast | A list of dates | 240 KB, unreachable | Evict; the gap fetch refills |
+| `daysInvalidated` broadcast | A list of dates | 240 KB, unreachable | Evict, **then refetch active queries** — see "Corrections from implementation" |
 
 **`Invalidation` is a wrapper object, not a bare `[String!]!`.** Adding a field to a GraphQL output
 type is backward compatible, so deferred reference-data flags (`rooms`, `people`) can be added later
@@ -714,6 +714,79 @@ working session — **does not change the design**. The client must already resu
 on reconnect, because it must handle the drop it cannot prevent. That is the "reconnect/foreground
 resync" already in the slice 5 checklist, and it is load-bearing rather than defensive.
 
+## Corrections from implementation
+
+Three claims in this design turned out to be wrong when built. All three are about the Apollo cache,
+which is worth noticing on its own: **cache behaviour is the part of a design most likely to be
+wrong, because it is the part you cannot check by reading.** Recorded here rather than quietly
+patched, so the next person does not re-derive them.
+
+A fourth entry follows them. It is not a wrong claim but an unstated consequence — what serving reads
+from a cache does to the *order* things finish in — and it belongs here for the same reason.
+
+### Eviction does not leave a gap to fetch
+
+The design says the client "evicts `Day:<date>` and its ordinary gap fetch refills it". It does not.
+Measured, immediately after evicting a watched day:
+
+```
+cache.diff(...) -> complete: true, result: { workspace: { days: [] } }
+```
+
+`workspace.days` still holds a reference to the evicted `Day`, and Apollo filters dangling references
+out of a list on read. So the query reads back **complete with one fewer day**, not incomplete —
+there is no gap, nothing refetches, and the screen shows "no meetings" indefinitely.
+
+The client therefore refetches active queries after an eviction that actually removed something. A
+test pins the Apollo behaviour, and says so explicitly: if a future version makes that read
+incomplete, the test fails and the refetch should be deleted rather than left as folklore.
+
+**Only the cross-client acceptance test could see this.** Every unit test passed — they asserted the
+eviction happened, and it did. The defect was in what eviction *means* to a watching query.
+
+### Returning a collection does not add to a cached list
+
+The schema comments say returning the whole `rooms`/`people` collection "makes the mutation
+self-sufficient". It does not, on its own: Apollo normalises `Room` and `Person` by id, so a created
+entity is stored, but `CreateRoomResult.rooms` and `Workspace.rooms` are **different cache fields**
+and nothing tells Apollo they are the same list.
+
+The symptom is easy to misread: Settings shows the new room, because it renders straight from the
+mutation result, while Add Meeting's cache-first reference-data query still serves the list it loaded
+with. No error anywhere. The client now writes the returned collection into the cached `workspace`
+explicitly.
+
+### The `days` read policy is not implementable as written
+
+Recorded already in `apolloClient.ts`, repeated here because it is a design-level claim: `dates` is an
+argument of `workspace`, not of `days`, so a field policy on `days` receives no `args`. Replacing the
+list (`merge: false`) achieves what the read policy was chosen for.
+
+### Making reads faster re-orders races the old latency was hiding
+
+Not a claim this design got wrong — a consequence it does not mention, and the one that cost the most
+to find, because it presents as an unrelated bug somewhere else entirely.
+
+Add Meeting gated its form on the reference-data query. The Organiser field defaults to the signed-in
+user's own Person, which arrives from a *different* query (`workspace { me }`, in `AuthProvider`).
+Two independent loads, one gate — so the form rendered interactive, and submittable, while Organiser
+was still blank. A fast submit sent `organiserId: ""` and the server answered `OrganiserRequired`,
+while the field visibly filled in with the user's own name a moment later.
+
+That was harmless for as long as reference data always cost a round trip. It was reliably slower than
+the session query, so the Person always won and the gap never opened. **Serving reference data from
+the cache — the point of this design — reverses the order on any second visit.**
+
+The race is not new. It was unreachable, and the old latency was the only thing making it so.
+
+Worth stating as a general caution for anything this design speeds up: a caching change does not only
+reduce waiting. It changes which of two independent loads finishes first, everywhere two of them feed
+one screen. Every such pair is worth re-checking against the cached timing, not just the cold one.
+
+The symptom set is also worth recording, because none of it names an organiser: a failed navigation
+assertion, and two Playwright `element was detached from the DOM, retrying` timeouts caused by the
+option list being rebuilt when `organiserId` finally changed.
+
 ## Changes to the data model
 
 The delta against `docs/reference/data-model.md`:
@@ -780,7 +853,7 @@ it". Cache residency and being watched are independent, which is what rows 3a an
 
 **Rows 2 and 4 are one requirement.** Both are "the connection was not continuously open", and B never
 needs to know *what* it missed — only to distrust what is on screen. On reconnect or on return to
-foreground, evict the displayed days and let the gap fetch refill them. No sequence numbers, no
+foreground, evict the displayed days and refetch. No sequence numbers, no
 server-side replay. This also settles the socket question honestly: browsers freeze background tabs and
 AppSync will drop the connection, so **correctness must not depend on the socket surviving.**
 
@@ -898,55 +971,82 @@ must ship together — which the release pipeline already does.
 Five slices, each verifiable on its own ephemeral environment. Slices 2 and 3 must ship together — the
 schema break is not backward-compatible for a deployed webapp.
 
+**Every box below was ticked on 2026-09-11 by checking the code, not from memory.** That distinction
+earned its keep: two items looked done and were not. `mootmaker-demo-data` still called three root
+fields the composite entry point had deleted, and an IAM policy still justified a permission by a table
+that no longer existed. Both had been "done" for as long as nobody looked. Where what shipped differs
+from what was planned, the item says so rather than being quietly reworded.
+
 **Slice 1 — the request template and selection-aware resolving.** Independently shippable and valuable
 on its own: it removes an existing over-fetch where `meetings { id subject }` still batch-loads every
 room and person. No schema change.
 
-- [ ] Change the resolver request template to serialise `selectionSetList`, in whatever payload shape
+- [x] Change the resolver request template to serialise `selectionSetList`, in whatever payload shape
       the new handlers want. It stops shipping every CloudFront request header to Lambda either way.
-- [ ] Make `ListMeetingsHandler` selection-aware, with unit tests driven by recorded payloads including
-      aliases and fragments.
+- [x] Make the meetings resolver selection-aware, with unit tests driven by recorded payloads including
+      aliases and fragments — `SelectionSet` plus `SelectionSetTest`. *Shipped against `WorkspaceHandler`
+      rather than `ListMeetingsHandler`, which slice 3 deleted; the selection logic is shared.* The alias
+      case earned its own test: an aliased field returned as a stub nulls a non-null field and cascades.
 
 **Slice 2 — storage, repositories and the guarantees.**
 
-- [ ] `DayRepository`, `PersonRepository`, `RoomRepository` as init-constructed instances; `BatchLoader`
+- [x] `DayRepository`, `PersonRepository`, `RoomRepository` as init-constructed instances; `BatchLoader`
       absorbed and deleted.
-- [ ] Day-keyed table, GSIs and `bucket` removed, `meeting-participants` and
+- [x] Day-keyed table, GSIs and `bucket` removed, `meeting-participants` and
       `RebuildMeetingParticipantsRepair` deleted, the `PTR#` pointer, the Terraform-initialised
       `CONFIG#retention` item **with `ignore_changes`**.
-- [ ] The three size-guarantee layers, the limits, and the `MeetingError` cases.
-- [ ] `custom:personId`: the Cognito attribute, read/write attribute lists, the PostConfirmation
+- [x] The three size-guarantee layers, the limits, and the `MeetingError` cases.
+- [x] `custom:personId`: the Cognito attribute, read/write attribute lists, the PostConfirmation
       trigger, `CreateMissingPersonsRepair`, Persons and claims for the demo and e2e users,
-      `cognitoSub-index` deleted, `cognitoSubs` added.
-- [ ] `deleteMyAccount` by scan, Cognito users deleted last.
+      `cognitoSub-index` deleted, `cognitoSubs` added. *Giving the e2e user a Person removed the only
+      fixture five acceptance tests had for the no-linked-Person path; a third account, personless on
+      purpose and never created in production, replaced it — mootmaker-api#48.*
+- [x] `deleteMyAccount` by scan, Cognito users deleted last.
 
 **Slice 3 — the composite schema and the webapp.** Ships with slice 2.
 
-- [ ] `Query.workspace`, `Boundaries`, `createMeetings`, `meeting(id:)`.
-- [ ] **Correct `StartMissaligned`/`EndMissaligned` to `StartMisaligned`/`EndMisaligned`** *(decided
+- [x] `Query.workspace`, `Boundaries`, `createMeetings`, `meeting(id:)`.
+- [x] **Correct `StartMissaligned`/`EndMissaligned` to `StartMisaligned`/`EndMisaligned`** *(decided
       2026-09-09)*. A misspelling in the live enum, mirrored in the Java enum and rendered by the
       webapp. It is only free while the contract is already being broken and both environments are
       being rebuilt, so it happens here or it becomes permanent. Its own commit — it is unrelated to
       everything else in the slice.
-- [ ] `apolloClient.ts` typePolicies; queries and mutations rewritten; the five pages; date navigation
-      bounded in both directions; the router-state and `createdMeeting` workarounds deleted.
-- [ ] `mootmaker-demo-data` one bulk call per seeded day.
-- [ ] Resolve the `days` `merge`-versus-`read` sub-question first.
+- [x] `apolloClient.ts` typePolicies; queries and mutations rewritten; the five pages; date navigation
+      bounded in both directions; the router-state and `createdMeeting` workarounds deleted. *Bounding is
+      on `PersonCalendarPage`, which is what this design specifies by name. `RoomAvailabilityPage`'s
+      day-at-a-time navigation is still unbounded — raised as mootmaker-webapp#60 rather than decided
+      here, since the design does not ask for it.*
+- [x] `mootmaker-demo-data` one bulk call per seeded day — mootmaker-demo-data#22. *Doing it found
+      that component broken against the deployed schema in four separate ways, none of which any of its
+      45 unit tests could see: three deleted root fields, an invalid `createPerson` selection its own
+      fake had been agreeing with, and a window computed from the local clock rather than the server's.*
+- [x] Resolve the `days` `merge`-versus-`read` sub-question first. *Answered by building it: the read
+      policy is not implementable as written, because `dates` is an argument of `workspace`, not of
+      `days`. See "Corrections from implementation".*
 
 **Slice 4 — retention.**
 
-- [ ] The cleanup Lambda, its EventBridge rule (enabled in `test`/`production` only), `dryRun`, and the
-      acceptance tests including catch-up, idempotency and the on-boundary off-by-one.
+- [x] The cleanup Lambda, its EventBridge rule (enabled in `test`/`production` only), `dryRun`, and the
+      acceptance tests including catch-up, idempotency and the on-boundary off-by-one. *Catch-up and the
+      backwards-boundary refusal are unit-tested; the deployed suite covers the on-boundary case,
+      idempotency and `dryRun`.*
 
 **Slice 5 — real-time.**
 
 - [x] Answer the AppSync behaviour questions empirically first — done, see "Verified: AppSync
       subscription behaviour".
-- [ ] `publishDaysInvalidated` with `@aws_iam`, the IAM auth provider, the field-scoped role grant, the
-      SigV4 call from the resolver.
-- [ ] The subscription link in the webapp, the self-invalidation guard, the in-flight-race marker, and
-      the reconnect/foreground resync.
-- [ ] The two-context acceptance test asserting every row of the cross-client table.
+- [x] `publishDaysInvalidated` with `@aws_iam`, the IAM auth provider, the field-scoped role grant, the
+      SigV4 call from the resolver — mootmaker-api#47.
+- [x] The subscription client in the webapp, the self-invalidation guard, the in-flight-race marker, and
+      the reconnect/foreground resync — mootmaker-webapp#53. **Not an Apollo link**: AppSync refuses the
+      `graphql-transport-ws` subprotocol every library speaks, and the broadcast carries dates that
+      nothing renders, so there is no `useSubscription` and no link to order.
+- [x] The cross-client acceptance test — mootmaker-webapp#53. Three tests covering the rows a browser
+      can observe: another client's booking appearing with no user action, a booking on another day
+      leaving the viewed day untouched (row 3a), and the booking tab not losing its own write (row 7).
+      The second client books over the API rather than in a second browser: the design's own list of
+      change sources names the nightly demo-data run alongside another user, so a direct API caller is
+      a first-class case rather than a stand-in.
 
 **Not done by Claude:** destroying and rebuilding `test` and `production` (#67). It sits on the critical
 path for a globally-unique Cognito domain with a known tendency to stall, and the pool's user list is a

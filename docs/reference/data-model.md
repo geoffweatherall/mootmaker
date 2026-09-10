@@ -48,9 +48,11 @@ back here rather than duplicating it; this file gets updated once a design ships
 **Lambda trigger**: `post_confirmation` → `PostConfirmationCreatePersonHandler`. Fires on
 `PostConfirmation_ConfirmSignUp` only (**not** for federated/external-provider sign-in — relevant
 if a federated identity provider is ever added, since nothing else creates the linked `Person` for
-that path today). On each confirmed sign-up it: (a) creates a `Person` DynamoDB item linked via
-`cognitoSub`, idempotently (checks the `cognitoSub-index` GSI first), and (b) sets
-`custom:class = "standard"` via `AdminUpdateUserAttributes`. Both steps swallow and log their own
+that path today). On each confirmed sign-up it: (a) creates a `Person` DynamoDB item carrying the new user's `sub`
+in `cognitoSubs`, idempotently, (b) writes that Person's id back onto the user as the
+`custom:personId` claim, and (c) sets `custom:class = "standard"` — both via
+`AdminUpdateUserAttributes`. The `custom:personId` step is what lets every later request resolve
+the caller by primary key instead of through an index. Both steps swallow and log their own
 failures rather than failing the sign-up itself.
 
 **Seeded accounts** (both created directly by Terraform via `aws_cognito_user`, bypassing sign-up
@@ -93,74 +95,77 @@ Primary key: `id` (S), no sort key. Primary source of truth.
 |---|---|---|
 | `id` | S | Primary key. |
 | `name` | S | Display name — the real source of truth (Cognito's `name` attribute is a one-way synced copy). |
-| `cognitoSub` | S, optional | Backend-only linking attribute to a Cognito user's `sub`; **absent** for guest Persons created directly by an admin (no Cognito account at all); never exposed over GraphQL. |
+| `cognitoSubs` | List\<S\> | Every Cognito account linked to this person — **empty** for guest Persons created directly by an admin (no Cognito account at all); never exposed over GraphQL. |
+| `dateFormat`, `timeFormat` | S, optional | The caller's own display preferences, set by `updateMyPreferences`. Presentational only. |
 
-**GSI `cognitoSub-index`**: hash key `cognitoSub`, projection `ALL`. Used to (a) let the
-`post_confirmation` trigger check for an existing Person before creating one, (b) resolve
-`Query.myPerson` for the signed-in caller, (c) resolve `deleteMyAccount`'s own-Person lookup.
+**No GSIs.** There was a `cognitoSub-index` (hash `cognitoSub`, projection `ALL`), used to resolve
+the signed-in caller's Person from their JWT `sub`. It is gone: the caller's person id now travels
+**forward** on the token as the `custom:personId` claim, so that lookup is a primary-key read. The
+`cognitoSubs` list is the **reverse** direction, for the cases that genuinely need it — the
+`post_confirmation` trigger checking whether a Person already exists, and `database-repair`'s
+`CreateMissingPersonsRepair`.
 
-Relates to Cognito via `cognitoSub`; relates to Meetings via `MeetingRecord.organiserId`/
-`attendeeIds`; relates to MeetingParticipants via `personId`.
+Relates to Cognito via `cognitoSubs`; relates to Meetings via `MeetingRecord.organiserId`/
+`attendeeIds` inside the day item.
 
 ### Meetings — `${resource_prefix}-meetings`
 
-Primary key: `id` (S), no sort key. Primary source of truth for meeting data. Every meeting is
-constrained to span a single calendar day (application-enforced, `MeetingError.SpansMultipleDays`),
-which is what makes the GSI range queries below exact.
+Primary key: `pk` (S), no sort key. **One item per calendar day**, not one per meeting. Every
+meeting is constrained to span a single calendar day (application-enforced,
+`MeetingError.SpansMultipleDays`), which is what makes "a day" a well-defined unit to store at all.
 
-Persisted shape is `MeetingRecord` (distinct from `Meeting`, the resolved GraphQL response shape,
-which is not itself persisted — attendees/room/organiser are resolved from their own tables at read
-time).
+Three kinds of item share this table, distinguished by `pk` prefix:
 
-| Attribute | Type | Purpose |
-|---|---|---|
-| `id` | S | Primary key. |
-| `bucket` | S | Constant `"ALL"` — exists purely to give the `bucket-startTime-index` GSI a hash key. |
-| `roomId` | S | FK → Rooms. |
-| `organiserId` | S | FK → People. |
-| `attendeeIds` | List\<S\> | FKs → People. |
-| `subject` | S | Meeting subject/title. |
-| `startTime` | S | Canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss`, no time-zone offset — see [date-time-format-settings.md](../../designs/archive/date-time-format-settings.md)'s Technical considerations for why the webapp treats this as naive local time, never UTC. |
-| `endTime` | S | Same format as `startTime`. |
+| `pk` | Item |
+|---|---|
+| `DAY#2026-09-14` | Every meeting on that date, plus a `version` |
+| `PTR#<meetingId>` | Pointer from a meeting id to the date holding it |
+| `CONFIG#retention` | The single stored retention boundary |
 
-**GSIs**:
-- `bucket-startTime-index` — hash `bucket`, range `startTime`, projection `ALL`. Supports
-  `Query.meetings`' date-range filter when no `personId` is given.
-- `roomId-startTime-index` — hash `roomId`, range `startTime`, projection `ALL`. Supports the
-  same-room overlap check at meeting creation, via `begins_with(startTime, datePrefix)`.
-
-### MeetingParticipants — `${resource_prefix}-meeting-participants`
-
-Primary key: `personId` (S, hash) + `sortKey` (S, range). **Fully derived/materialized** — Meetings
-is the sole source of truth; this table exists purely as a query-optimized index.
+**Day item** — persisted shape is `Day`, holding a list of `MeetingRecord` (distinct from `Meeting`,
+the resolved GraphQL response shape, which is not persisted — room, organiser and attendees are
+resolved from their own tables at read time).
 
 | Attribute | Type | Purpose |
 |---|---|---|
-| `personId` | S | Hash key, FK → People. |
-| `sortKey` | S | Range key, computed as `startTime + "#" + meetingId` — lexicographically sortable since `startTime` is fixed-width. Answers "this person's meetings starting in [from, to)" via the composite key alone, no GSI needed. |
-| `meetingId` | S | FK → Meetings. |
-| `startTime` | S | Copied from the meeting. |
-| `endTime` | S | Copied from the meeting. |
+| `pk` | S | `DAY#` + the ISO date. |
+| `version` | N | Optimistic lock. Adding one meeting rewrites the whole item, so concurrent writers must not clobber each other. A day never written has version 0 and no item, so the conditional write for a first write is "must not exist" rather than "version must equal 0" — two racing first-writes would both pass an equality check against zero. |
+| `meetings` | List | Each with `id`, `roomId`, `organiserId`, `attendeeIds`, `subject`, `startTime`, `endTime`. Times are canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss` with no zone offset — see [date-time-format-settings.md](../../designs/archive/date-time-format-settings.md) for why the webapp treats these as naive local time, never UTC. |
 
-One row per (meeting, organiser-or-attendee) pair. Written in the same `TransactWriteItems` call as
-the meeting itself at creation, and kept consistent on deletion/attendee-removal
-(`DeleteMyAccountHandler`) — **consistency is maintained purely by application code** (transactional
-writes at write/delete time), not a DB-level constraint or event-driven trigger.
-`mootmaker-api`'s `database-repair` Lambda (`RebuildMeetingParticipantsRepair`) can fully regenerate
-this table from Meetings on demand — used for backfilling pre-existing meetings when the table was
-introduced, and as a drift safety net; it's invoked manually (`aws lambda invoke`), not event-driven.
+**Pointer item** — `pk` is `PTR#` + the meeting id; its payload is the date. It exists solely so
+`Query.meeting(id:)` can resolve without an index: read the pointer, then read that day. Pointers
+are written in the same `TransactWriteItems` as the day they describe, and deleted with it.
+
+**No GSIs.** There were two — `bucket-startTime-index` (hash on a constant `"ALL"`, range
+`startTime`) and `roomId-startTime-index` — plus a `bucket` attribute that existed purely to give
+the first one a hash key. All three are gone. A day is reachable by primary key, and a primary-key
+read can be a `ConsistentRead`, which removes read-after-write staleness as a class rather than
+working around it.
+
+**The MeetingParticipants table is gone too.** `${resource_prefix}-meeting-participants` held one
+row per (meeting, participant) pair, because `attendeeIds` is a list and DynamoDB keys must be
+scalars, so "which meetings is this person in" could not be answered from the meetings table
+itself. That question is now answered by reading the days in the window and filtering in memory —
+the day is being fetched anyway. Its rebuild repair, `RebuildMeetingParticipantsRepair`, went with
+it. **Nothing in this model is stored twice any more.**
 
 ## Cross-references between Cognito and DynamoDB
 
 - **The link is one attribute**: `Person.cognitoSub` = the Cognito user's `sub`. Populated at
   Person-creation time — by `PostConfirmationCreatePersonHandler` (reads `sub` from the trigger
-  event) for a real sign-up, or directly by Terraform for the demo user. Guest Persons (created via
-  the admin-only `createPerson` mutation) have `cognitoSub = null` — no Cognito account at all.
-- **Read side**: `MyPersonHandler` resolves `Query.myPerson` by looking up the caller's JWT `sub`
-  against the `cognitoSub-index` GSI. `UpdatePersonHandler` does the same to authorize a
-  self-rename (caller's `sub` must match the target Person's `cognitoSub`, unless the caller is
-  admin). `DeleteMyAccountHandler` uses the same lookup, plus calls Cognito's `AdminDeleteUser`
-  directly using `sub`.
+  event) for a real sign-up, or directly by Terraform for the seeded accounts. Guest Persons
+  (created via the admin-only `createPerson` mutation) have an empty `cognitoSubs` — no Cognito
+  account at all.
+- **Read side**: the link is followed **forward**, off the token. `custom:personId` names the
+  caller's Person, so `workspace { me }` is a primary-key read; `UpdatePersonHandler` compares that
+  claim to authorize a self-rename (unless the caller is admin), and `DeleteMyAccountHandler` uses
+  it too, plus calls Cognito's `AdminDeleteUser` directly using `sub`. The old direction — JWT
+  `sub` → `cognitoSub-index` GSI → Person — is gone along with the index and
+  `MyPersonHandler` itself.
+- **An account with no linked Person is a real state**, not a defect: `custom:personId` is absent,
+  `workspace { me }` returns null, and the webapp degrades deliberately (Calendar disabled rather
+  than hidden, the agenda replaced by an explanation). Every non-production environment carries
+  `no-person-tests@example.com` to keep that path covered.
 - **`Person.name` → Cognito `name` is a one-way sync**, not a shared field: Cognito sets it once at
   sign-up; only `UpdatePersonHandler` updates it thereafter (to mirror a Person rename), via
   `AdminUpdateUserAttributes` using `cognitoSub` as the username (this works because
