@@ -1,0 +1,36 @@
+// VS Code settings for the mootmaker workspace.
+//
+// Linked to <workspace>/.vscode/settings.json by tools/install-workspace-config.sh. The directory
+// holding the checkouts is in no git repository, so this is the versioned copy - edit here, not
+// there. Same pattern as workspace-config/settings.json for Claude Code.
+//
+// JSONC: VS Code allows comments in settings.json, and the reasoning below is worth keeping.
+{
+    "java.configuration.updateBuildConfiguration": "automatic",
+
+    // Formatting is google-java-format, matching what the Maven build enforces. VS Code's own Java
+    // formatter is Eclipse JDT, a different engine: with Google's OWN published Eclipse profile it
+    // still diverges from google-java-format on 47 of 49 files, mostly javadoc wrapping. So the
+    // built-in formatter is not used for Java at all - it would rewrite files that CI then rejects.
+    "[java]": {
+        "editor.defaultFormatter": "JoseVSeb.google-java-format-for-vs-code",
+        "editor.formatOnSave": true
+    },
+
+    // MUST match google-java-format.version in mootmaker-api/impl/pom.xml and
+    // mootmaker-demo-data/impl/pom.xml. The extension's own default is "latest", which drifts away
+    // from the build the day Google ships a release. Bumping the formatter means bumping all three.
+    "java.format.settings.google.version": "1.30.0",
+    "java.format.settings.google.style": "google",
+
+    // NOT the extension's default of "native-binary", and this is not a preference.
+    //
+    // The native build cannot parse Java 25 module imports. Run against this codebase it fails with
+    //     error: '.' expected
+    //     import module java.base;
+    // on every one of the 41 files that uses one, leaving them unformatted. The jar running on
+    // JDK 25 handles them and produces output byte-identical to the Maven build's.
+    //
+    // If formatting silently stops working on most files, check this line first.
+    "java.format.settings.google.mode": "jar-file"
+}
