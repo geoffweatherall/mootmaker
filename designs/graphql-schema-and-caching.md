@@ -959,10 +959,12 @@ part of the rebuild*.
 **It also answered a question belonging to `mootmaker-api#39`**, which records that Terraform never
 converges `custom:*` Cognito attributes and left open whether the *create* path works. It does — both
 managed users in both pools came up with `custom:personId` and `custom:class` set, making
-`demo@mootmaker.com` genuinely an admin for the first time. That issue stays open: its defect is that
-*subsequent* applies alternate between users, and both environments are one unrelated apply away from
-losing it. The cost of that is higher now than when it was written, since `cognitoSub-index` is gone
-and a wiped `personId` has no fallback.
+`demo@mootmaker.com` genuinely an admin for the first time. The clean create was not luck: both
+`aws_cognito_user` fixtures already carry `lifecycle { ignore_changes = [attributes] }`, added under
+that issue precisely because `ignore_changes` suppresses updates but never creation. So the
+alternating wipe cannot recur on a later apply either, and the environments are **not** one apply
+away from losing these attributes. What #39 still records is the underlying provider behaviour and
+its cost: a genuine change to those values now needs the user replaced rather than updated.
 
 What comes back is created by Terraform:
 
