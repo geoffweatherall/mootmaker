@@ -925,6 +925,45 @@ This is a rehearsed operation, not a novel one: both environments were destroyed
 nothing by the pipeline on 2026-09-06 as `v1.0.0`, and Cognito is part of `mootmaker-api`'s Terraform,
 so the pools went with them. Tracked as #67.
 
+**Done on 2026-09-11 as `v2.0.0`, and it worked first time.** Both environments were destroyed by
+hand in the morning (webapp, then demo-data, then api; `test` before `production` — the order #67
+suggested), and `release.yml` rebuilt both in a single run with no manual intervention and no retry.
+The predicted failure did not fire: the Cognito user pool domain was free when Terraform recreated
+it, roughly four hours after the teardown. **That does not bound the risk** — one run showing a
+four-hour gap was enough says nothing about whether a shorter one would be, so the entry in Risks
+stands as written.
+
+That settles what this section previously asserted: **`test` and `production` are reproducible from
+the pipeline alone.** The `v1.0.0` precedent above rebuilt environments the pipeline had itself
+created; this one rebuilt them from genuinely empty state files after a hand teardown.
+
+Verified by direct DynamoDB and Cognito reads rather than exit codes, per the Definition of done:
+
+| | `test` | `production` |
+|---|---|---|
+| DynamoDB tables | 3 | 3 |
+| meetings / people / rooms | 550 / 40 / 10 | 1 / 2 / **0** |
+| Cognito users, all attributes correct | 3 | 2 |
+
+Three tables rather than the four #67 counted: `meeting_participants` was a real table at `v1.0.2`
+and Decision 9 deletes it, so 4 → 3 is this design landing rather than a table failing to come back.
+
+**Two things this exposed, both now tracked.** `production` came up essentially unseeded, because
+`release.yml` deliberately does not run demo-data there — sound for a normal release, where its
+idempotence is the point, but there is nothing to be idempotent over after a rebuild, so the public
+demo was empty until the daily schedule fired at 18:00 NZT (`mootmaker-release#42`). And
+`smoke-test-production` passed anyway, over zero rooms, which is why the sentence above about
+`mootmaker-demo-data` repopulating the environment should be read as *eventually* rather than *as
+part of the rebuild*.
+
+**It also answered a question belonging to `mootmaker-api#39`**, which records that Terraform never
+converges `custom:*` Cognito attributes and left open whether the *create* path works. It does — both
+managed users in both pools came up with `custom:personId` and `custom:class` set, making
+`demo@mootmaker.com` genuinely an admin for the first time. That issue stays open: its defect is that
+*subsequent* applies alternate between users, and both environments are one unrelated apply away from
+losing it. The cost of that is higher now than when it was written, since `cognitoSub-index` is gone
+and a wiped `personId` has no fallback.
+
 What comes back is created by Terraform:
 
 - `aws_cognito_user.e2e` and `aws_cognito_user.demo` are recreated with **new passwords** from their
