@@ -33,6 +33,7 @@ something that does not exist yet. Nothing here depends on a particular tool.
 | [issues-and-board.md](issues-and-board.md) | Where issues live, the label set, and the cross-repo project board |
 | [environments.md](environments.md) | Which environments exist, how they are named, and the rules for tearing them down |
 | [ai-collaboration.md](ai-collaboration.md) | Choosing a model, AI-reviewing-AI, and what makes a bug worth reasoning about versus instrumenting |
+| [java-code-style.md](java-code-style.md) | google-java-format and Google's Checkstyle ruleset: how to set an editor up, and why each setting is what it is |
 
 Related, elsewhere:
 
@@ -71,6 +72,13 @@ say which. A confident summary that does not match reality is worse than no summ
 **If you install a tool that future work will need, add it to the workstation manifest**
 ([`../../tools/workstation/manifest.yaml`](../../tools/workstation/manifest.yaml)) as part of that
 session's work. Not as a follow-up — it will not happen.
+
+**Java is formatted by google-java-format, in Google style.** `mvn spotless:apply` fixes a file;
+the `code-style` PR check fails if anything is unformatted. A new machine is set up with
+`./tools/install-workspace-config.sh --force`, which links the versioned VS Code settings and
+installs the extensions they need — there are no manual editor steps. Two settings are load-bearing
+and fail silently if wrong, so if formatting seems not to work, read
+[java-code-style.md](java-code-style.md) before changing anything.
 
 **Do not create long-lived environments.** See [environments.md](environments.md). Ephemeral
 environments cost real money and have leaked before; tearing yours down is part of finishing.
