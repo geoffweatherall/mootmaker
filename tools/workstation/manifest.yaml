@@ -149,3 +149,31 @@ tools:
     notes: >-
       Run from the mootmaker checkout. Takes effect on the next Claude Code session, not the
       current one. See docs/development/workstation.md.
+
+  # Same "is this machine set up correctly?" question as workspace-config-link above, and the same
+  # silent failure: the VS Code settings name a formatter extension by id, and if it is absent
+  # VS Code reports nothing - Java files simply stop being formatted on save, and the mismatch only
+  # surfaces when CI rejects the push.
+  - name: vscode-settings-link
+    why: >-
+      VS Code settings for this workspace are versioned in
+      mootmaker/workspace-config/vscode-settings.json and symlinked into the workspace root, for the
+      same reason as the Claude Code settings: the directory holding the checkouts versions nothing
+      itself. Without the link, Java formatting on this machine differs from what CI enforces.
+    check: test -L "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../../.." && pwd)/.vscode/settings.json"
+    install: ./tools/install-workspace-config.sh --force
+    notes: >-
+      --force is expected the first time, because VS Code will have written a real file there.
+      See docs/process/java-code-style.md.
+
+  - name: vscode-google-java-format
+    why: >-
+      Formats Java with google-java-format, matching what the Maven build enforces. VS Code's
+      built-in Java formatter is Eclipse JDT, a different engine whose output this project's
+      spotless:check rejects.
+    check: code --list-extensions 2>/dev/null | grep -qix josevseb.google-java-format-for-vs-code
+    install: ./tools/install-workspace-config.sh
+    notes: >-
+      Pinned to the same google-java-format version as the poms, and must run in jar-file mode -
+      the native binary cannot parse Java 25 module imports. Both are set in vscode-settings.json.
+      See docs/process/java-code-style.md.
