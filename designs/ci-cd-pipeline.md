@@ -1170,7 +1170,13 @@ Status stays `Drafting` until Geoff promotes it — a design does not self-promo
       deploy it too) failed with published Lambda versions stuck in `Failed`/`FunctionError` against
       an account concurrency quota of 10 — see [mootmaker#41](https://github.com/geoffweatherall/mootmaker/issues/41),
       and [mootmaker-release#11](https://github.com/geoffweatherall/mootmaker-release/issues/11) for
-      restoring two-way parallelism.
+      restoring two-way parallelism. **That quota was raised to 1,000 on 2026-09-07**
+      ([mootmaker#72](https://github.com/geoffweatherall/mootmaker/issues/72)), so the ceiling named
+      above no longer exists and
+      [mootmaker#75](https://github.com/geoffweatherall/mootmaker/issues/75) tracks reverting the
+      serialisation. Worth reading #41 before treating that as safe: it recorded quota exhaustion as
+      the strongest hypothesis *with its uncertainty stated*, not a proven cause, so raising the
+      quota removed a suspected one.
       **Correction to Decision 10 found while building it:** `record-outcome` publishes a failed
       attempt as a *prerelease*, so "the previous release" and "the last release that actually
       reached production" are different questions. Rollback now targets the latter
