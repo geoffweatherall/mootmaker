@@ -80,6 +80,27 @@ installs the extensions they need — there are no manual editor steps. Two sett
 and fail silently if wrong, so if formatting seems not to work, read
 [java-code-style.md](java-code-style.md) before changing anything.
 
+**Say what something costs before creating it, and stay under the spending limit.** AWS resources
+cost money whether or not anyone remembers to check, and "it is only pennies" is a judgement made
+without a number. The agreed limits:
+
+| Cost of the thing you are about to create | What to do |
+|---|---|
+| Under **NZ$1**, one-off | Create it, but state the cost and the basis **before** doing so |
+| **NZ$1 or more**, one-off | Ask first |
+| **Anything recurring**, whatever the size | Ask first, and say it is per-month |
+
+Recurring is called out separately on purpose: NZ$0.20 a month forever is not NZ$0.20, and a
+resource nobody removes is the normal case rather than the exception.
+
+Two rules of thumb that follow from it. **State the number, not a reassurance** — "CloudWatch alarms
+are US$0.10/month with 10 free" lets the reader object; "this is free" does not. And **cost is a
+separate question from reversibility**: a NAT gateway is trivially deletable and still an unwelcome
+surprise, so "I can undo it" is not an answer to "what does it cost".
+
+**Report money in NZD.** Convert from the provider's currency and say what you converted from, since
+AWS bills in USD and the rate moves — "about NZ$0.17 (US$0.10)" rather than either alone.
+
 **Do not create long-lived environments.** See [environments.md](environments.md). Ephemeral
 environments cost real money and have leaked before; tearing yours down is part of finishing.
 
