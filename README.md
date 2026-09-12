@@ -52,6 +52,14 @@ There's also a standalone write-up on
 [the debugging techniques](docs/showcase/debugging-techniques.md) used to chase down a real race
 condition, framed as transferable skills rather than a war story.
 
+And a **code tour of the v2.0.0 rewrite** —
+[`docs/showcase/v2-day-keyed-rewrite-tour.html`](docs/showcase/v2-day-keyed-rewrite-tour.html), a
+single self-contained page to open in a browser. It walks the change from a developer's side: what
+moved, what was deleted rather than adapted, and what shipping it revealed. Its spine is an index of
+**fourteen silent failures** — things that compiled, passed, deployed or reported success while being
+wrong — with the common shape named at the end. Four of those were found after the release, and two
+are in code written to fix the other two.
+
 ## The repositories
 
 | Repository | What it is |
