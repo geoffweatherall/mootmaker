@@ -147,6 +147,26 @@ N/A — no persisted-state changes, purely UI/routing.
 - `mootmaker-webapp/acceptance/` and `mootmaker-release/smoke/tests/test-stage.spec.ts` both need
   their meeting-detail assertions updated from "navigate to `/meetings/:id`" to "open the sheet/panel
   in place" — see Impacts on components.
+- **A new test for the specific scenario this design's "Back" fix targets, which nothing today
+  covers.** Checked against the existing suites while drafting this doc:
+  - `webapp/tests/auth.spec.ts` already parametrically covers "visiting `/meetings/some-id` while
+    signed out redirects to `/signin`", but its separate "signing in from a protected page returns
+    to that page" test exercises `/meetings/add`, not a meeting-details URL — the sign-in-then-return
+    leg is never exercised for this route specifically.
+  - `acceptance/tests/meeting-details.spec.ts`'s H.72 ("Back returns to whichever page the user
+    actually came from") only exercises Back for navigation that *originated in-app* (clicking
+    through from Room Availability or the Home page) — it never simulates a cold-loaded/pasted URL,
+    so it can't currently exercise the failure mode this design fixes.
+  - H.73 covers a bad meeting id, a different failure mode entirely.
+
+  The new test needs to simulate a browser tab with **unrelated history already in it** before the
+  meeting URL is loaded (e.g. `page.goto('https://example.com')`, or any other origin/route, before
+  `page.goto('/meetings/:id')`), signed out, so `RequireAuth` redirects to `/signin` and, after
+  signing in, returns to the meeting per the existing `from`-state mechanism — then assert that
+  "Back" either does not render, or definitely does not leave the app. Worth noting explicitly:
+  **today's `MeetingDetailsPage.tsx` renders Back unconditionally** (`navigate(-1)` with no origin
+  check at all), so this exact gap already exists in production, untested, right now — not just a
+  theoretical risk this design introduces a fix for.
 
 ## Documentation impacts
 
@@ -162,6 +182,12 @@ which is the point of retaining the route.
 
 ## Risks
 
+- **The unsafe-Back scenario this design fixes is a live, untested gap today, not a hypothetical.**
+  `MeetingDetailsPage.tsx` currently renders "Back" unconditionally via `navigate(-1)`; a signed-out
+  user who pastes a meeting link into a tab with unrelated prior history, signs in via the resulting
+  redirect, and clicks Back would leave the app entirely — see Testing impacts for what confirming
+  this needs. Worth treating as a real (if likely low-severity/low-frequency) bug fix bundled into
+  this design, not purely a nice-to-have alongside the consolidation.
 - Cross-repo test coupling (mootmaker-release's smoke suite), same shape as this session's earlier
   release failures — flagged explicitly so it's fixed as part of this change's own PR(s), not
   discovered at the next release.
