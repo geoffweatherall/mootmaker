@@ -218,17 +218,32 @@ N/A — no persisted-state changes, purely UI/routing.
      **The link itself comes from the real Share button, not from the test constructing
      `/meetings/${id}` by hand** — this doubles as real coverage of Share's own URL-construction
      code, at no extra cost, rather than assuming it's correct:
-     1. `context.grantPermissions(['clipboard-read', 'clipboard-write'])` on the Playwright browser
+     1. `page.addInitScript(() => { Object.defineProperty(window.navigator, 'share', { value:
+        undefined, configurable: true }) })`, registered before navigating anywhere in this test —
+        **deterministically forces the clipboard-fallback branch**, rather than relying on whatever
+        `navigator.share` happens to be in the CI browser. `navigator.share` is a regular own-callable
+        on `Navigator.prototype` in Chromium, so shadowing it with an instance-level `undefined` via
+        `Object.defineProperty` reliably makes `typeof navigator.share === 'function'` false for the
+        page under test, without touching or mocking anything else the app does.
+     2. `context.grantPermissions(['clipboard-read', 'clipboard-write'])` on the Playwright browser
         context — a real Chromium capability, no mocking.
-     2. Signed in as demo, create/view the meeting, click Share.
-     3. Read back what the app actually wrote: `await page.evaluate(() => navigator.clipboard
-        .readText())`. This relies on headless Chromium under Playwright not exposing
-        `navigator.share` (so the button's own fallback branch fires for real, unmocked) — worth
-        confirming empirically once the button exists rather than assumed; if it turns out
-        `navigator.share` *is* present in that environment, forcing the fallback path some other way
-        becomes its own small decision, not one this doc resolves in advance.
-     4. Sign out, `page.goto()` to the captured URL, then continue as below (`/signin` redirect, real
+     3. Signed in as demo, create/view the meeting, click Share.
+     4. Read back what the app actually wrote: `await page.evaluate(() => navigator.clipboard
+        .readText())`.
+     5. Sign out, `page.goto()` to the captured URL, then continue as below (`/signin` redirect, real
         sign-in, land on the correct meeting).
+
+     **OS/browser caveat, worth a comment on the test itself**: forcing step 1 removes the dependency
+     on `navigator.share`'s real availability, but step 2's clipboard permission grant and the
+     clipboard read/write themselves are a genuinely different browser/OS-level mechanism, and this
+     suite currently only ever runs on Linux (`release-build.yml`'s `runs-on: ubuntu-latest` — checked,
+     no OS branching exists anywhere in `acceptance/run.sh` either). If this suite is ever run on a
+     different OS (a Windows or macOS runner, or a developer's own machine outside CI), clipboard
+     permission handling and headless-clipboard behaviour is exactly the kind of thing that can differ
+     by platform even when the rest of the test is OS-agnostic — so a failure specifically in this
+     test on a non-Linux run should be suspected first as a clipboard/OS difference, not necessarily a
+     real regression. Leave this as an explicit comment next to the test, not just in this doc, so a
+     future debugger sees it immediately rather than re-deriving it from a failure.
 
   Worth noting explicitly: **today's `MeetingDetailsPage.tsx` renders Back unconditionally**
   (`navigate(-1)` with no origin check at all), so the failure mode both tests above are meant to
