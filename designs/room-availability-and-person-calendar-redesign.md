@@ -14,7 +14,8 @@ pickers, Settings' People/Rooms lists, and the account menu.
 
 ## Status
 
-**Ready** — 2026-09-19 (approved by Geoff).
+**Building** — 2026-09-19. Implementation started on `mootmaker-webapp`'s
+`feature/room-availability-and-person-calendar-redesign`, per the Implementation checklist below.
 
 ## Scope / non-goals
 
