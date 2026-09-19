@@ -14,8 +14,8 @@ something that does not exist yet. Nothing here depends on a particular tool.
 2. **Bugs and small changes start with a GitHub issue**, in the repository they concern. Before
    fixing one, post an implementation plan as a comment and get it approved by a human. See
    [issues-and-board.md](issues-and-board.md).
-3. **All work happens on a branch and lands via a pull request.** See
-   [branching-and-prs.md](branching-and-prs.md).
+3. **All work happens on a branch and lands via a pull request — one branch, one PR per piece of
+   work, not one per commit or per session.** See [branching-and-prs.md](branching-and-prs.md).
 4. **Testing against a real deployment is the quality gate**, not code review. See
    [principles.md](principles.md) and [`../reference/testing-strategy.md`](../reference/testing-strategy.md).
 5. **Environments are `production`, `test`, or ephemeral.** `test` and `production` change only
@@ -58,9 +58,12 @@ reliable than inferring the same facts from code.
 and agents read to orient themselves, so a stale document is a real defect. If your change makes a
 README, a reference doc, or a design wrong, fix it in the same change.
 
-**One piece of work, one commit.** Do not bundle unrelated changes because they happened in the
-same session. If a single file's diff spans two pieces of work, split it. See
-[branching-and-prs.md](branching-and-prs.md#commits).
+**One piece of work, one commit — and one branch, one PR at the end.** Do not bundle unrelated
+changes because they happened in the same session, and do not split one piece of work across
+several PRs either (one per commit, or one per session). Finish it on its own branch, then open a
+single PR. This holds even when two agents are working on different problems in the same repository
+at once, on different machines: each still gets its own branch and its own PR — not a shared one.
+See [branching-and-prs.md](branching-and-prs.md#commits).
 
 **Verify against reality, not against your own output.** Do not report a deploy, a test run, or a
 teardown as successful because a script exited zero — check the thing itself. Several defects in
