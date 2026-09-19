@@ -199,6 +199,14 @@ N/A — no persisted-state changes, purely UI/routing.
     creates/views a meeting. None of them start signed out and follow a cold link.
   - H.73 covers a bad meeting id, a different failure mode entirely.
 
+  **H.72 itself becomes obsolete under this design, not just superseded.** It reaches the full page
+  by clicking through Room Availability's and the Home page's meeting rows — but points 1–2 above
+  mean neither of those rows navigates to `/meetings/:id` any more. There is no longer any in-app
+  path left for H.72 to exercise as written. It needs rewriting (most likely: removed outright, since
+  its premise — Back returning correctly from an in-app-originated navigation to the full page — no
+  longer has a first-party scenario to test) rather than left in place asserting behaviour that no
+  longer occurs.
+
   1. **Mocked-integration** (`webapp/tests/`, sits next to `auth.spec.ts`'s existing redirect tests):
      proves the client-routing logic itself. Simulate a browser tab with **unrelated history already
      in it** before the meeting URL loads (e.g. `page.goto('https://example.com')`, or any other
@@ -287,4 +295,37 @@ which is the point of retaining the route.
 
 ## Definition of done
 
-N/A at Drafting — to be filled in once Geoff reviews and moves this to Ready.
+Per this project's own rule, a green acceptance run against a real deployed environment is what
+"working" means here — not a passing unit suite, and not a successful deploy. Every item below
+should be confirmed against a real environment, not just read out of the diff:
+
+- [ ] Clicking a meeting row on each of the three surfaces — Home's agenda lists, Room Availability,
+  Calendar — opens the shared slide-up/slide-out overlay in place, with no navigation and no change
+  to the browser URL. Confirmed on all three, not assumed from one.
+- [ ] Nothing left in the app's own source navigates to `/meetings/:id` — confirmed by grepping for
+  every remaining `to={`/meetings/${...}`}` / `navigate('/meetings/...')` call site and finding none
+  outside `MeetingDetailsPage.tsx`'s own Back-adjacent logic.
+- [ ] `/meetings/:id` still renders full details correctly when visited directly (signed in) with a
+  real meeting's id — the deep-link path this design exists to preserve.
+- [ ] The full page's field order, room colour dot, and organiser/attendee avatar alignment visually
+  match the sheet/panel for the same meeting — confirmed by direct comparison (side-by-side or
+  before/after screenshots), not just "looks about right."
+- [ ] The parity-invariant code comment exists on the shared content component and is
+  cross-referenced from `MeetingDetailsPage.tsx`.
+- [ ] The mocked unrelated-tab-history Back-safety test (`webapp/tests/`) passes.
+- [ ] The real acceptance `H.74`-style test passes: URL captured from the real Share button via the
+  clipboard, signed out, that exact URL revisited, redirected to `/signin`, signed in for real, lands
+  on the correct meeting.
+- [ ] H.72 has been rewritten or removed to match the new reality (see Testing impacts) — not left
+  in place asserting a navigation path that no longer exists.
+- [ ] Share's native-share-sheet branch has been manually verified at least once on a real mobile
+  browser (the OS share sheet itself can't be driven by Playwright — see Testing impacts) — mirrors
+  how the dot-alignment fix earlier in this project was verified by eye on a real device rather than
+  claimed from a passing test suite alone.
+- [ ] The regression named in Risks — clicking a different meeting while the panel is already open,
+  with no need to close it first — has an explicit test, and that test passes.
+- [ ] `mootmaker-release/smoke/tests/test-stage.spec.ts` is updated to match the sheet-based flow,
+  and a real release has gone all the way through `test` and `production` with it green — not just
+  updated and unexercised.
+- [ ] `mootmaker-webapp/acceptance/`'s full meeting-detail coverage (H.68–H.74) is green against a
+  real deployed environment.
