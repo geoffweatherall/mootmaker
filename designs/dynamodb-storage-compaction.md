@@ -87,19 +87,26 @@ Non-goals:
   retry for free if the id is generated freshly on each attempt rather than once before calling
   `mutate`. Rooms/People need a few new lines each (a `condition_not_exists(id)` on their `PutItem`
   plus a small bounded retry), mirroring `DayRepository.MAX_WRITE_ATTEMPTS`'s existing shape.
+- **Decided: random token, base62 alphabet, 8 characters (Option A below) — 2026-09-20.** A
+  Hi-Lo/segment block-allocation counter (refining Option B with the pattern behind Hibernate's
+  `hilo` generator, Flickr's Ticket Servers, and Meituan Leaf's segment mode — one write reserves a
+  *range* of ids, not one write per id) was researched as an alternative and would let ids be
+  numeric with a small digit count at zero collision risk. It's a real, well-precedented option and
+  worth revisiting if id-generation ever needs to scale past what a single conditional write can
+  handle — but it adds a new stored item, a lazy-initialization requirement specific to this
+  codebase's SnapStart-restored Lambda environments (a block reserved during Lambda *init* would be
+  duplicated across every environment restored from that snapshot, so it must be reserved on first
+  post-restore use, not at init), and a DatabaseReset.java touch point to decide whether the counter
+  resets with everything else. The random-token option needs none of that: no new storage, no new
+  lazy-init rule, and 8 base62 characters (~2.18×10^14 possible values) is far more entropy than this
+  periodically-wiped demo system will ever approach, with the existing conditional-write retry as a
+  correctness backstop rather than a probability anyone expects to be tested. Base62 (alphanumeric
+  only) over base64url (which adds `-`/`_`) for the same reason ids were opaque strings in the first
+  place — nothing about them needs to be copy/paste- or link-safe today, but there's no reason to
+  give that up for a fractional entropy gain (64 vs 62 symbols) that doesn't matter at this scale.
 
 ## Choices you had me make
 
-- **8-character id length** as the concrete default in the byte-model numbers below (base62
-  alphabet, ~4.8×10^14 possible values). This is a parameter, not a load-bearing decision — 6-10
-  chars all work with the same allocator and collision-retry mechanism; I picked 8 as a round number
-  giving a large safety margin against collisions (a demo system whose data gets wiped on every
-  `test`/`production` release will never come close to needing that margin) while still capturing
-  the bulk of the byte savings. Confirm or adjust in "Open questions" below.
-- **Recommending random tokens over a sequential counter** (see "Id allocation options") as the
-  default, because it needs zero new stored state and reuses existing conditional-write paths. I
-  flagged this as an open question rather than a plain decision because the user explicitly asked for
-  options here, not a unilateral call.
 - **Recommending `MAX_MEETINGS_PER_DAY = 360`** — the actual physical capacity (10 rooms × 36
   fifteen-minute slots), stated directly in `Limits.java`'s own comment as the number the current 320
   cap wishes it could be. The byte model has room for this and more even with attendee-status
@@ -111,16 +118,18 @@ Non-goals:
 
 Blocking (need an answer before this can move to Ready):
 
-1. **Id allocation strategy** — see "Id allocation options" below. Random token (recommended) or
-   sequential counter?
-2. **New `MAX_MEETINGS_PER_DAY`** — confirm 360 (physical capacity), or a different number.
-3. **New `MAX_ATTENDEES_PER_MEETING`** — leave at 20, or raise it now that there's room? (The byte
+1. **New `MAX_MEETINGS_PER_DAY`** — confirm 360 (physical capacity), or a different number.
+2. **New `MAX_ATTENDEES_PER_MEETING`** — leave at 20, or raise it now that there's room? (The byte
    model below assumes 20 unchanged; raising it is a one-line change to the same arithmetic if
    wanted.)
 
+Resolved:
+
+- ~~Id allocation strategy~~ — **decided 2026-09-20: random token, base62, 8 characters.** See
+  "Trade-offs and decisions" and "Id allocation options" below.
+
 Non-blocking (fine to resolve during implementation):
 
-- Exact id length (8 recommended, see above).
 - Whether to also shrink `MAX_SUBJECT_BYTES` — after compaction, subject becomes the single largest
   contributor to a meeting's stored size (280 of ~620 bytes, see below), so it's the next lever if
   more headroom is ever needed. Not proposed here; noted for later.
@@ -163,16 +172,16 @@ Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.m
 
 - **Meetings table, `meetings` list, each element:** `id`, `roomId`, `organiserId`, each element of
   `attendeeIds` — same attribute names, DynamoDB type stays `S`, value goes from a 36-character UUID
-  to a short opaque token (default: 8 base62 characters). `startTime`/`endTime` — DynamoDB type
-  changes from `S` (19-char fixed-width ISO string) to `N` (epoch-minutes-since-UTC, an internal
-  encoding convention with no real timezone attached, exactly matching how these values already have
-  no real timezone attached as naive `LocalDateTime`s).
-- **Rooms table, People table:** `id` value goes from UUID to the same short opaque token; attribute
-  type stays `S`, so the tables' own schema (`hash_key = "id"`, type `S`) is unchanged.
+  to an 8-character base62 (`A–Z a–z 0–9`) random token (**decided** — see "Trade-offs and
+  decisions"). `startTime`/`endTime` — DynamoDB type changes from `S` (19-char fixed-width ISO
+  string) to `N` (epoch-minutes-since-UTC, an internal encoding convention with no real timezone
+  attached, exactly matching how these values already have no real timezone attached as naive
+  `LocalDateTime`s).
+- **Rooms table, People table:** `id` value goes from UUID to the same 8-character base62 token;
+  attribute type stays `S`, so the tables' own schema (`hash_key = "id"`, type `S`) is unchanged.
 - **Pointer items (`PTR#<meetingId>`):** unchanged shape; `<meetingId>` is just shorter now.
-- Nothing about `CONFIG#retention` changes. If the sequential-counter id option is chosen instead of
-  the recommended random-token option, one new small config item is added (see below) — the only new
-  stored state either option would introduce.
+- Nothing about `CONFIG#retention` changes, and no new stored state is introduced — the random-token
+  approach needs no counter item (see "Id allocation options" below).
 
 ## Technical considerations
 
@@ -229,11 +238,11 @@ than trusting the arithmetic above to the byte.
 
 ### Id allocation options
 
-Both options generate a short opaque string; neither changes anything a caller of `MeetingRecord`,
-`Person`, or `Room` sees.
+Neither option changes anything a caller of `MeetingRecord`, `Person`, or `Room` sees — both produce
+a short opaque string.
 
-**Option A — random token, recommended.** Generate an 8-character base62 token
-(`SecureRandom`-backed). No new stored state: collision safety reuses each entity's own uniqueness
+**Option A — random token. Decided, 2026-09-20: base62 alphabet, 8 characters.** Generate the token
+`SecureRandom`-backed. No new stored state: collision safety reuses each entity's own uniqueness
 check that already exists or is one line away —
 - Room/Person: add `condition_not_exists(id)` to the existing `PutItem`; on
   `ConditionalCheckFailedException`, generate a fresh token and retry (bounded, a handful of
@@ -244,15 +253,20 @@ check that already exists or is one line away —
   retry-on-`TransactionCanceledException` loop then covers an id collision the same way it already
   covers a version conflict, with no new retry logic to write.
 - Collision probability at this system's actual scale (a demo system, periodically wiped) is
-  negligible even without the retry backstop — 8 base62 characters is ~4.8×10^14 possible values —
-  the retry loop exists as a correctness guarantee, not because a collision is expected to happen.
+  negligible even without the retry backstop — 8 base62 characters is 62⁸ ≈ 2.18×10^14 possible
+  values — the retry loop exists as a correctness guarantee, not because a collision is expected to
+  happen. (Base62 — `A–Z a–z 0–9`, no `-`/`_` — over the marginally larger base64url alphabet: the
+  entropy difference at this length, 2.18×10^14 vs 2.81×10^14, doesn't matter at this scale, and
+  alphanumeric-only avoids `-`/`_` occasionally being mangled by things that treat them as
+  word-boundary punctuation, even though nothing about these ids needs to be link-safe today.)
 - Ids are not sequential or guessable-by-count, which costs nothing here since nothing in this system
   relies on id-unguessability for authorization today (`MeetingByIdHandler` only checks
   `Identity.requireAuthenticated` — any signed-in user can already look up any meeting by id).
 
-**Option B — sequential counter.** One new tiny config item (e.g. `CONFIG#idCounters`, following the
-existing `CONFIG#retention` pattern), incremented via DynamoDB's atomic `UpdateItem ... ADD` — a true
-atomic increment, not a read-modify-write, so it needs no retry loop and no contention concern even
+**Option B — sequential counter, not chosen.** One new tiny config item (e.g. `CONFIG#idCounters`,
+following the existing `CONFIG#retention` pattern), incremented via DynamoDB's atomic
+`UpdateItem ... ADD` — a true atomic increment, not a read-modify-write, so it needs no retry loop
+and no contention concern even
 under concurrent creates (unlike the Day item's optimistic-lock pattern, this is the pattern DynamoDB
 atomic counters exist for). Encode the returned counter in base62 for compactness (4 chars covers 14.7M
 values). No collision handling needed at all — uniqueness is by construction. Trade-off: ids reveal
@@ -260,8 +274,22 @@ creation order and approximate volume (low-stakes here, per the above), and it a
 piece of stored state, which is exactly the "open to adding extra storage" the user offered as
 acceptable if needed — here it plainly isn't *needed*, just an available alternative.
 
-Recommendation: **Option A.** It needs no new storage, no new operational concept, and reuses
-mechanisms `DayRepository` already has for an unrelated reason.
+A refinement of Option B was also researched and rejected: **Hi-Lo / segment block-allocation** — the
+pattern behind Hibernate's `hilo` id generator, Flickr's Ticket Servers, and Meituan Leaf's segment
+mode (`leaf_alloc` table: `biz_tag`, `max_id`, `step`). Instead of one `ADD` per id, a caller reserves
+a whole *block* of ids in one `ADD :step` and dispenses them from memory until exhausted — the same
+idea as Option B's counter, but touching the counter item once per `step` ids instead of once per id.
+It would let ids be numeric with a small digit count at zero collision risk (see the earlier byte
+discussion on this doc's PR/thread). Not adopted because, on top of Option B's own trade-offs, it
+needs a lazy-initialization rule specific to this codebase's SnapStart-restored Lambda environments —
+a block reserved during Lambda *init* would be captured into the snapshot and handed out identically,
+and duplicated, by every environment restored from it, so the block must be reserved on first
+post-restore use, never at init — plus a `DatabaseReset.java` decision about whether the counter item
+resets with everything else. Worth revisiting if id generation ever needs to scale past what a single
+conditional write can handle; not needed at this system's actual write volume.
+
+Recommendation, and decision: **Option A**, base62, 8 characters. It needs no new storage, no new
+operational concept, and reuses mechanisms `DayRepository` already has for an unrelated reason.
 
 ### What this doesn't touch
 
@@ -333,10 +361,10 @@ handling.
 Sparse while Drafting, per this project's template — to be filled in once the open questions above
 are resolved and Status moves to Ready.
 
-- [ ] [Geoff] Resolve the three blocking open questions (id strategy, `MAX_MEETINGS_PER_DAY`,
-      `MAX_ATTENDEES_PER_MEETING`).
+- [ ] [Geoff] Resolve the two remaining blocking open questions (`MAX_MEETINGS_PER_DAY`,
+      `MAX_ATTENDEES_PER_MEETING`). Id allocation strategy is decided: random token, base62, 8 chars.
 - [ ] [Claude] Recompute exact `Limits` byte constants against `ItemSizer`'s real rules.
-- [ ] [Claude] Implement chosen id allocator + collision retry; migrate the five/six
+- [ ] [Claude] Implement the base62 random-token id allocator + collision retry; migrate the five/six
       `UUID.randomUUID()` call sites.
 - [ ] [Claude] Implement epoch-minutes encoding in `MeetingRecord`.
 - [ ] [Claude] Update/add unit tests, including the forced-collision retry test.
