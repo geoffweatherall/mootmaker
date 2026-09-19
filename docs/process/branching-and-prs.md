@@ -36,6 +36,24 @@ The only exception is a design that genuinely *depends* on unmerged work in anot
 then the dependency belongs in the design document and in both PR descriptions, stated explicitly,
 not left implicit in a branch point.
 
+**The same rule runs the other way too: finish a whole piece of work on its own branch, then open
+one PR — not one PR per commit, or per session spent on it.** A branch can, and for anything
+non-trivial should, carry several commits as the work progresses (see
+[Commits](#commits) below) — that's normal and expected. What shouldn't happen is a *separate PR*
+for each of those commits, or one abandoned and reopened each time work on the same thing resumes.
+Reviewing several small PRs for one piece of work costs more than reviewing one PR with several
+commits in it, not less: a reader (human or agent) checking "is this done?" has to stitch multiple
+PRs together to find out, where one PR with a readable commit history answers it directly. One
+piece of work, one branch, one PR at the end.
+
+**This is per piece of work, not per repository or per session.** Two unrelated pieces of work
+landing in the same repository around the same time still each get their own branch and their own
+PR — including two agents working on genuinely different problems at once, on different machines,
+sharing nothing but the repository. Bundling them onto one shared branch because they happened to
+overlap in time just recreates the "two pieces of work sharing a branch" problem above, one level
+up. "One PR" means one PR for the thing being done, however many agents or sessions that took —
+never a shared branch that bundles whatever else happened to be in flight at the same time.
+
 **Branch protection is deliberately not enabled.** With one developer it would mostly obstruct.
 The discipline here is convention, and the review that matters is described below.
 
