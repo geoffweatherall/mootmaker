@@ -9,7 +9,9 @@ navigating to the separate full-page `/meetings/:id` route. That full page is **
 as the landing target for a shared/bookmarked/direct URL — nothing in the app links to it any more —
 and its own layout, which has visibly drifted from the sheet/panel, is brought back into parity with
 it. Converts [mootmaker-webapp#74](https://github.com/geoffweatherall/mootmaker-webapp/issues/74)'s
-inventory into a concrete decision on all five entry points it listed.
+inventory into a concrete decision on all five entry points it listed. Also adds a **Share** action,
+shown consistently wherever meeting details are visible, that hands out exactly the `/meetings/:id`
+URL this doc already commits to keeping alive as a standalone deep link.
 
 ## Status
 
@@ -34,11 +36,19 @@ In scope, mapped onto #74's five entry points:
 Also in scope: the full page's "Back" link's correctness — gated on genuine in-app origin, not on
 browser history depth (see Trade-offs).
 
+6. **A "Share" action**, new to this design (not part of #74's original inventory), placed on the
+   shared meeting-detail content itself so it appears identically in the sheet/panel and the full
+   page. Hands out the meeting's own `/meetings/:id` URL — see Trade-offs for the mechanism.
+
 Non-goals:
 
 - Extending this pattern to any location that doesn't show meetings today.
 - Re-deciding whether to remove "View full details" — #73 already covers that.
 - Any change to what data a meeting response carries — this is purely presentational/routing.
+- Any sharing mechanism other than handing out the URL (no in-app "invite this person to this
+  meeting" flow, no email-sending, no generating a shortened/tokenised link) — Share does exactly
+  what pasting the address bar's URL would do, just without making the recipient type or copy it by
+  hand themselves.
 
 ## Trade-offs and decisions
 
@@ -72,6 +82,21 @@ Non-goals:
   Confirmed order: Subject (heading) → Room (with colour dot) → Date → Time → Organiser →
   Attendees. This adds Date to the shared content — today's sheet/panel omits it, since it's always
   opened from an already-dated context — harmless there, and required standalone on the full page.
+- **Share tries `navigator.share()` first, falls back to clipboard.** On click: if the Web Share API
+  is available (`typeof navigator.share === 'function'`), call it with `{ title: meeting.subject,
+  url: <absolute /meetings/:id URL> }`, which opens the device's native share sheet (Messages, email,
+  Slack, etc. — this is the primary, mobile-first path, consistent with this app's existing
+  mobile-first framing). Where it isn't available (most desktop browsers), fall back to
+  `navigator.clipboard.writeText(url)` plus a brief "Link copied" snackbar/toast confirmation, since
+  the clipboard write itself is otherwise invisible to the user. Both are standard, user-gesture-
+  triggered browser APIs — nothing is copied or shared without the user directly clicking Share.
+- **One icon for both paths, not one per code path.** `ShareIcon` (MUI's own canonical share glyph —
+  confirmed with Geoff over `IosShareIcon`'s borrowed-iOS-styling and `LinkIcon`'s "this is a link"
+  reading, which is a different action) is used regardless of whether the click ends up calling
+  `navigator.share()` or falling back to clipboard — the user doesn't know or care which fired, so
+  swapping icons by device/browser would just look inconsistent for no benefit. Icon-only, with
+  `aria-label="Share meeting"`, matching this app's existing pattern for icon-only controls (the
+  week-navigation `IconButton`s, the sheet/panel's own Close button).
 - **"Back" gated on an explicit navigation flag, not `history.length`/`navigate(-1)`.** The reported
   failure mode: paste a mootmaker meeting URL into an existing browser tab that already had unrelated
   browsing history, and `navigate(-1)` — or any check based on whether history is merely non-empty —
@@ -83,8 +108,9 @@ Non-goals:
 
 ## Choices you had me make
 
-None — the two decisions originally left open here (field order, and the shared-overlay extraction
-shape) were put to Geoff directly and are recorded as confirmed in "Trade-offs and decisions" above.
+None — the three decisions originally left open here (field order, the shared-overlay extraction
+shape, and the Share icon) were put to Geoff directly and are recorded as confirmed in "Trade-offs
+and decisions" above.
 
 ## Open questions
 
@@ -113,6 +139,8 @@ Non-blocking:
     the shared content component (and cross-referenced from `MeetingDetailsPage`), so a future
     redesign of one surface is a visible prompt to check the other, rather than the silent drift that
     produced this issue in the first place.
+  - New `ShareMeetingButton`-style component (`ShareIcon`, `aria-label="Share meeting"`) added to the
+    shared content component, so it renders identically in the sheet/panel and the full page.
 - **mootmaker-release**: `smoke/tests/test-stage.spec.ts`'s "a meeting can be created" test currently
   reads back a just-created meeting via Room Availability's list, which today is a `Link` to the full
   page. Once that row opens the sheet instead, this smoke test's assertions need updating to match —
@@ -138,6 +166,17 @@ N/A — no persisted-state changes, purely UI/routing.
   update both, following the same role/name-based, exact-matched locator discipline this session's
   earlier fixes (mootmaker-release#46, #50, mootmaker-webapp#71) already established, rather than
   reintroducing a fragile substring match.
+- **Both the Web Share API and the Clipboard API require a secure context (HTTPS)** and a direct user
+  gesture — a click handler satisfies the gesture requirement; HTTPS is already satisfied everywhere
+  this app runs (production, `test`, and every ephemeral environment all serve over HTTPS via
+  CloudFront + ACM — confirmed against this session's own ephemeral-environment `site_url` output,
+  e.g. `https://www.claude-260920-6o2p.mootmaker.com`), so no environment-specific gating is needed.
+- The shared URL must be **absolute**, not the app's internal relative path — `navigator.share()`'s
+  `url` field and a clipboard-pasted link both need a full `https://…/meetings/:id`, built from
+  `window.location.origin` plus the route, not just the router's relative path string.
+- `navigator.share()`'s availability check (`typeof navigator.share === 'function'`) needs to happen
+  at click time, not render time cached into state — some browsers only expose it conditionally (e.g.
+  only for same-origin-invoked contexts), and checking once at mount could stale-cache a wrong answer.
 
 ## Testing impacts
 
@@ -180,6 +219,14 @@ N/A — no persisted-state changes, purely UI/routing.
   (`navigate(-1)` with no origin check at all), so the failure mode both tests above are meant to
   catch already exists in production, untested, right now — not just a theoretical risk this design
   introduces a fix for.
+- **Share**, mocked-integration only — an OS share sheet and a real system clipboard can't be
+  meaningfully asserted on in CI either way, so these tests mock `navigator.share`/
+  `navigator.clipboard.writeText` and assert the call itself, not real OS behaviour: (a) with
+  `navigator.share` mocked as present, clicking Share calls it once with the correct absolute URL and
+  the meeting's subject as `title`; (b) with it mocked as absent, clicking Share calls
+  `navigator.clipboard.writeText` with the same URL and shows the "Link copied" confirmation. No
+  acceptance-layer test is needed for Share specifically — it has no server-side behaviour to prove
+  against a real environment, unlike the cold-link-then-sign-in journey above.
 
 ## Documentation impacts
 
