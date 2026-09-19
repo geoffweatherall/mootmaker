@@ -50,11 +50,15 @@ Non-goals:
   clicking a different meeting row doesn't need the panel closed first) stays specific to the
   sheet/panel; `MeetingDetailsPage` renders the shared content directly inside its own `Paper` card,
   not the overlay wrapper.
-- **Where the shared open/close state lives.** Proposed: one small reusable piece (a hook or a
-  component — exact shape left to implementation, see "Choices you had me make") owning
-  `openMeeting`/`setOpenMeeting` and the responsive Drawer/panel wrapper, mounted once each by
-  `HomePage`, `RoomAvailabilityPage` and `PersonCalendarPage`, rather than three independent copies
-  of the `isWide` branching logic.
+- **Where the shared open/close state lives: a custom hook**, confirmed with Geoff —
+  `useMeetingDetailOverlay()` returning `{ open(meeting), overlay: <ReactNode> }`. Each page calls
+  `open()` from its own row's `onClick` and renders the returned node once, near the top of its JSX.
+  Chosen over a wrapping component (more component-tree structure for no real benefit here) or a
+  root-mounted context (furthest-reaching option, and nothing outside these three pages needs it) —
+  plain React, no new dependency, keeps the responsive Drawer/panel markup co-located with the state
+  that drives it. Owns `openMeeting`/`setOpenMeeting` and the existing `isWide` branching logic
+  internally, so `HomePage`, `RoomAvailabilityPage` and `PersonCalendarPage` each mount it once
+  rather than duplicating that branch three times.
 - **The full page keeps fetching its own data, not a warm cache.** Its existing comment already
   explains why it selects names itself rather than resolving ids against cached rooms/people: "a
   details page reached cold from a shared or bookmarked link has no cached rooms or people to resolve
@@ -64,10 +68,10 @@ Non-goals:
   the meeting. Fetched independently, the same self-sufficient way, because for the one path this
   page now serves — a cold direct link — there is no caller to pass that context in.
 - **Field set and order unified across both surfaces**, closing the "not in a logical order"
-  complaint by construction rather than by separately re-ordering the full page's own rows. Proposed
-  order: Subject (heading) → Room (with colour dot) → Date → Time → Organiser → Attendees. This adds
-  Date to the shared content — today's sheet/panel omits it, since it's always opened from an
-  already-dated context — harmless there, and required standalone on the full page.
+  complaint by construction rather than by separately re-ordering the full page's own rows.
+  Confirmed order: Subject (heading) → Room (with colour dot) → Date → Time → Organiser →
+  Attendees. This adds Date to the shared content — today's sheet/panel omits it, since it's always
+  opened from an already-dated context — harmless there, and required standalone on the full page.
 - **"Back" gated on an explicit navigation flag, not `history.length`/`navigate(-1)`.** The reported
   failure mode: paste a mootmaker meeting URL into an existing browser tab that already had unrelated
   browsing history, and `navigate(-1)` — or any check based on whether history is merely non-empty —
@@ -79,10 +83,8 @@ Non-goals:
 
 ## Choices you had me make
 
-- The proposed field order above (Subject → Room → Date → Time → Organiser → Attendees) — flag to
-  override if a different order reads better.
-- Extraction shape (hook vs. component vs. context) for the shared overlay state — left as an
-  implementation-time call, not specified here.
+None — the two decisions originally left open here (field order, and the shared-overlay extraction
+shape) were put to Geoff directly and are recorded as confirmed in "Trade-offs and decisions" above.
 
 ## Open questions
 
