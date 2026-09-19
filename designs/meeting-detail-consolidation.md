@@ -147,26 +147,39 @@ N/A — no persisted-state changes, purely UI/routing.
 - `mootmaker-webapp/acceptance/` and `mootmaker-release/smoke/tests/test-stage.spec.ts` both need
   their meeting-detail assertions updated from "navigate to `/meetings/:id`" to "open the sheet/panel
   in place" — see Impacts on components.
-- **A new test for the specific scenario this design's "Back" fix targets, which nothing today
-  covers.** Checked against the existing suites while drafting this doc:
+- **Two new tests, at two different layers, for the specific scenario this design's "Back" fix
+  targets — nothing today covers either.** Checked against the existing suites while drafting this
+  doc:
   - `webapp/tests/auth.spec.ts` already parametrically covers "visiting `/meetings/some-id` while
     signed out redirects to `/signin`", but its separate "signing in from a protected page returns
     to that page" test exercises `/meetings/add`, not a meeting-details URL — the sign-in-then-return
     leg is never exercised for this route specifically.
   - `acceptance/tests/meeting-details.spec.ts`'s H.72 ("Back returns to whichever page the user
     actually came from") only exercises Back for navigation that *originated in-app* (clicking
-    through from Room Availability or the Home page) — it never simulates a cold-loaded/pasted URL,
-    so it can't currently exercise the failure mode this design fixes.
+    through from Room Availability or the Home page) — every case in that file signs in first, then
+    creates/views a meeting. None of them start signed out and follow a cold link.
   - H.73 covers a bad meeting id, a different failure mode entirely.
 
-  The new test needs to simulate a browser tab with **unrelated history already in it** before the
-  meeting URL is loaded (e.g. `page.goto('https://example.com')`, or any other origin/route, before
-  `page.goto('/meetings/:id')`), signed out, so `RequireAuth` redirects to `/signin` and, after
-  signing in, returns to the meeting per the existing `from`-state mechanism — then assert that
-  "Back" either does not render, or definitely does not leave the app. Worth noting explicitly:
-  **today's `MeetingDetailsPage.tsx` renders Back unconditionally** (`navigate(-1)` with no origin
-  check at all), so this exact gap already exists in production, untested, right now — not just a
-  theoretical risk this design introduces a fix for.
+  1. **Mocked-integration** (`webapp/tests/`, sits next to `auth.spec.ts`'s existing redirect tests):
+     proves the client-routing logic itself. Simulate a browser tab with **unrelated history already
+     in it** before the meeting URL loads (e.g. `page.goto('https://example.com')`, or any other
+     origin/route, before `page.goto('/meetings/:id')`), signed out, so `RequireAuth` redirects to
+     `/signin` and, after the mocked sign-in, returns to the meeting per the existing `from`-state
+     mechanism — then assert "Back" either does not render, or definitely does not leave the app. No
+     real Cognito round-trip is needed to prove this; mocked auth is what the adjacent tests already
+     use for the same reason.
+  2. **Acceptance** (`acceptance/tests/meeting-details.spec.ts`, a new `H.74`-style case, real
+     deployed environment, real Cognito): proves the realistic end-to-end journey — someone receives
+     a meeting link, is not signed in, follows it, goes through a **real** sign-in, and lands on the
+     correct meeting with its correct details. This is the scenario as a person would actually
+     experience it, and mocked auth can't stand in for it — the real value is proving `RequireAuth`,
+     Cognito's hosted sign-in, and AppSync are correctly wired together end-to-end for a cold link,
+     not just that the client-side redirect state machine is correct in isolation.
+
+  Worth noting explicitly: **today's `MeetingDetailsPage.tsx` renders Back unconditionally**
+  (`navigate(-1)` with no origin check at all), so the failure mode both tests above are meant to
+  catch already exists in production, untested, right now — not just a theoretical risk this design
+  introduces a fix for.
 
 ## Documentation impacts
 
