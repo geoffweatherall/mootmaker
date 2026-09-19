@@ -270,29 +270,33 @@ through the normal release pipeline (ephemeral → `test` → `production`).
 ## Implementation checklist
 
 All in `mootmaker-webapp`, one `feature/room-availability-and-person-calendar-redesign` branch,
-one PR at the end.
+one PR at the end. Progress as of 2026-09-19 (see that branch's own commits for full detail):
 
-1. `[Claude]` New shared avatar component (initials from a person's `name`, including the
-   single-word-name fallback) plus its unit test. Everything below depends on this.
-2. `[Claude]` `AccountBox.tsx`: swap the generic person icon for the signed-in user's initials
-   avatar.
-3. `[Claude]` `SettingsPage.tsx`: People list gets the avatar per row; Rooms list gets the existing
-   colored dot per row.
-4. `[Claude]` `RoomAvailabilityPage.tsx`: replace the grid with the room-status card list,
-   day-relative framing, and FAB (anchored to the content column, matching accessible name with
-   the button it replaces).
-5. `[Claude]` `PersonCalendarPage.tsx`: replace the six-week grid with the weekly agenda, tap-to-
-   detail (bottom sheet / side sheet with organiser + every attendee, scrollable, no cap), and FAB
-   that pre-fills the viewed person as an attendee.
-6. `[Claude]` `MeetingDetailsPage.tsx`: organiser/attendees move to the avatar + structured list
-   treatment, replacing the comma-joined string and its `"None"` fallback.
-7. `[Claude]` `AddMeetingPage.tsx`: avatar per option in both the organiser and attendee pickers;
-   accept and apply Person Calendar's FAB navigation state (pre-filled attendee).
-8. `[Claude]` New and updated tests per "Testing impacts" — including updating existing assertions
-   on `MeetingDetailsPage`'s old attendee string and `AccountBox`'s old icon, and on anything
-   locating "Add Meeting" by accessible name.
-9. `[Claude]` Update `docs/reference/use-cases.md` / `business-functionality.md` (this repo) if
-   their Room Availability / Person Calendar descriptions no longer match.
+1. `[Claude]` ✅ Shared avatar component (`components/PersonAvatar.tsx`,
+   `theme/avatarInitials.ts`) plus its unit test.
+2. `[Claude]` ✅ `AccountBox.tsx` uses it.
+3. `[Claude]` ✅ `SettingsPage.tsx`: avatar per person row, colored dot per room row.
+4. `[Claude]` ✅ `RoomAvailabilityPage.tsx` rewritten: room-status cards, day-relative framing, FAB.
+5. `[Claude]` ✅ `PersonCalendarPage.tsx` rewritten: weekly agenda (one week shown, not six — see
+   "Trade-offs" for why), tap-to-detail (bottom sheet/side panel), FAB with attendee pre-fill.
+6. `[Claude]` ✅ `MeetingDetailsPage.tsx`: organiser/attendees now use the avatar + structured list.
+7. `[Claude]` ✅ `AddMeetingPage.tsx`: avatar per picker option; accepts the FAB's pre-fill.
+8. `[Claude]` **Partially done.** New unit tests (initials, room status, day-relative label) done.
+   The full mocked-integration suite (`webapp/tests/`, no AWS needed) runs clean, including two
+   real bugs this work caught and fixed: the avatar's initials text was leaking into option
+   accessible names (`aria-hidden` fixed it), and `meeting-details.spec.ts` navigated through
+   Person Calendar in a way that no longer holds. New integration coverage added for FAB
+   visibility and the bottom-sheet/side-panel surface swap. **Not done**: the real, AWS-deployed
+   acceptance suites. Confirmed several will not pass as-is without rework — `room-availability
+   .spec.ts`'s E.32 (tooltip-based assertion, no tooltip any more), E.33/E.34 (grid-lane/pixel-
+   overlap concepts that don't apply to a vertical list), E.36 (entirely about the sticky-column
+   scroll behaviour this design removes); `person-calendar.spec.ts`'s G.61 (asserts exactly 30
+   `.MuiPaper-outlined` day cells — now 5, and not `Paper` elements at all), G.65 (asserts a
+   meeting click navigates directly, now opens the detail panel first). These need a real
+   ephemeral-environment deploy to rewrite against with any confidence, which this session did
+   not do — AWS spend/time significant enough to flag rather than start unprompted while
+   unattended.
+9. `[Claude]` Not done — `docs/reference/use-cases.md` / `business-functionality.md`.
 10. `[Geoff]` Review the PR diff; merge when satisfied.
 11. `[Geoff]` Run `gh workflow run release.yml` in `mootmaker-release` to reach `production` — see
     "Definition of done."
