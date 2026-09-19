@@ -8,7 +8,9 @@ sticky room-name column, mootmaker-webapp#11); Person Calendar's six-week grid c
 lines into a fifth of a phone's width, with no tracked issue yet. This design replaces both with
 Material-inspired, mobile-first layouts that are equally usable with touch and a mouse, and
 introduces two small shared UI ideas along the way — a person-initials avatar, and a floating
-action button (FAB) for each page's primary "add a meeting" action — used consistently across both.
+action button (FAB) for each page's primary "add a meeting" action. Both ideas are carried through
+consistently to the rest of the app's person/room touchpoints: meeting detail, the add-meeting
+pickers, Settings' People/Rooms lists, and the account menu.
 
 ## Status
 
@@ -28,7 +30,13 @@ action button (FAB) for each page's primary "add a meeting" action — used cons
 - A shared initials-avatar for a person (e.g. "Priya Chaudhary" → a colored circle showing "PC"),
   used in the new detail views.
 - A FAB for "Add Meeting" on both redesigned pages, anchored to the content column rather than the
-  raw viewport edge.
+  raw viewport edge. Person Calendar's FAB pre-fills the person being viewed as an attendee when it
+  opens `AddMeetingPage`.
+- Carrying the avatar and structured attendee-list treatment to `MeetingDetailsPage.tsx` (replacing
+  its comma-joined attendee string), `AddMeetingPage.tsx`'s organiser/attendee pickers, Settings'
+  People list, and `AccountBox.tsx`'s generic person-icon.
+- Extending the existing room-color-dot to Settings' Rooms list and `AddMeetingPage.tsx`'s room
+  picker, so a room's color is consistent everywhere it appears.
 
 **Non-goals, decided explicitly:**
 
@@ -46,13 +54,10 @@ action button (FAB) for each page's primary "add a meeting" action — used cons
 - **Converting Settings' "Add room"/"Add person" or HomePage's "Add Meeting" buttons to FABs.**
   Decided against for both. See "Trade-offs and decisions."
 - **A grid/month view alternative for Person Calendar.** Not being reintroduced in any form.
-- Carrying the avatar and structured attendee-list treatment to `MeetingDetailsPage.tsx`,
-  `AddMeetingPage.tsx`'s pickers, Settings' People list, or `AccountBox.tsx`'s icon. All four are
-  genuinely good follow-ons (see "Choices you had me make") but are not bundled into this design's
-  build scope.
-- Extending the room-color-dot to Settings' Rooms list or `AddMeetingPage.tsx`'s room picker (both
-  currently show rooms as plain text with no color at all — a real, pre-existing inconsistency,
-  just not one this design bundles in).
+- **An attendee-count cap in the detail view.** Considered truncating at 4 with a "+N more" line;
+  decided against — the detail surfaces (bottom sheet, side sheet) already scroll internally, so
+  showing everyone is simpler and loses nothing, including for the 18-attendee All-Hands case in
+  the prototype.
 
 ## Trade-offs and decisions
 
@@ -108,6 +113,24 @@ important: keeping "round avatar = person" and "small colored dot = room" as a d
 distinction is useful on its own, independent of the first reason — it lets a glance tell the two
 apart. Making rooms round too would blur that for no gain.
 
+**Person Calendar's FAB pre-fills the viewed person as an attendee, not organiser, and not left
+blank.** Opening Add Meeting from someone's calendar reads as "schedule a meeting with them," which
+matches what the page is already for (viewing that person's schedule) — pre-filling as organiser
+would assume you're scheduling on their behalf, which is a less common case, and leaving it blank
+would waste the one piece of context the FAB actually has.
+
+**Attendee/avatar carryover, and the room-color-dot fix, are in scope after all.** Originally left as
+follow-ons so as not to unilaterally grow the design (see the doc's earlier drafting history in this
+PR). On review, folded in: `MeetingDetailsPage.tsx`'s attendees today are one comma-joined string
+with a bare `"None"` fallback — worse than the detail view this design already builds for Person
+Calendar — and the room-color gap in Settings/`AddMeetingPage.tsx` is a real, visible inconsistency
+once the redesigned pages are showing colored dots consistently elsewhere. Both are small,
+low-risk, and share the same building blocks (the new avatar component, the existing
+`roomColorAt`) already being built for the two redesigned pages, so doing them together costs little
+extra and leaves less inconsistency behind.
+
+**No attendee-count cap.** Considered, and dropped — see "Non-goals."
+
 **FAB adoption stops at these two pages.** Settings' "Add room" / "Add person" already open in-place
 dialogs, not a page navigation — a different, already-fine pattern that never had the
 narrow-screen duplicated-button problem the FAB was invented to solve (mootmaker-webapp#65).
@@ -126,43 +149,16 @@ Interactive prototypes (private, Geoff's Claude account):
 
 ## Choices you had me make
 
-- **Attendee-list truncation at 4 visible, then "+N more."** An arbitrary threshold — not discussed
-  as a specific number, just picked to keep the sheet/side-sheet from growing unbounded for a
-  large meeting (the prototype's All-Hands example has 18 attendees).
 - **The avatar's tint color** (a light lavender background with the brand primary as text) — a new
   neutral tonal pairing, not pulled from an existing token. Kept deliberately distinct from both the
   three brand semantic hues and the room categorical palette so it doesn't compete with either.
-- **Not bundling the avatar/attendee-list carryover** to `MeetingDetailsPage.tsx` (which today
-  renders attendees as one comma-joined string with a bare "None" fallback — arguably a pre-existing
-  gap independent of this redesign), `AddMeetingPage.tsx`'s organiser/attendee pickers, Settings'
-  People list, or `AccountBox.tsx`'s generic person-icon avatar. All four are genuine, low-risk wins
-  once a shared avatar component exists, but I left them out of this design's build scope rather than
-  deciding unilaterally to grow it — see "Open questions."
-- **Not bundling the room-color-dot fix** for Settings' Rooms list and `AddMeetingPage.tsx`'s room
-  picker (both show rooms with no color today, inconsistent with Room Availability/Person Calendar),
-  for the same reason.
-- **Person Calendar's new FAB does not yet pre-fill anything.** I built its visual presence and its
-  hide-while-detail-open behavior, but not what happens when it's tapped — that's a real product
-  decision (see "Open questions"), not just a visual one, and this is a genuinely new affordance for
-  this page, not a replacement of an existing control.
+  Reviewed and kept as-is.
 
 ## Open questions
 
-**Blocking:**
-
-1. Should Person Calendar's new "Add Meeting" FAB pre-fill the person being viewed as an attendee
-   when it opens `AddMeetingPage`? It's a net-new feature on this page (Person Calendar has never
-   had an "add a meeting" affordance before this design), so this needs a real answer, not an
-   assumption.
-2. Should the four follow-ons named in "Choices you had me make" (room-color-dot consistency in
-   Settings/AddMeetingPage; avatar carryover to MeetingDetailsPage, AddMeetingPage's pickers,
-   Settings' People list, and AccountBox) be folded into this design's build scope now, or tracked
-   as separate design(s)/issue(s)?
-
-**Non-blocking:**
-
-3. The attendee-overflow threshold (currently 4) and the avatar's exact tint color/token name are
-   both fine to settle during implementation or review.
+None outstanding. Both blocking questions from the previous draft (the FAB's pre-fill behavior, and
+whether to fold the avatar/room-color follow-ons into scope) are resolved above; both non-blocking
+ones (the attendee cap, the avatar tint) are resolved too.
 
 ## Impacts on components
 
@@ -172,15 +168,26 @@ Single repository: **`mootmaker-webapp`**. No API, data model, or demo-data chan
   card list, day-relative framing, and FAB.
 - `webapp/src/pages/PersonCalendarPage.tsx` — replace the six-week grid with the weekly agenda list,
   tap-to-detail (bottom sheet / side sheet), and FAB.
-- `webapp/src/pages/AddMeetingPage.tsx` — needs to accept the Person Calendar FAB's navigation state
-  once Open question 1 is answered; no visual change otherwise in this design's scope.
+- `webapp/src/pages/AddMeetingPage.tsx` — accepts the Person Calendar FAB's navigation state and
+  pre-fills the viewed person as an attendee; organiser and attendee `Autocomplete`s gain an avatar
+  per option (the attendee one already has a custom `renderOption` with a checkbox — the avatar
+  slots in there; the organiser one needs its own `renderOption` added, since it uses the default
+  today).
+- `webapp/src/pages/MeetingDetailsPage.tsx` — organiser and attendees move from `DetailRow` plain
+  text (attendees currently a single comma-joined string, falling back to the bare word `"None"`)
+  to the same avatar + structured list treatment as the new Person Calendar detail view.
+- `webapp/src/pages/SettingsPage.tsx` — People list (`PeopleSection`) gains a leading avatar per row;
+  Rooms list (`RoomsSection`) gains the existing colored dot per row, matching Room
+  Availability/Person Calendar.
+- `webapp/src/components/AccountBox.tsx` — its existing 32px `Avatar` swaps its generic
+  `PersonRoundedIcon` for the signed-in user's own initials.
 - A new shared avatar component (name TBD, e.g. `PersonAvatar`) computing initials from a person's
-  `name`, used by both redesigned pages' detail views.
+  `name`, used everywhere above.
 - `webapp/src/theme/` — likely a token or two for the avatar tint and/or naming the 900px breakpoint,
   an implementation-time detail rather than a decision this doc needs to pin down.
 
-Explicitly **not** touched by this design (see "Non-goals"): `MeetingDetailsPage.tsx`,
-`SettingsPage.tsx`, `AccountBox.tsx`, `mootmaker-api`, `mootmaker-demo-data`.
+Still a single repository (`mootmaker-webapp`) and still no API, data model, or demo-data change —
+see below.
 
 ## Changes to the domain data model and data storage models
 
@@ -207,17 +214,29 @@ design only changes how that existing data is rendered.
 
 Per `mootmaker-webapp/testing-strategy.md`'s four layers:
 
-- **Unit** (`webapp/src/**/*.test.ts`): attendee-list truncation (>4 attendees shows exactly 4 plus a
-  correct overflow count; ≤4 shows all with none); initials computation from a name, including a
-  single-word name (Settings' Add Person form takes free text, so this is reachable, not
-  hypothetical) degrading gracefully rather than crashing.
-- **Integration** (`webapp/tests/`, Playwright + MSW): the FAB is hidden while a meeting's detail is
-  open and reappears on close; at a narrow viewport, tapping a meeting opens the bottom sheet (dark
-  scrim, Close button); at ≥900px, the same tap opens the side sheet instead (no scrim, list stays
-  interactive) — two viewport-emulated cases of one behavior; clicking a second meeting while the
-  side sheet is already open swaps its content without requiring a close first.
+- **Unit** (`webapp/src/**/*.test.ts`): initials computation from a name, including a single-word
+  name (Settings' Add Person form takes free text, so this is reachable, not hypothetical)
+  degrading gracefully rather than crashing.
+- **Integration** (`webapp/tests/`, Playwright + MSW):
+  - the FAB is hidden while a meeting's detail is open and reappears on close;
+  - at a narrow viewport, tapping a meeting opens the bottom sheet (dark scrim, Close button); at
+    ≥900px, the same tap opens the side sheet instead (no scrim, list stays interactive) — two
+    viewport-emulated cases of one behavior;
+  - clicking a second meeting while the side sheet is already open swaps its content without
+    requiring a close first;
+  - a meeting with many attendees (the All-Hands case) renders all of them in the detail view and
+    scrolls, rather than truncating;
+  - opening Add Meeting via Person Calendar's FAB pre-fills the viewed person as an attendee;
+  - `MeetingDetailsPage` renders organiser and every attendee with an avatar, replacing the old
+    comma-joined string (including the previously-bare `"None"` case, now an empty-state row
+    instead);
+  - `AddMeetingPage`'s organiser and attendee `Autocomplete` options each show an avatar;
+  - Settings' People list shows an avatar per row and Rooms list shows the colored dot per row;
+  - `AccountBox`'s avatar shows the signed-in user's initials, not the generic icon.
 - **Existing test impact**: any current test locating "Add Meeting" by accessible name needs to
-  keep matching post-FAB — see "Technical considerations."
+  keep matching post-FAB — see "Technical considerations." Any existing test asserting on
+  `MeetingDetailsPage`'s old comma-joined attendee string, or on `AccountBox`'s generic icon, needs
+  updating to match the new structure — not just new tests, existing ones will need editing.
 - **e2e / acceptance**: no new coverage needed. Nothing here is an infrastructure-wiring or new-use-
   case question the integration layer doesn't already answer more cheaply.
 
@@ -238,18 +257,20 @@ through the normal release pipeline (ephemeral → `test` → `production`).
 
 - The FAB accessible-name mismatch (see "Technical considerations") is the single most likely thing
   to silently break existing coverage if missed.
-- Scope creep: several genuine, low-risk follow-ons surfaced while designing this (room-dot
-  consistency, avatar carryover) — the risk is one of them getting folded in mid-implementation
-  without first being added to this doc's "Scope" deliberately (Open question 2 exists precisely to
-  settle this before Building starts).
+- Larger surface area than a first read of "redesign two pages" suggests: folding in the avatar and
+  room-color follow-ons means this design now also touches `MeetingDetailsPage.tsx`,
+  `SettingsPage.tsx`, and `AccountBox.tsx`. Each change is individually small, but four extra files
+  is four extra places for a regression, and `MeetingDetailsPage.tsx`'s attendee-rendering change in
+  particular has existing test assertions that need updating, not just new ones added — see
+  "Testing impacts."
 - Nothing here is harder to reverse than a normal deploy — no data model change means a rollback is
   a plain revert-and-redeploy.
 
 ## Implementation checklist
 
-Not filled in yet — per the design-doc lifecycle, this stays sparse while Drafting. Blocking open
-questions 1 and 2 need answers before Status can move to Ready, at which point this gets a real,
-ordered, `[Geoff]`/`[Claude]`-tagged checklist.
+Not filled in yet — per the design-doc lifecycle, this stays sparse while Drafting, and gets a real,
+ordered, `[Geoff]`/`[Claude]`-tagged checklist once Status moves to Ready. No open questions remain
+blocking that move; the promotion itself is Geoff's call, not something this doc does on its own.
 
 ## Definition of done
 
