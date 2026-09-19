@@ -192,9 +192,21 @@ see below.
 
 ## Changes to the domain data model and data storage models
 
-N/A. Avatars use the existing `Person.name`; nothing new is stored server-side. Organiser/attendees
-are already served by `LIST_MEETINGS` (`organiser { id name }`, `attendees { id name }`) — this
-design only changes how that existing data is rendered.
+N/A. Avatars use the existing `Person.name`; nothing new is stored server-side.
+
+**Correction found during implementation:** this section originally assumed organiser/attendees
+were already served with names attached wherever a `Meeting` appears (`organiser { id name }`,
+`attendees { id name }`). That's true of `MeetingByIdQuery` (`MeetingDetails`, used by
+`MeetingDetailsPage`), but not of the `Meeting` type nested inside a `Day` (`PAGE_LOAD`/`DAYS`,
+what `RoomAvailabilityPage` and `PersonCalendarPage` actually query) — that shape deliberately
+carries organiser/attendee **ids only**, resolved against the workspace's already-fetched people
+list where a name is needed (see `webapp/src/graphql/types.ts`'s own comment on `Meeting` vs.
+`MeetingDetails`). Person Calendar's new meeting-detail panel reads from the `Day`-nested shape, so
+it needed the same id-to-name lookup `RoomAvailabilityPage`/`PersonCalendarPage` already use for
+rooms (`roomsById`) - added as a `peopleById` map built from the same reference-data query already
+in scope. This shipped as a real `tsc -b` build failure caught only once it reached CI (the
+session's own `tsc --noEmit` check doesn't follow this repo's project references and silently
+checked nothing - see the Implementation checklist), not as a design-time catch.
 
 ## Technical considerations
 
@@ -238,8 +250,21 @@ Per `mootmaker-webapp/testing-strategy.md`'s four layers:
   keep matching post-FAB — see "Technical considerations." Any existing test asserting on
   `MeetingDetailsPage`'s old comma-joined attendee string, or on `AccountBox`'s generic icon, needs
   updating to match the new structure — not just new tests, existing ones will need editing.
-- **e2e / acceptance**: no new coverage needed. Nothing here is an infrastructure-wiring or new-use-
-  case question the integration layer doesn't already answer more cheaply.
+- **e2e / acceptance**: this prediction turned out to be wrong once implementation actually reached
+  this layer. No *new* use cases needed covering, but the existing acceptance suite - which locates
+  real elements in a real deployed environment, not a mock - broke wherever it depended on the old
+  grid's DOM: the fixed-hour timeline, tooltips, `<a>`-per-meeting-block, the six-week grid's outlined
+  `Paper` cells, and direct click-to-navigate on Person Calendar all changed shape. That affected far
+  more than `room-availability.spec.ts`/`person-calendar.spec.ts` themselves - `add-meeting.spec.ts`,
+  `cross-cutting.spec.ts`, `cross-client-updates.spec.ts`, `settings-rooms.spec.ts`,
+  `settings-people.spec.ts`, `meeting-details.spec.ts`, `sign-up.spec.ts`,
+  `settings-date-time-format.spec.ts` and `non-default-format-reruns.spec.ts` all had at least one
+  case asserting on a meeting's visibility or click-through on one of these two pages. Every one of
+  those needed fixing, verified against a real deployed ephemeral environment rather than guessed
+  from source alone - see the Implementation checklist for the full account. Lesson for next time:
+  "the integration layer already covers this" isn't the same claim as "the acceptance layer doesn't
+  also assert on this same UI," and a redesign this structural should assume the latter needs
+  checking too.
 
 ## Documentation impacts
 
@@ -281,22 +306,30 @@ one PR at the end. Progress as of 2026-09-19 (see that branch's own commits for 
    "Trade-offs" for why), tap-to-detail (bottom sheet/side panel), FAB with attendee pre-fill.
 6. `[Claude]` ✅ `MeetingDetailsPage.tsx`: organiser/attendees now use the avatar + structured list.
 7. `[Claude]` ✅ `AddMeetingPage.tsx`: avatar per picker option; accepts the FAB's pre-fill.
-8. `[Claude]` **Partially done.** New unit tests (initials, room status, day-relative label) done.
-   The full mocked-integration suite (`webapp/tests/`, no AWS needed) runs clean, including two
-   real bugs this work caught and fixed: the avatar's initials text was leaking into option
-   accessible names (`aria-hidden` fixed it), and `meeting-details.spec.ts` navigated through
-   Person Calendar in a way that no longer holds. New integration coverage added for FAB
-   visibility and the bottom-sheet/side-panel surface swap. **Not done**: the real, AWS-deployed
-   acceptance suites. Confirmed several will not pass as-is without rework — `room-availability
-   .spec.ts`'s E.32 (tooltip-based assertion, no tooltip any more), E.33/E.34 (grid-lane/pixel-
-   overlap concepts that don't apply to a vertical list), E.36 (entirely about the sticky-column
-   scroll behaviour this design removes); `person-calendar.spec.ts`'s G.61 (asserts exactly 30
-   `.MuiPaper-outlined` day cells — now 5, and not `Paper` elements at all), G.65 (asserts a
-   meeting click navigates directly, now opens the detail panel first). These need a real
-   ephemeral-environment deploy to rewrite against with any confidence, which this session did
-   not do — AWS spend/time significant enough to flag rather than start unprompted while
-   unattended.
-9. `[Claude]` Not done — `docs/reference/use-cases.md` / `business-functionality.md`.
+8. `[Claude]` ✅ Done, including the acceptance layer. New unit tests (initials, room status,
+   day-relative label). The full mocked-integration suite (`webapp/tests/`, no AWS needed) runs
+   clean, including two real bugs this work caught and fixed: the avatar's initials text was
+   leaking into option accessible names (`aria-hidden` fixed it), and `meeting-details.spec.ts`
+   navigated through Person Calendar in a way that no longer holds. New integration coverage added
+   for FAB visibility and the bottom-sheet/side-panel surface swap.
+
+   A real, AWS-deployed ephemeral environment (`claude-260919-hbrf`) was then used to rewrite the
+   acceptance suite against reality rather than guesswork - which turned out to need far more than
+   the cases flagged above: the redesign's DOM changes broke every case anywhere in the suite that
+   asserted on a meeting's visibility or click-through on either page, not just
+   `room-availability.spec.ts`/`person-calendar.spec.ts` themselves. Nine other files needed at
+   least one fix (`add-meeting`, `cross-cutting`, `cross-client-updates`, `settings-rooms`,
+   `settings-people`, `meeting-details`, `sign-up`, `settings-date-time-format`,
+   `non-default-format-reruns`). A real, previously-unfixed `tsc -b` build failure was also caught
+   and fixed along the way (`PersonCalendarPage.tsx` assumed organiser/attendee names were already
+   present on the `Day`-nested `Meeting` shape; they aren't - see "Changes to the domain data model"
+   above) - this session's own `tsc --noEmit` check had been silently checking nothing the whole
+   time, which is how it got past local verification undetected. Every touched acceptance file has
+   since been re-run individually against the same reused environment and passes. See that
+   environment's own commits for the full account.
+9. `[Claude]` ✅ Done — `docs/reference/use-cases.md` and `docs/reference/business-functionality.md`
+   updated to describe the card/agenda design (including closing G.62's previously-documented
+   "no week navigation" gap).
 10. `[Geoff]` Review the PR diff; merge when satisfied.
 11. `[Geoff]` Run `gh workflow run release.yml` in `mootmaker-release` to reach `production` — see
     "Definition of done."
