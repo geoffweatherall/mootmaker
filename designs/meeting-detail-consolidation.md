@@ -215,18 +215,32 @@ N/A — no persisted-state changes, purely UI/routing.
      Cognito's hosted sign-in, and AppSync are correctly wired together end-to-end for a cold link,
      not just that the client-side redirect state machine is correct in isolation.
 
+     **The link itself comes from the real Share button, not from the test constructing
+     `/meetings/${id}` by hand** — this doubles as real coverage of Share's own URL-construction
+     code, at no extra cost, rather than assuming it's correct:
+     1. `context.grantPermissions(['clipboard-read', 'clipboard-write'])` on the Playwright browser
+        context — a real Chromium capability, no mocking.
+     2. Signed in as demo, create/view the meeting, click Share.
+     3. Read back what the app actually wrote: `await page.evaluate(() => navigator.clipboard
+        .readText())`. This relies on headless Chromium under Playwright not exposing
+        `navigator.share` (so the button's own fallback branch fires for real, unmocked) — worth
+        confirming empirically once the button exists rather than assumed; if it turns out
+        `navigator.share` *is* present in that environment, forcing the fallback path some other way
+        becomes its own small decision, not one this doc resolves in advance.
+     4. Sign out, `page.goto()` to the captured URL, then continue as below (`/signin` redirect, real
+        sign-in, land on the correct meeting).
+
   Worth noting explicitly: **today's `MeetingDetailsPage.tsx` renders Back unconditionally**
   (`navigate(-1)` with no origin check at all), so the failure mode both tests above are meant to
   catch already exists in production, untested, right now — not just a theoretical risk this design
   introduces a fix for.
-- **Share**, mocked-integration only — an OS share sheet and a real system clipboard can't be
-  meaningfully asserted on in CI either way, so these tests mock `navigator.share`/
-  `navigator.clipboard.writeText` and assert the call itself, not real OS behaviour: (a) with
-  `navigator.share` mocked as present, clicking Share calls it once with the correct absolute URL and
-  the meeting's subject as `title`; (b) with it mocked as absent, clicking Share calls
-  `navigator.clipboard.writeText` with the same URL and shows the "Link copied" confirmation. No
-  acceptance-layer test is needed for Share specifically — it has no server-side behaviour to prove
-  against a real environment, unlike the cold-link-then-sign-in journey above.
+- **Share**: the native-share-sheet branch can only be tested mocked, since an OS share sheet is
+  outside anything Playwright can drive — `webapp/tests/`, `navigator.share` mocked as present,
+  asserts it's called once with the correct absolute URL and the meeting's subject as `title`. The
+  clipboard-fallback branch gets **real** coverage instead, for free, as part of the new `H.74`
+  acceptance test above (real `navigator.clipboard.writeText`, real Chromium, real environment) —
+  no separate mocked test is needed for that branch, since the acceptance test already exercises the
+  real code path.
 
 ## Documentation impacts
 
