@@ -15,7 +15,10 @@ URL this doc already commits to keeping alive as a standalone deep link.
 
 ## Status
 
-**Drafting** — 2026-09-20.
+**Building** — 2026-09-20. Geoff approved Ready and authorized starting implementation the same day,
+in the same conversation that produced this doc — mirroring how `ci-cd-pipeline.md`'s own build-out
+was authorized (see that doc's "Execution authorization for this build-out"), so this doc moves
+straight to Building rather than sitting at Ready with nothing acting on it.
 
 ## Scope / non-goals
 
