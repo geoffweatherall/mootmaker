@@ -15,7 +15,9 @@ strings.
 
 ## Status
 
-**Drafting** — 2026-09-20.
+**Building** — 2026-09-20. Geoff approved Ready and authorized starting implementation in the same
+message, mirroring how `meeting-detail-consolidation.md`'s own build-out was authorized — so this
+doc moves straight to Building rather than sitting at Ready with nothing acting on it.
 
 ## Scope / non-goals
 
