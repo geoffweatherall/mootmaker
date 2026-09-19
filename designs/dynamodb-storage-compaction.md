@@ -107,26 +107,31 @@ Non-goals:
 
 ## Choices you had me make
 
-- **Recommending `MAX_MEETINGS_PER_DAY = 360`** — the actual physical capacity (10 rooms × 36
-  fifteen-minute slots), stated directly in `Limits.java`'s own comment as the number the current 320
-  cap wishes it could be. The byte model has room for this and more even with attendee-status
-  headroom reserved (see below); 360 is where I'd stop rather than going further, because beyond
-  physical capacity the limit no longer corresponds to anything real and would just be an oddly
-  specific number with no meaning to explain in an error message.
+None remaining — every real decision here was made together with Geoff, either in discussion or via
+the "Open questions" resolutions below. (An earlier draft of this doc had a unilateral recommendation
+to raise `MAX_MEETINGS_PER_DAY` to 360; that was put to Geoff as an open question rather than kept as
+a unilateral choice, and decided against — see below.)
 
 ## Open questions
 
-Blocking (need an answer before this can move to Ready):
-
-1. **New `MAX_MEETINGS_PER_DAY`** — confirm 360 (physical capacity), or a different number.
-2. **New `MAX_ATTENDEES_PER_MEETING`** — leave at 20, or raise it now that there's room? (The byte
-   model below assumes 20 unchanged; raising it is a one-line change to the same arithmetic if
-   wanted.)
+No blocking open questions remain — every item below is resolved. Status can move to Ready when
+Geoff is ready to do that (the one human-gated transition in this project's design-doc lifecycle).
 
 Resolved:
 
 - ~~Id allocation strategy~~ — **decided 2026-09-20: random token, base62, 8 characters.** See
   "Trade-offs and decisions" and "Id allocation options" below.
+- ~~New `MAX_MEETINGS_PER_DAY`~~ — **decided 2026-09-20: left at 320, unchanged.** I'd recommended
+  raising it to 360 (true physical capacity — 10 rooms × 36 fifteen-minute slots), since the
+  compacted byte model has comfortable room for it; Geoff chose to leave it unchanged instead. This
+  means the compaction work in this doc delivers safety margin and headroom for the attendee-status
+  field, without also expanding bookable capacity in the same change — raising the cap, if wanted
+  later, stays available as a trivial follow-up (a one-line `Limits.java` change plus
+  `Limits.assertConsistent()` re-verifying it), since nothing else in this design depends on which
+  value is chosen here.
+- ~~New `MAX_ATTENDEES_PER_MEETING`~~ — **decided 2026-09-20: left at 20, unchanged.** Same reasoning
+  as above — the byte model in "Technical considerations" already assumed 20 as its base case, so no
+  numbers in this doc change as a result.
 
 Non-blocking (fine to resolve during implementation):
 
@@ -215,20 +220,25 @@ only the value costs move):
 | **new** each `attendeeStatuses` element (reserved, not built here) | — | 1 byte code (+1 overhead = 2) | +2 |
 | **new** `attendeeStatuses` list's own name + container overhead (one-time per meeting) | — | ~20 | +20 |
 
-Recomputing the model with these deltas, at **today's limits unchanged** (320 meetings/day, 20
-attendees/meeting, 280-byte subject) **and** the attendee-status field's bytes already reserved:
+Recomputing the model with these deltas, at **today's limits — decided to stay unchanged, 320
+meetings/day, 20 attendees/meeting, 280-byte subject** — **and** the attendee-status field's bytes
+already reserved:
 
 - `PER_MEETING_BASE_BYTES` ≈ 212 − 28×3 − 14×2 + 20 = **120**
 - `BYTES_PER_ATTENDEE` (id + reserved status) ≈ 9 + 2 = **11**
-- worst-case meeting = 120 + 11×20 + 280 = **620 bytes** (down from 1,232 — praticaly half, before even touching the limits)
-- worst-case day item at 320 meetings = 320×620 + 128 = **198,528 bytes — 48.5% of the cap**
-- worst-case day item at the **recommended new** `MAX_MEETINGS_PER_DAY = 360` (true physical
-  capacity) = 360×620 + 128 = **223,328 bytes — 54.5% of the cap**
+- worst-case meeting = 120 + 11×20 + 280 = **620 bytes** (down from 1,232 — practically half, before
+  even touching the limits)
+- **worst-case day item at 320 meetings = 320×620 + 128 = 198,528 bytes — 48.5% of the cap.** This is
+  the adopted result: `MAX_MEETINGS_PER_DAY` and `MAX_ATTENDEES_PER_MEETING` both stay as they are
+  today (see "Open questions"), so this compaction work is pure safety margin and headroom for the
+  attendee-status field, not a capacity increase.
+- For the record, the alternative considered and not adopted: raising `MAX_MEETINGS_PER_DAY` to 360
+  (true physical capacity — 10 rooms × 36 fifteen-minute slots) would have cost
+  360×620 + 128 = **223,328 bytes — 54.5% of the cap**, still comfortably under the limit. Available
+  as a follow-up later without touching anything else in this design.
 
-So: raising the meetings-per-day cap to the real physical limit, *and* reserving full room for the
-attendee-status field, still leaves the day item under 55% of what DynamoDB allows. Subject text
-(280 of 620 bytes, 45%) is now the largest single contributor to a meeting's size — the next lever if
-more headroom is ever wanted, not proposed here.
+Subject text (280 of 620 bytes, 45%) is now the largest single contributor to a meeting's size — the
+next lever if more headroom is ever wanted, not proposed here.
 
 These are estimates in the same spirit as today's `Limits.java` model, not exact — `ItemSizer`
 already measures the real serialised item at write time and is the actual backstop
@@ -358,11 +368,11 @@ handling.
 
 ## Implementation checklist
 
-Sparse while Drafting, per this project's template — to be filled in once the open questions above
-are resolved and Status moves to Ready.
+All open questions are resolved (id allocation: random token, base62, 8 chars;
+`MAX_MEETINGS_PER_DAY`/`MAX_ATTENDEES_PER_MEETING`: both left unchanged). Still sparse while
+Drafting, per this project's template — the remaining gate is Geoff moving Status to Ready.
 
-- [ ] [Geoff] Resolve the two remaining blocking open questions (`MAX_MEETINGS_PER_DAY`,
-      `MAX_ATTENDEES_PER_MEETING`). Id allocation strategy is decided: random token, base62, 8 chars.
+- [ ] [Geoff] Move Status to Ready.
 - [ ] [Claude] Recompute exact `Limits` byte constants against `ItemSizer`'s real rules.
 - [ ] [Claude] Implement the base62 random-token id allocator + collision retry; migrate the five/six
       `UUID.randomUUID()` call sites.
