@@ -14,7 +14,7 @@ pickers, Settings' People/Rooms lists, and the account menu.
 
 ## Status
 
-**Drafting** — 2026-09-19.
+**Ready** — 2026-09-19 (approved by Geoff).
 
 ## Scope / non-goals
 
@@ -268,9 +268,35 @@ through the normal release pipeline (ephemeral → `test` → `production`).
 
 ## Implementation checklist
 
-Not filled in yet — per the design-doc lifecycle, this stays sparse while Drafting, and gets a real,
-ordered, `[Geoff]`/`[Claude]`-tagged checklist once Status moves to Ready. No open questions remain
-blocking that move; the promotion itself is Geoff's call, not something this doc does on its own.
+All in `mootmaker-webapp`, one `feature/room-availability-and-person-calendar-redesign` branch,
+one PR at the end.
+
+1. `[Claude]` New shared avatar component (initials from a person's `name`, including the
+   single-word-name fallback) plus its unit test. Everything below depends on this.
+2. `[Claude]` `AccountBox.tsx`: swap the generic person icon for the signed-in user's initials
+   avatar.
+3. `[Claude]` `SettingsPage.tsx`: People list gets the avatar per row; Rooms list gets the existing
+   colored dot per row.
+4. `[Claude]` `RoomAvailabilityPage.tsx`: replace the grid with the room-status card list,
+   day-relative framing, and FAB (anchored to the content column, matching accessible name with
+   the button it replaces).
+5. `[Claude]` `PersonCalendarPage.tsx`: replace the six-week grid with the weekly agenda, tap-to-
+   detail (bottom sheet / side sheet with organiser + every attendee, scrollable, no cap), and FAB
+   that pre-fills the viewed person as an attendee.
+6. `[Claude]` `MeetingDetailsPage.tsx`: organiser/attendees move to the avatar + structured list
+   treatment, replacing the comma-joined string and its `"None"` fallback.
+7. `[Claude]` `AddMeetingPage.tsx`: avatar per option in both the organiser and attendee pickers;
+   accept and apply Person Calendar's FAB navigation state (pre-filled attendee).
+8. `[Claude]` New and updated tests per "Testing impacts" — including updating existing assertions
+   on `MeetingDetailsPage`'s old attendee string and `AccountBox`'s old icon, and on anything
+   locating "Add Meeting" by accessible name.
+9. `[Claude]` Update `docs/reference/use-cases.md` / `business-functionality.md` (this repo) if
+   their Room Availability / Person Calendar descriptions no longer match.
+10. `[Geoff]` Review the PR diff; merge when satisfied.
+11. `[Geoff]` Run `gh workflow run release.yml` in `mootmaker-release` to reach `production` — see
+    "Definition of done."
+12. `[Claude]` Once production is confirmed, move Status to Shipped and move this doc to
+    `designs/archive/`.
 
 ## Definition of done
 
@@ -278,5 +304,10 @@ blocking that move; the promotion itself is Geoff's call, not something this doc
 - The existing `mootmaker-webapp` test suite (all four layers) is still green.
 - A clean acceptance run against a real deployed environment.
 - Everything listed under "Documentation impacts" is actually done.
+- **A real production release** — `gh workflow run release.yml` in `mootmaker-release`, reaching
+  `production` with its smoke test passing — not just a merge to `main`. `main` being green is
+  necessary but not sufficient: per `docs/process/environments.md`, a merge changes nothing in
+  `test`/`production` by itself, and this is a live public demo, so "Shipped" means an actual
+  visitor can see it, not that the code exists on `main`.
 - This PR is merged and the doc's Status is moved to Shipped, then the doc moves to
   `designs/archive/`.
