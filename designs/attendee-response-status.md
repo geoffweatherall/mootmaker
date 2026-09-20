@@ -2,15 +2,23 @@
 
 ## Summary
 
-Record each attendee's response to a meeting — Going / Not going / Maybe / Not yet responded — and
-show it next to every attendee wherever attendees are listed, with a small colour + icon per status
-and a control letting a signed-in user set or change only their own response. Touches storage
-(DynamoDB, per Geoff's own note that this uses more record space), the GraphQL API, demo-data
-generation, and the webapp's attendee-list surfaces.
+Record each attendee's response to a meeting — Going / Not going / Maybe / No response — and show
+it next to every attendee wherever attendees are listed, with a small colour + icon per status and a
+control letting a signed-in user set or change only their own response. Also redesigns the Home page
+around it: a "Needs your response" section, and the existing Today/Tomorrow agenda lists become
+cards with a show-more expander. Touches storage (DynamoDB, per Geoff's own note that this uses more
+record space), the GraphQL API, demo-data generation, and the webapp's Home/Calendar/Meeting-Detail
+surfaces.
+
+**UI prototype**: https://claude.ai/artifact/NifSs32je8ejXWttFsh95D — icon options, the redesigned
+Home page (interactive: try the quick-respond buttons and the "show more" expander), and the
+Meeting Detail attendee list with the response control (interactive: try changing "your" response).
 
 ## Status
 
-**Drafting** — 2026-09-20.
+**Drafting** — 2026-09-20, revised 2026-09-21 (Home page scope added, storage shape reconciled with
+the now-shipped [`dynamodb-storage-compaction.md`](archive/dynamodb-storage-compaction.md),
+naming/colour open questions resolved, UI prototype added - see below).
 
 ## Scope / non-goals
 
@@ -21,10 +29,22 @@ In scope:
 - **Self-only control**: a signed-in user may set/change only their own response on a meeting they
   attend, mirroring `updateMyPreferences`'s existing self-only pattern (no id argument, acts on the
   caller's own linked Person) rather than `updatePerson`'s self-or-admin pattern.
-- Shown in every attendee list that exists today: the Calendar view's bottom-sheet/side-panel
-  (`PersonCalendarPage.tsx`'s `MeetingDetail`) and the full-page `/meetings/:id`
-  (`MeetingDetailsPage.tsx`). Room Availability and the Home page's agenda lists don't show attendee
-  lists at all today, so no change is needed there.
+- Shown next to every attendee wherever an attendee list already renders: the shared meeting-detail
+  sheet/panel (`MeetingDetailContent.tsx`, per 2026-09-20's meeting-detail-consolidation work — this
+  supersedes the original draft's references to `PersonCalendarPage.tsx`'s own `MeetingDetail` and a
+  separate `MeetingDetailsPage.tsx`'s `PersonRow`, both since merged into that one shared component).
+- **Home page redesign** (added to scope 2026-09-21, per Geoff's own follow-up ask — supersedes the
+  original draft's "Room Availability and the Home page... no change needed there" line):
+  - A new **"Needs your response"** section: one card per upcoming meeting where the signed-in
+    person is an attendee (not organiser — see "Open questions") with status still "No response,"
+    ordered soonest-first, with a quick-respond action directly on the card (no need to open the
+    full detail sheet for the common case).
+  - The existing Today/Tomorrow agenda lists become **cards** instead of plain list rows, each
+    showing the viewer's own response status; a **"Show more" expander** once a day has more than a
+    small fixed number of meetings, rather than an ever-growing unbounded list.
+  - Room Availability stays out of scope, as the original draft decided — that page is about *room*
+    occupancy, not personal attendance, and adding per-attendee status there would answer a question
+    the page doesn't ask.
 - **mootmaker-demo-data**: generate a realistic mix of all four statuses across generated attendees,
   per Geoff's explicit ask, not just leave everyone "not yet responded."
 
@@ -45,15 +65,27 @@ Deliberately deferred, not rejected — see "Open questions":
 
 ## Trade-offs and decisions
 
-- **Status lives per-attendee inside the day item's `meetings` list**, not as a parallel list or a
-  separate table. The whole storage model already keys everything by day item (one item per calendar
-  day, see `docs/reference/data-model.md`'s Meetings table) — a meeting is not its own item, and this
-  project already removed a separate `MeetingParticipants` table for exactly this reason ("Nothing in
-  this model is stored twice any more"). `MeetingRecord.attendeeIds: List<String>` becomes
-  `MeetingRecord.attendees: List<AttendeeRecord>`, `AttendeeRecord(String personId, AttendeeStatus
-  status)`, stored as a DynamoDB list of maps instead of a list of strings. A parallel `List<Status>`
-  kept in lock-step by index was considered and rejected — any insert/removal desync between two
-  independently-maintained lists is a correctness hazard this combined shape avoids by construction.
+- **Status lives per-attendee inside the day item's `meetings` list, as a parallel `attendeeStatuses`
+  list next to `attendeeIds`** — not a combined list of `{personId, status}` maps. This reverses this
+  doc's own earlier draft (see git history), corrected once `designs/archive/dynamodb-storage-
+  compaction.md` shipped (2026-09-20/21, `mootmaker-api` v3.0.0): that design's byte model explicitly
+  reserved headroom for exactly this field, sized as **"1 byte code (+1 overhead = 2)" per attendee**,
+  under the name `attendeeStatuses`. A combined list of maps is a materially heavier shape — each
+  entry becomes a DynamoDB map (its own container overhead) holding a `personId` string plus a
+  `status` value that, as an enum *name* (e.g. `"NotResponded"`, 12 bytes), costs roughly 6x the
+  reserved 2 bytes — eating back into the margin that work was specifically built to create. The
+  parallel-list desync risk the earlier draft worried about (insert/removal drift between two
+  independently-maintained lists) doesn't actually apply to this table: per the very next bullet,
+  **every write already rewrites the whole day item atomically** under one optimistic lock — there is
+  no partial, per-index update anywhere in this model for the two lists to drift apart *between*.
+  `attendeeIds`/`attendeeStatuses` are written together, same length, same order, in the same
+  transaction, every time — matching how `attendeeIds` itself already has to stay in step with
+  `startTime`/`endTime`/`subject` inside the same list entry today.
+- **`MeetingRecord.attendeeIds: List<String>` gains a sibling `attendeeStatuses: List<AttendeeStatus>`**,
+  same length and order, rather than changing `attendeeIds`'s own element type. The GraphQL-facing
+  shape still reads naturally as one list of `{person, status}` pairs (see "Impacts on components")
+  — this is purely a storage-layer decision; nothing about the API shape changes from the original
+  draft.
 - **A response is set via a dedicated, narrow mutation** —
   `respondToMeeting(meetingId: ID!, status: AttendeeStatus!): RespondToMeetingResult!` — rather than
   inventing a general `updateMeeting`. No such mutation exists today, and building one just to carry
@@ -80,21 +112,37 @@ Deliberately deferred, not rejected — see "Open questions":
 - **Self-only via `updateMyPreferences`'s no-id-argument pattern**, not `updatePerson`'s
   self-or-admin `cognitoSubs`-comparison pattern. Simpler, and there's no stated need for an admin
   override here — flag if one is actually wanted.
+- **Naming, per Geoff's own explicit invitation to propose it**: enum `AttendeeStatus { GOING,
+  NOT_GOING, MAYBE, NO_RESPONSE }`, single-byte storage codes `G`/`N`/`M`/`U`, user-facing labels
+  **"Going" / "Not going" / "Maybe" / "No response"**. Plain, everyday words over calendar-invite
+  jargon ("Accepted"/"Declined"/"Tentative"/"Needs action") to match this app's existing casual copy
+  register throughout ("Free now", "No meetings", "Busy until…") rather than introducing a more
+  formal vocabulary found nowhere else in the app. "No response" over the ask's own literal "not yet
+  responded" as the *displayed* label — shorter, fits a small badge/chip without wrapping, and reads
+  as a state rather than an accusation. The icon prototype (see below) shows this labelling in
+  context; flag to override any of it.
 
 ## Open questions
 
 Blocking:
 
 - **Does the organiser get an implicit default status?** E.g. Going, since they scheduled the
-  meeting — or do they also start at "not yet responded" like every other attendee? This affects
-  both the API's default-on-create behaviour and demo-data's generation logic.
-- **Confirm the four values' exact names/labels.** This doc proposes an `AttendeeStatus` enum
-  `Going | NotGoing | Maybe | NotResponded`, with user-facing labels to match — confirm wording
-  before Ready, especially whether "Not yet responded" (the ask's own phrasing) should be the
-  displayed label rather than a terser "No response".
-- **Confirm the colour/icon mapping** (this doc's default: Going → success/check, Not going →
-  error/cross, Maybe → warning/question, Not responded → neutral/dash) — see "Choices you had me
-  make" above.
+  meeting — or do they also start at "no response" like every other attendee? This affects both the
+  API's default-on-create behaviour and demo-data's generation logic. This doc's recommendation:
+  organiser is implicitly Going and shows no status control of their own (scheduling a meeting *is*
+  confirming attendance) — every other invited attendee starts at "no response." Flag to override.
+- **Order for the Home page's "Needs your response" cards** (see "Scope" and the prototype) — this
+  doc recommends soonest-meeting-first (the most actionable ordering: respond to what's coming up
+  soonest), not e.g. most-recently-invited. Flag to override.
+- **Pick a candidate from the icon prototype** (linked below) — this doc's own default is Option A
+  (filled circle + symbol), reasoning in the prototype itself.
+
+Resolved by this revision (see "Choices you had me make" and the prototype for the reasoning; still
+flag to override):
+
+- Enum names and displayed labels — `Going` / `Not going` / `Maybe` / `No response`.
+- Colour mapping — MUI's existing semantic palette (`success`/`error`/`warning`/neutral), not a new
+  scheme.
 
 Non-blocking:
 
@@ -106,33 +154,48 @@ Non-blocking:
 ## Impacts on components
 
 - **mootmaker-api**: `api/mootmaker.graphql` — new `AttendeeStatus` enum; `Meeting.attendees` changes
-  from `[Person!]!` to a new `Attendee` type wrapping `{ person: Person!, status: AttendeeStatus! }`;
-  new `respondToMeeting` mutation, `RespondToMeetingResult`, and its error enum (meeting not found,
-  caller not an attendee of that meeting, etc. — mirrors the existing `MeetingError`/`PersonError`
-  pattern of one enum per entity). `MeetingRecord`/`Meeting` Java records and their
-  `toAttributeValue`/`fromAttributeValue`/`toResponseMap` methods. `CreateMeetingHandler` (assign
-  initial status per new attendee). New `RespondToMeetingHandler`. `deleteMyAccount`'s existing
-  "removes them from every upcoming meeting they only attend" logic needs re-verifying against the
-  new record shape (their whole `AttendeeRecord` drops out, status included — should need no logic
-  change, but the shape it operates on changes).
+  from `[Person!]!` to a new `Attendee` type wrapping `{ person: Person!, status: AttendeeStatus! }`
+  (GraphQL-facing shape unchanged from the original draft — only the DynamoDB storage shape
+  underneath it moved to a parallel list, see "Trade-offs and decisions"); new `respondToMeeting`
+  mutation, `RespondToMeetingResult`, and its error enum (meeting not found, caller not an attendee
+  of that meeting, etc. — mirrors the existing `MeetingError`/`PersonError` pattern of one enum per
+  entity). `MeetingRecord` gains `attendeeStatuses: List<AttendeeStatus>` alongside `attendeeIds`;
+  its `toAttributeValue`/`fromAttributeValue` read/write both lists together; the resolver layer
+  zips them by index into `Attendee` objects for the GraphQL response. `CreateMeetingHandler` (assign
+  each new attendee's initial status — see "Open questions"). New `RespondToMeetingHandler` — finds
+  the caller's index in `attendeeIds`, writes the same index in `attendeeStatuses`, inside the same
+  whole-day conditional rewrite every other write already uses. `deleteMyAccount`'s existing "removes
+  them from every upcoming meeting they only attend" logic needs re-verifying against the new shape:
+  removing a person now means removing the same index from *both* lists together, not just one.
+- **mootmaker-android**: not yet implemented (checked 2026-09-21 - the repo is still a placeholder,
+  no source code). Nothing to change today; noted so this feature isn't forgotten once that app's
+  own work starts, and so its own design doc (whenever written) accounts for status from day one
+  rather than bolting it on afterward.
 - **mootmaker-demo-data**: `DemoData.java`'s meeting-generation attendee assignment — assign a
   realistic status mix instead of leaving every attendee unset; its own inline GraphQL query string
   (currently `attendees { id }`) needs the same shape update as the webapp.
 - **mootmaker-webapp**: `webapp/src/graphql/types.ts` hand-maintained mirror + `npm run codegen`;
-  `PersonCalendarPage.tsx`'s `MeetingDetail` attendee rows; `MeetingDetailsPage.tsx`'s `PersonRow`; a
-  new small status icon+colour component (mirrors the existing `PersonAvatar`/`roomColorAt` pattern
-  of one small reusable visual unit per concept); a compact status-setting control (a select/menu,
-  not a whole form) shown only on the signed-in user's own attendee row in both of those two
-  surfaces.
+  `MeetingDetailContent.tsx`'s attendee rows (the one shared component behind both the sheet/panel
+  and the full page, per the 2026-09-20 consolidation - superseding this doc's original references
+  to `PersonCalendarPage.tsx`'s own `MeetingDetail` and a separate `MeetingDetailsPage.tsx`'s
+  `PersonRow`); a new small status icon+colour component (mirrors the existing
+  `PersonAvatar`/`roomColorAt` pattern of one small reusable visual unit per concept); a compact
+  status-setting control (a select/menu, not a whole form) shown only on the signed-in user's own
+  attendee row. `HomePage.tsx`: a new "Needs your response" section/component, and the existing
+  `AgendaList` component's List/`ListItemButton` rows becoming Paper cards with a show-more
+  expander — see the prototype for the concrete shapes.
 
 ## Changes to the domain data model and data storage models
 
-Delta against `docs/reference/data-model.md`'s Meetings table section:
-`MeetingRecord.attendeeIds: List<String>` → `MeetingRecord.attendees: List<AttendeeRecord>`,
-`AttendeeRecord(String personId, AttendeeStatus status)`, stored as a DynamoDB list of maps (each
-`{ "personId": {"S": ...}, "status": {"S": ...} }`) instead of a list of plain strings.
-`data-model.md` needs this section rewritten once implemented, per this project's "if your change
-makes a document wrong, fixing it is part of the change" rule.
+Delta against `docs/reference/data-model.md`'s Meetings table section: `MeetingRecord` gains
+`attendeeStatuses: List<AttendeeStatus>`, a new sibling list to the existing `attendeeIds: List<String>`
+— same length, same order, index `i` of one corresponds to index `i` of the other. Stored as a
+DynamoDB list of single-character/short codes (e.g. `"G"`/`"N"`/`"M"`/`"U"` — see "Open questions" on
+final naming), matching the byte budget `designs/archive/dynamodb-storage-compaction.md` already
+reserved for this exact field. `data-model.md` needs this section rewritten once implemented, per
+this project's "if your change makes a document wrong, fixing it is part of the change" rule —
+including correcting its own current note (added during that design's implementation) that
+`attendeeStatuses` is "reserved, not built here."
 
 ## Technical considerations
 
@@ -179,6 +242,11 @@ makes a document wrong, fixing it is part of the change" rule.
 - `docs/reference/data-model.md` (Meetings table section).
 - `mootmaker-api/README.md` and `mootmaker-webapp/README.md`/`testing-strategy.md`, wherever they
   describe the meeting/attendee shape.
+- `docs/reference/use-cases.md`: new use cases for setting/changing a response (likely a new
+  sub-case under section H, Meeting Detail, currently H.68-73) and for the Home page's "Needs your
+  response" section and card-based agenda (extending section D, currently D.21-25). Next free use-
+  case id across the whole document is **107** (checked 2026-09-21 - the highest id in use today is
+  N.106).
 
 ## Rollout & migration
 
