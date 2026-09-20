@@ -81,7 +81,7 @@ Primary key: `id` (S), no sort key. Primary source of truth.
 
 | Attribute | Type | Purpose |
 |---|---|---|
-| `id` | S | Primary key. An 8-character opaque token (`com.mootmaker.dynamo.IdAllocator`, base62 alphabet), not a UUID — see [designs/dynamodb-storage-compaction.md](../../designs/dynamodb-storage-compaction.md). Collision-safe via a conditional `PutItem` (`attribute_not_exists(id)`) with a small bounded retry in `RoomRepository#create`; negligible risk given ids are drawn from a ~2.18x10^14-value space. |
+| `id` | S | Primary key. An 8-character opaque token (`com.mootmaker.dynamo.IdAllocator`, base62 alphabet), not a UUID — see [designs/archive/dynamodb-storage-compaction.md](../../designs/archive/dynamodb-storage-compaction.md). Collision-safe via a conditional `PutItem` (`attribute_not_exists(id)`) with a small bounded retry in `RoomRepository#create`; negligible risk given ids are drawn from a ~2.18x10^14-value space. |
 | `name` | S | Room name. |
 | `capacity` | N | Room capacity. |
 
@@ -130,7 +130,7 @@ resolved from their own tables at read time).
 |---|---|---|
 | `pk` | S | `DAY#` + the ISO date. |
 | `version` | N | Optimistic lock. Adding one meeting rewrites the whole item, so concurrent writers must not clobber each other. A day never written has version 0 and no item, so the conditional write for a first write is "must not exist" rather than "version must equal 0" — two racing first-writes would both pass an equality check against zero. |
-| `meetings` | List | Each with `id`, `roomId`, `organiserId`, `attendeeIds`, `subject`, `startTime`, `endTime`. `id`/`roomId`/`organiserId`/each `attendeeIds` element are the same 8-character opaque token as Rooms/People `id` (see above) — DynamoDB type stays `S`, only the value got shorter, so nothing outside `com.mootmaker.model`/`com.mootmaker.dynamo` changed. `startTime`/`endTime` are stored as `N` (epoch-minutes-since-UTC — `MeetingRecord#toEpochMinutes`/`#fromEpochMinutes`), not a string; every reader outside `MeetingRecord` still sees the canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss` with no zone offset — see [date-time-format-settings.md](../../designs/archive/date-time-format-settings.md) for why the webapp treats that string as naive local time, never UTC, and [dynamodb-storage-compaction.md](../../designs/dynamodb-storage-compaction.md) for why the *stored* shape changed while that contract didn't. |
+| `meetings` | List | Each with `id`, `roomId`, `organiserId`, `attendeeIds`, `subject`, `startTime`, `endTime`. `id`/`roomId`/`organiserId`/each `attendeeIds` element are the same 8-character opaque token as Rooms/People `id` (see above) — DynamoDB type stays `S`, only the value got shorter, so nothing outside `com.mootmaker.model`/`com.mootmaker.dynamo` changed. `startTime`/`endTime` are stored as `N` (epoch-minutes-since-UTC — `MeetingRecord#toEpochMinutes`/`#fromEpochMinutes`), not a string; every reader outside `MeetingRecord` still sees the canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss` with no zone offset — see [date-time-format-settings.md](../../designs/archive/date-time-format-settings.md) for why the webapp treats that string as naive local time, never UTC, and [dynamodb-storage-compaction.md](../../designs/archive/dynamodb-storage-compaction.md) for why the *stored* shape changed while that contract didn't. |
 
 **Pointer item** — `pk` is `PTR#` + the meeting id; its payload is the date. It exists solely so
 `Query.meeting(id:)` can resolve without an index: read the pointer, then read that day. Pointers

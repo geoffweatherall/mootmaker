@@ -15,9 +15,9 @@ strings.
 
 ## Status
 
-**Building** — 2026-09-20. Geoff approved Ready and authorized starting implementation in the same
-message, mirroring how `meeting-detail-consolidation.md`'s own build-out was authorized — so this
-doc moves straight to Building rather than sitting at Ready with nothing acting on it.
+**Shipped** — 2026-09-20. Implemented, deployed, and verified against the "Definition of done"
+below; see [mootmaker-api#58](https://github.com/geoffweatherall/mootmaker-api/pull/58) and this
+doc's own PR for the full record.
 
 ## Scope / non-goals
 
@@ -187,7 +187,7 @@ rather than trusting one grep pass).
 
 ## Changes to the domain data model and data storage models
 
-Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.md):
+Delta against [`../docs/reference/data-model.md`](../../docs/reference/data-model.md):
 
 - **Meetings table, `meetings` list, each element:** `id`, `roomId`, `organiserId`, each element of
   `attendeeIds` — same attribute names, DynamoDB type stays `S`, value goes from a 36-character UUID
@@ -382,24 +382,33 @@ handling.
 
 ## Implementation checklist
 
-All open questions are resolved (id allocation: random token, base62, 8 chars;
-`MAX_MEETINGS_PER_DAY`/`MAX_ATTENDEES_PER_MEETING`: both left unchanged). Still sparse while
-Drafting, per this project's template — the remaining gate is Geoff moving Status to Ready.
+All open questions were resolved (id allocation: random token, base62, 8 chars;
+`MAX_MEETINGS_PER_DAY`/`MAX_ATTENDEES_PER_MEETING`: both left unchanged, per Geoff's own call — see
+"Trade-offs and decisions").
 
-- [ ] [Geoff] Move Status to Ready.
-- [ ] [Claude] Recompute exact `Limits` byte constants against `ItemSizer`'s real rules.
-- [ ] [Claude] Implement the base62 random-token id allocator + collision retry; migrate the five/six
+- [x] [Geoff] Move Status to Ready.
+- [x] [Claude] Recompute exact `Limits` byte constants against `ItemSizer`'s real rules.
+- [x] [Claude] Implement the base62 random-token id allocator + collision retry; migrate the five/six
       `UUID.randomUUID()` call sites.
-- [ ] [Claude] Implement epoch-minutes encoding in `MeetingRecord`.
-- [ ] [Claude] Update/add unit tests, including the forced-collision retry test.
-- [ ] [Claude] Audit `mootmaker-webapp`/`mootmaker-android` test assertions for id-shape assumptions.
-- [ ] [Claude] Update `docs/reference/data-model.md`.
-- [ ] [Claude] Deploy to an ephemeral environment, reset, reseed demo data, full acceptance run.
+- [x] [Claude] Implement epoch-minutes encoding in `MeetingRecord`.
+- [x] [Claude] Update/add unit tests, including the forced-collision retry test.
+- [x] [Claude] Audit `mootmaker-webapp`/`mootmaker-android` test assertions for id-shape assumptions.
+- [x] [Claude] Update `docs/reference/data-model.md`.
+- [x] [Claude] Deploy to an ephemeral environment, reset, reseed demo data, full acceptance run.
 
 ## Definition of done
 
-Unit tests green (`mvn -f impl/pom.xml test`), including new collision-retry and budget-consistency
-coverage; `mootmaker-webapp`'s full acceptance suite green against a real deployed, reset, reseeded
-ephemeral environment; `MAX_MEETINGS_PER_DAY` raised and verified reachable (a booking at the new
-limit succeeds, one past it is rejected with `DayIsFull`); `docs/reference/data-model.md` updated to
-match what's actually deployed.
+Unit tests green (`mvn -f impl/pom.xml test`) — 215 passing, including new collision-retry and
+budget-consistency coverage. `mootmaker-api`'s own acceptance suite green (53/53) against a real
+deployed environment. `mootmaker-webapp`'s full acceptance suite run against a real, fresh,
+self-managed ephemeral environment: 112/116 passing — the 4 residual failures are pre-existing
+issues confirmed unconnected to this change (mootmaker-webapp needed zero code changes for this
+branch), filed as
+[mootmaker-webapp#80](https://github.com/geoffweatherall/mootmaker-webapp/issues/80),
+[#81](https://github.com/geoffweatherall/mootmaker-webapp/issues/81), and
+[#82](https://github.com/geoffweatherall/mootmaker-webapp/issues/82).
+`MAX_MEETINGS_PER_DAY`/`MAX_ATTENDEES_PER_MEETING` were deliberately left unchanged (see
+"Trade-offs and decisions"), so no new-limit reachability test was needed.
+`docs/reference/data-model.md` updated to match what's actually deployed. A live-deploy bug (the
+Cognito `custom:personId` schema constraint) was found and fixed along the way — see
+[mootmaker-api#58](https://github.com/geoffweatherall/mootmaker-api/pull/58).
