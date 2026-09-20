@@ -81,7 +81,7 @@ Primary key: `id` (S), no sort key. Primary source of truth.
 
 | Attribute | Type | Purpose |
 |---|---|---|
-| `id` | S | Primary key. |
+| `id` | S | Primary key. An 8-character opaque token (`com.mootmaker.dynamo.IdAllocator`, base62 alphabet), not a UUID — see [designs/archive/dynamodb-storage-compaction.md](../../designs/archive/dynamodb-storage-compaction.md). Collision-safe via a conditional `PutItem` (`attribute_not_exists(id)`) with a small bounded retry in `RoomRepository#create`; negligible risk given ids are drawn from a ~2.18x10^14-value space. |
 | `name` | S | Room name. |
 | `capacity` | N | Room capacity. |
 
@@ -93,7 +93,7 @@ Primary key: `id` (S), no sort key. Primary source of truth.
 
 | Attribute | Type | Purpose |
 |---|---|---|
-| `id` | S | Primary key. |
+| `id` | S | Primary key. Same 8-character opaque token scheme as Rooms' `id` above. Two write paths: `PersonRepository#createWithNewId` allocates a fresh id with the same collision-retry as Rooms, for guest Persons with no Cognito account; `PersonRepository#create` writes an id that is already fixed (already written to a Cognito `custom:personId` claim, or already the id a repair is recreating), failing loudly rather than retrying with a different one on collision, so it can never silently strand a claim. |
 | `name` | S | Display name — the real source of truth (Cognito's `name` attribute is a one-way synced copy). |
 | `cognitoSubs` | List\<S\> | Every Cognito account linked to this person — **empty** for guest Persons created directly by an admin (no Cognito account at all); never exposed over GraphQL. |
 | `dateFormat`, `timeFormat` | S, optional | The caller's own display preferences, set by `updateMyPreferences`. Presentational only. |
@@ -130,11 +130,14 @@ resolved from their own tables at read time).
 |---|---|---|
 | `pk` | S | `DAY#` + the ISO date. |
 | `version` | N | Optimistic lock. Adding one meeting rewrites the whole item, so concurrent writers must not clobber each other. A day never written has version 0 and no item, so the conditional write for a first write is "must not exist" rather than "version must equal 0" — two racing first-writes would both pass an equality check against zero. |
-| `meetings` | List | Each with `id`, `roomId`, `organiserId`, `attendeeIds`, `subject`, `startTime`, `endTime`. Times are canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss` with no zone offset — see [date-time-format-settings.md](../../designs/archive/date-time-format-settings.md) for why the webapp treats these as naive local time, never UTC. |
+| `meetings` | List | Each with `id`, `roomId`, `organiserId`, `attendeeIds`, `subject`, `startTime`, `endTime`. `id`/`roomId`/`organiserId`/each `attendeeIds` element are the same 8-character opaque token as Rooms/People `id` (see above) — DynamoDB type stays `S`, only the value got shorter, so nothing outside `com.mootmaker.model`/`com.mootmaker.dynamo` changed. `startTime`/`endTime` are stored as `N` (epoch-minutes-since-UTC — `MeetingRecord#toEpochMinutes`/`#fromEpochMinutes`), not a string; every reader outside `MeetingRecord` still sees the canonical fixed-width `yyyy-MM-dd'T'HH:mm:ss` with no zone offset — see [date-time-format-settings.md](../../designs/archive/date-time-format-settings.md) for why the webapp treats that string as naive local time, never UTC, and [dynamodb-storage-compaction.md](../../designs/archive/dynamodb-storage-compaction.md) for why the *stored* shape changed while that contract didn't. |
 
 **Pointer item** — `pk` is `PTR#` + the meeting id; its payload is the date. It exists solely so
 `Query.meeting(id:)` can resolve without an index: read the pointer, then read that day. Pointers
-are written in the same `TransactWriteItems` as the day they describe, and deleted with it.
+are written in the same `TransactWriteItems` as the day they describe, and deleted with it, and its
+`Put` is conditional on `attribute_not_exists(pk)` — besides its ordinary job, that condition is
+also what gives a freshly drawn meeting id collision safety, since `DayRepository.mutate`'s existing
+version-conflict retry loop re-runs the whole write (drawing a fresh id again) on either failure.
 
 **No GSIs.** There were two — `bucket-startTime-index` (hash on a constant `"ALL"`, range
 `startTime`) and `roomId-startTime-index` — plus a `bucket` attribute that existed purely to give
