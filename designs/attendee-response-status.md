@@ -18,7 +18,7 @@ Meeting Detail attendee list with the response control (interactive: try changin
 
 **Drafting** — 2026-09-20, revised 2026-09-21 (Home page scope added, storage shape reconciled with
 the now-shipped [`dynamodb-storage-compaction.md`](archive/dynamodb-storage-compaction.md),
-naming/colour open questions resolved, UI prototype added - see below).
+naming/colour/icon open questions resolved, UI prototype added - see below).
 
 ## Scope / non-goals
 
@@ -134,8 +134,6 @@ Blocking:
 - **Order for the Home page's "Needs your response" cards** (see "Scope" and the prototype) — this
   doc recommends soonest-meeting-first (the most actionable ordering: respond to what's coming up
   soonest), not e.g. most-recently-invited. Flag to override.
-- **Pick a candidate from the icon prototype** (linked below) — this doc's own default is Option A
-  (filled circle + symbol), reasoning in the prototype itself.
 
 Resolved by this revision (see "Choices you had me make" and the prototype for the reasoning; still
 flag to override):
@@ -143,6 +141,10 @@ flag to override):
 - Enum names and displayed labels — `Going` / `Not going` / `Maybe` / `No response`.
 - Colour mapping — MUI's existing semantic palette (`success`/`error`/`warning`/neutral), not a new
   scheme.
+- **Icon treatment — Option A (filled circle + glyph)**, confirmed by Geoff. Solid colour fill with a
+  white glyph (check / cross / "?" / low-opacity dot for no-response); the status reads from both
+  colour and shape, not colour alone. Applies wherever the status badge appears (attendee list,
+  Home cards). See the prototype's "Why Option A" panel for the colourblind/greyscale reasoning.
 
 Non-blocking:
 
