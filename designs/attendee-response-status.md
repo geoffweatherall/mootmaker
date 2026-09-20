@@ -17,8 +17,10 @@ Meeting Detail attendee list with the response control (interactive: try changin
 ## Status
 
 **Drafting** — 2026-09-20, revised 2026-09-21 (Home page scope added, storage shape reconciled with
-the now-shipped [`dynamodb-storage-compaction.md`](archive/dynamodb-storage-compaction.md),
-naming/colour/icon open questions resolved, UI prototype added - see below).
+the now-shipped [`dynamodb-storage-compaction.md`](archive/dynamodb-storage-compaction.md), UI
+prototype added, and all blocking open questions resolved: naming/colour/icon, card ordering, and
+organiser default status - see below). No blocking open questions remain; awaiting Geoff's move to
+Ready.
 
 ## Scope / non-goals
 
@@ -36,9 +38,9 @@ In scope:
 - **Home page redesign** (added to scope 2026-09-21, per Geoff's own follow-up ask — supersedes the
   original draft's "Room Availability and the Home page... no change needed there" line):
   - A new **"Needs your response"** section: one card per upcoming meeting where the signed-in
-    person is an attendee (not organiser — see "Open questions") with status still "No response,"
-    ordered soonest-first, with a quick-respond action directly on the card (no need to open the
-    full detail sheet for the common case).
+    person is an attendee (not organiser, who defaults to Going — see "Open questions") with status
+    still "No response," ordered soonest-first, with a quick-respond action directly on the card (no
+    need to open the full detail sheet for the common case).
   - The existing Today/Tomorrow agenda lists become **cards** instead of plain list rows, each
     showing the viewer's own response status; a **"Show more" expander** once a day has more than a
     small fixed number of meetings, rather than an ever-growing unbounded list.
@@ -124,27 +126,23 @@ Deliberately deferred, not rejected — see "Open questions":
 
 ## Open questions
 
-Blocking:
+Blocking: none remaining — see "Definition of done."
 
-- **Does the organiser get an implicit default status?** E.g. Going, since they scheduled the
-  meeting — or do they also start at "no response" like every other attendee? This affects both the
-  API's default-on-create behaviour and demo-data's generation logic. This doc's recommendation:
-  organiser is implicitly Going and shows no status control of their own (scheduling a meeting *is*
-  confirming attendance) — every other invited attendee starts at "no response." Flag to override.
-- **Order for the Home page's "Needs your response" cards** (see "Scope" and the prototype) — this
-  doc recommends soonest-meeting-first (the most actionable ordering: respond to what's coming up
-  soonest), not e.g. most-recently-invited. Flag to override.
-
-Resolved by this revision (see "Choices you had me make" and the prototype for the reasoning; still
-flag to override):
+Resolved (confirmed by Geoff; still flag to override):
 
 - Enum names and displayed labels — `Going` / `Not going` / `Maybe` / `No response`.
 - Colour mapping — MUI's existing semantic palette (`success`/`error`/`warning`/neutral), not a new
   scheme.
-- **Icon treatment — Option A (filled circle + glyph)**, confirmed by Geoff. Solid colour fill with a
-  white glyph (check / cross / "?" / low-opacity dot for no-response); the status reads from both
-  colour and shape, not colour alone. Applies wherever the status badge appears (attendee list,
-  Home cards). See the prototype's "Why Option A" panel for the colourblind/greyscale reasoning.
+- **Icon treatment — Option A (filled circle + glyph)**. Solid colour fill with a white glyph (check
+  / cross / "?" / low-opacity dot for no-response); the status reads from both colour and shape, not
+  colour alone. Applies wherever the status badge appears (attendee list, Home cards). See the
+  prototype's "Why Option A" panel for the colourblind/greyscale reasoning.
+- **Order for the Home page's "Needs your response" cards** — soonest-meeting-first (the most
+  actionable ordering: respond to what's coming up soonest), not e.g. most-recently-invited.
+- **Organiser gets an implicit default status of Going**, and shows no status control of their own
+  (scheduling a meeting *is* confirming attendance) — every other invited attendee starts at
+  "no response." Affects both the API's default-on-create behaviour and demo-data's generation
+  logic.
 
 Non-blocking:
 
@@ -163,8 +161,9 @@ Non-blocking:
   of that meeting, etc. — mirrors the existing `MeetingError`/`PersonError` pattern of one enum per
   entity). `MeetingRecord` gains `attendeeStatuses: List<AttendeeStatus>` alongside `attendeeIds`;
   its `toAttributeValue`/`fromAttributeValue` read/write both lists together; the resolver layer
-  zips them by index into `Attendee` objects for the GraphQL response. `CreateMeetingHandler` (assign
-  each new attendee's initial status — see "Open questions"). New `RespondToMeetingHandler` — finds
+  zips them by index into `Attendee` objects for the GraphQL response. `CreateMeetingHandler` sets
+  the organiser's status to `Going` and every other new attendee's to `NoResponse` (see "Open
+  questions"). New `RespondToMeetingHandler` — finds
   the caller's index in `attendeeIds`, writes the same index in `attendeeStatuses`, inside the same
   whole-day conditional rewrite every other write already uses. `deleteMyAccount`'s existing "removes
   them from every upcoming meeting they only attend" logic needs re-verifying against the new shape:
@@ -258,8 +257,7 @@ Two paths:
 
 1. A `database-repair`-style backfill Lambda (this project's existing `*Repair` pattern) that
    rewrites every existing day item to the new shape, defaulting every existing attendee to
-   `NotResponded` (organiser to whatever the resolved default from "Open questions" is), before the
-   new schema ships.
+   `NotResponded` (organiser to `Going`, per "Open questions"), before the new schema ships.
 2. Make the read path tolerant of a missing `status` (treat absent as `NotResponded`) so old data
    keeps working with no migration step, and let it self-heal as meetings naturally age out of the
    retention window.
@@ -280,5 +278,5 @@ this narrow — but it is not yet confirmed.
 
 ## Definition of done
 
-N/A at Drafting — to be filled in once the blocking open questions above are resolved and this
-moves to Ready.
+N/A at Drafting — no blocking open questions remain (see "Open questions"); to be filled in once
+this moves to Ready.
