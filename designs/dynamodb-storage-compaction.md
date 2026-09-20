@@ -167,9 +167,21 @@ rather than trusting one grep pass).
   response-size model too, marginally); raise `MAX_MEETINGS_PER_DAY`; add the reserved
   attendee-status bytes to the model even though the field isn't built yet, so a future PR that
   actually adds the field doesn't silently blow a budget nobody remembered to check.
-- `deploy/terraform/` — **no schema change** under the recommended (string-token) approach: `id`
-  stays attribute type `S` on the Rooms/People tables, so no table replacement. (Only the rejected
-  `N`-type alternative would need this.)
+- `deploy/terraform/dynamodb.tf` — **no schema change** under the recommended (string-token)
+  approach: `id` stays attribute type `S` on the Rooms/People tables, so no table replacement.
+  (Only the rejected `N`-type alternative would need this.)
+- `deploy/terraform/cognito.tf` — **does** need a change, found only during implementation, not by
+  the design-time audit below (which checked webapp/android *code*, not Terraform/Cognito schema).
+  The `custom:personId` custom attribute's `string_attribute_constraints` was hard-set to
+  `min_length = max_length = 36`, sized for the UUID it used to hold. An 8-character id fails that
+  constraint, and `AdminUpdateUserAttributes` fails silently inside
+  `PostConfirmationCreatePersonHandler`'s already-swallowed try/catch - every new sign-up got no
+  linked Person at all, which cascaded into 16 unrelated-looking acceptance failures (organiser
+  pre-fill, calendars, settings, renames) before being traced to this one cause. Fixed to
+  `min_length = max_length = 8`. Cognito custom-attribute constraints are immutable on an existing
+  pool, so this forces a pool replacement - accepted the same way the id scheme itself was, since
+  this project drops the whole DB (Cognito pool included) on every `test`/`production` release
+  anyway.
 - `docs/reference/data-model.md` — update the Meetings/Rooms/People sections once shipped, per this
   doc's own process.
 
