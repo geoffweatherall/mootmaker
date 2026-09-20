@@ -18,9 +18,11 @@ Meeting Detail attendee list with the response control (interactive: try changin
 
 **Drafting** — 2026-09-20, revised 2026-09-21 (Home page scope added, storage shape reconciled with
 the now-shipped [`dynamodb-storage-compaction.md`](archive/dynamodb-storage-compaction.md), UI
-prototype added, and all blocking open questions resolved: naming/colour/icon, card ordering, and
-organiser default status - see below). No blocking open questions remain; awaiting Geoff's move to
-Ready.
+prototype added, all blocking open questions resolved: naming/colour/icon, card ordering, and
+organiser default status; rollout resolved to a drop-and-reseed via `database_reset` rather than a
+migration; demo-data mix set to 60/40; and concurrency testing raised to a must-have with real
+acceptance-layer coverage for two specific race shapes - see below). No blocking open questions
+remain; awaiting Geoff's move to Ready.
 
 ## Scope / non-goals
 
@@ -144,12 +146,12 @@ Resolved (confirmed by Geoff; still flag to override):
   "no response." Affects both the API's default-on-create behaviour and demo-data's generation
   logic.
 
-Non-blocking:
+Non-blocking, now also confirmed by Geoff:
 
-- Whether a response change should re-publish `daysInvalidated` for that date (see Technical
-  considerations) — likely yes, listed here rather than assumed.
-- Migration strategy for existing `test`/`production` data — see "Rollout & migration"; this doc
-  recommends read-path tolerance over a backfill Lambda, not yet confirmed.
+- **Response changes re-publish `daysInvalidated`** for that date, same as `createMeeting` already
+  does (see "Technical considerations").
+- **Migration for existing `test`/`production` data: drop and reseed both databases as part of this
+  release** (see "Rollout & migration") — not a backfill or a read-tolerant path.
 
 ## Impacts on components
 
@@ -172,9 +174,12 @@ Non-blocking:
   no source code). Nothing to change today; noted so this feature isn't forgotten once that app's
   own work starts, and so its own design doc (whenever written) accounts for status from day one
   rather than bolting it on afterward.
-- **mootmaker-demo-data**: `DemoData.java`'s meeting-generation attendee assignment — assign a
-  realistic status mix instead of leaving every attendee unset; its own inline GraphQL query string
-  (currently `attendees { id }`) needs the same shape update as the webapp.
+- **mootmaker-demo-data**: `DemoData.java`'s meeting-generation attendee assignment — per Geoff's
+  explicit mix, roughly **60% `Going`**, remaining **~40% split randomly across `Not going`/`Maybe`/
+  `No response`** (i.e. each of those three roughly ~13.3%, not a fixed round-robin) for every
+  non-organiser attendee — organiser is always `Going` per the resolved default above, not part of
+  this random mix. Its own inline GraphQL query string (currently `attendees { id }`) needs the same
+  shape update as the webapp.
 - **mootmaker-webapp**: `webapp/src/graphql/types.ts` hand-maintained mirror + `npm run codegen`;
   `MeetingDetailContent.tsx`'s attendee rows (the one shared component behind both the sheet/panel
   and the full page, per the 2026-09-20 consolidation - superseding this doc's original references
@@ -213,9 +218,24 @@ including correcting its own current note (added during that design's implementa
   `cognitoSubs`-comparison pattern — confirm this is still the right precedent when implementation
   starts, since `updateMyPreferences` is the closer analogue (self-only, no admin override) but
   `UpdatePersonHandler`'s comparison logic is worth a second look regardless.
-- **`publishDaysInvalidated`** should likely be called after a successful response change too, same
-  as `createMeeting` already does, so another open tab watching that date sees the updated status
-  live rather than only on its next fetch.
+- **`publishDaysInvalidated` is called after every successful response change**, confirmed by Geoff,
+  same as `createMeeting` already does — so another open tab watching that date sees the updated
+  status live via `useDaysInvalidated`'s cache-eviction + `refetchQueries` path, not only on its next
+  fetch.
+- **Concurrency: `respondToMeeting` writes hit the same single-day-item optimistic lock every other
+  write to that date already contends on** — and this design multiplies the ways two writes to the
+  *same* day item can race, beyond what `createMeeting` alone sees today. Two cases, both must retry
+  on a `version` conflict and both must be covered by real concurrent tests (see "Testing impacts"),
+  not just reasoned about:
+  1. **Same meeting, different people** — two attendees of the same meeting call `respondToMeeting`
+     at the same time. Different index writes into the same `attendeeStatuses` list, but still one
+     whole-day rewrite each — the second writer must retry against the first's new `version`, not
+     silently overwrite or drop the first response.
+  2. **Same person, different meetings, same day** — a person rapidly responds to several meetings
+     that happen to fall on the same calendar day. Because storage is one item per *day* (not per
+     meeting), these are **not independent writes** the way they'd naively look from the API surface
+     — every one of them contends on the exact same day item's lock, so this case is the *more*
+     likely one to actually produce conflicts in practice, not a theoretical edge case.
 - Rough storage delta: see "Trade-offs and decisions" — worth one quantified line in `data-model.md`
   once implemented, not a blocking concern here.
 
@@ -230,13 +250,41 @@ including correcting its own current note (added during that design's implementa
   and exact-matched from the start — this session hit repeated locator-fragility bugs (issues #46,
   #50, mootmaker-webapp#71) from exactly this class of mistake, and a new attendee-status UI element
   is a fresh chance to repeat it if not deliberately avoided.
-- **mootmaker-demo-data**: an invariant that a real mix of all four statuses actually appears in
-  generated data, following the pattern of `GeneratedDataInvariantsAcceptanceIT`'s existing
-  `guaranteedMeetingsCreated > 0` assertion — but see mootmaker-demo-data#32 (filed this session)
-  about that specific assertion's own probabilistic-failure shape, and design this new one to avoid
-  the same mistake from the start (e.g. assert against a generated sample large enough that
-  coincidentally-uniform output is negligible, rather than a small deterministic guarantee that can
-  legitimately fail by chance).
+- **mootmaker-demo-data**: an invariant that the generated status mix is roughly the confirmed 60%
+  `Going`/~13.3% each of the other three, following the pattern of
+  `GeneratedDataInvariantsAcceptanceIT`'s existing `guaranteedMeetingsCreated > 0` assertion — but
+  see mootmaker-demo-data#32 (filed this session) about that specific assertion's own
+  probabilistic-failure shape, and design this new one to avoid the same mistake from the start
+  (e.g. assert a generated sample large enough that a deviation from 60/40 outside a wide, explicitly
+  chosen tolerance band is what fails, not any single run's natural variance).
+- **Concurrency — real integration-layer coverage, per Geoff's explicit ask.** These need to run
+  against the real deployed stack (`mootmaker-webapp/acceptance`, this project's real-AWS/real-
+  DynamoDB/real-AppSync layer — mocked-integration and e2e can't exercise an actual DynamoDB
+  `version`-conditional-write conflict), not just unit-level reasoning about the retry logic. At
+  minimum:
+  1. **Multiple people responding to the same meeting concurrently** — fire `respondToMeeting` from
+     several signed-in clients at the same moment for the same meeting's different attendees, and
+     assert every one of their responses is present in the final state (no lost update from the
+     day-item `version` race — see "Technical considerations"). Should deliberately try to land the
+     requests close enough in time to actually trigger a real conditional-write conflict and exercise
+     the retry path, not just each request happening to land sequentially by accident.
+  2. **One user rapidly responding to several meetings on the same day** — same client, back-to-back
+     (or overlapping) `respondToMeeting` calls for different meetings that share a calendar date.
+     Because all of them hit the *same* day item (see "Technical considerations", case 2), this is
+     the scenario most likely to actually produce a real `version` conflict — assert all responses
+     land correctly and none is silently dropped by a losing writer that failed to retry.
+  3. **Apollo cache convergence across clients** — after concurrent writes from (1) and (2), a
+     *different* open client watching that date (via the `daysInvalidated` subscription/
+     `document.visibilitychange` fallback and `refetchQueries({include:'active'})`, per
+     `useDaysInvalidated.ts`) must converge to the true server-side final state for every affected
+     attendee, not to a stale value left behind by whichever mutation's optimistic response or cache
+     write happened to apply last on that client. Also cover the writer's own tab: `openMeeting`'s
+     snapshot state (`useMeetingDetailOverlay.tsx`) must reflect the fresh status after its own
+     mutation, not the stale value it was opened with.
+  4. Case 2 is also the clearest place to prove the `respondToMeeting` conflict-retry path actually
+     retries rather than surfacing a user-visible error on the first `version` clash — this should be
+     asserted directly (e.g. success despite deliberately-overlapping concurrent calls), not inferred
+     from the absence of a failure.
 
 ## Documentation impacts
 
@@ -251,30 +299,33 @@ including correcting its own current note (added during that design's implementa
 
 ## Rollout & migration
 
-Existing meetings in `test`/`production` have `attendeeIds: List<String>` with no status. Since a
-day item is rewritten whole on every write, no existing item will spontaneously gain the new shape.
-Two paths:
-
-1. A `database-repair`-style backfill Lambda (this project's existing `*Repair` pattern) that
-   rewrites every existing day item to the new shape, defaulting every existing attendee to
-   `NotResponded` (organiser to `Going`, per "Open questions"), before the new schema ships.
-2. Make the read path tolerant of a missing `status` (treat absent as `NotResponded`) so old data
-   keeps working with no migration step, and let it self-heal as meetings naturally age out of the
-   retention window.
-
-This doc's default recommendation is (2) — cheaper and lower-risk than a repair Lambda for a change
-this narrow — but it is not yet confirmed.
+**Geoff's decision: no migration — drop and reseed instead.** `mootmaker-api`'s existing
+`database_reset` Lambda (`deploy/terraform/admin-tools.tf`; preserves only Cognito-linked people,
+per this project's standing per-environment reset rule) is invoked by hand against `test` and
+`production` as part of shipping this release, *before* `release.yml`'s own "Seed \<env\> with demo
+data" step runs. Every meeting either database holds after that was created under the new shape
+(`attendeeStatuses` present from the start, generated per the 60/40 mix above), so there is no
+old-shape data for the read path to tolerate and no backfill Lambda to write. This replaces both
+migration paths the original draft considered (backfill Lambda vs. read-path tolerance for a missing
+`status`) — neither is needed. Note this is a **manual step outside `release.yml` itself**
+(`DemoData.java`'s own doc comment is explicit that seeding "never deletes anything" and reset is "a
+separate, deliberate invocation... run by hand before" seeding) — call this out in the release
+runbook/PR so it isn't skipped, since `release.yml`'s automatic reseed alone would just add
+new-shape meetings on top of old-shape ones still missing `attendeeStatuses`.
 
 ## Risks
 
 - **Release coupling** (see Technical considerations): shipping `mootmaker-api` and
   `mootmaker-webapp` out of step breaks the deployed environment until both catch up.
   `release.yml`'s existing all-three-together versioning is the mitigation already in place.
-- **Optimistic-lock conflicts**: a response submitted concurrently with another write to the same
-  day (another meeting created, another response set) can hit the day item's `version` conflict and
-  need a client-side retry — not a new risk this design introduces, but `respondToMeeting` needs the
-  same conflict-handling `createMeeting` already has, and that should be verified rather than
-  assumed to already cover a second mutation.
+- **Optimistic-lock conflicts, raised from theoretical to a must-test risk per Geoff's ask**: a
+  response submitted concurrently with another write to the same day (another meeting created,
+  another response set — including two *different* meetings' responses on the same day, since they
+  now share the same day item too) can hit the day item's `version` conflict and needs a
+  client-side/handler-side retry. `respondToMeeting` must have the same conflict-handling
+  `createMeeting` already has — see "Technical considerations" and "Testing impacts" for the two
+  concurrency shapes this design specifically needs real acceptance-layer tests for, not just
+  reasoning that the existing retry pattern should cover it.
 
 ## Definition of done
 
