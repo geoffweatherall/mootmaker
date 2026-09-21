@@ -54,6 +54,10 @@ condition, framed as transferable skills rather than a war story.
 
 ## The repositories
 
+A [polyrepo](docs/reference/glossary.md#project) — twelve independent repositories rather than one
+monorepo. `mootmaker` is the [hub](docs/reference/glossary.md#project): every other repository below
+is a satellite.
+
 | Repository | What it is |
 |---|---|
 | **mootmaker** (here) | The hub: designs, process, reference docs, and this write-up |
