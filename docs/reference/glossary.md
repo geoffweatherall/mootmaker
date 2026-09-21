@@ -5,14 +5,28 @@ of software terms.
 
 ## Project
 
-**mootmaker** — the whole project: nine repositories, one deployed system. Also the name of the hub
-repository, which confusingly contains no deployed code. "The hub" is clearer when the distinction
-matters.
+**mootmaker** — the whole project: twelve repositories, one deployed system. Also the name of the
+hub repository, which confusingly contains no deployed code. "The hub" is clearer when the
+distinction matters.
 
-**The hub** — the `mootmaker` repository. Designs, process, reference documentation, showcase.
+**Polyrepo** — the shape of the project: many independent repositories rather than one monorepo.
+Each deploys, versions, and runs CI on its own; a change that spans several becomes several PRs (see
+[branching-and-prs.md](../process/branching-and-prs.md)). mootmaker is a polyrepo, not a monorepo —
+worth naming explicitly, since "hub" and "satellite" below describe roles *within* that shape rather
+than the shape itself.
 
-**Satellite repository** — any mootmaker repository other than the hub. Used mostly when talking
-about changes that touch many repos at once.
+**The hub** — the `mootmaker` repository: the role responsible for system-wide documentation
+(designs, process docs, reference docs, the showcase write-up) and the tooling that configures the
+satellites, while holding no deployed code of its own and appearing in no build. Elsewhere this role
+is sometimes called a *meta*, *umbrella*, or *system* repository — none of those is standard enough
+to adopt here, and none quite fits a repo that also configures the repos around it, which is why this
+project uses "hub" instead.
+
+**Satellite repository** — any mootmaker repository other than the hub. Preferred here over the more
+conventional "spoke": hub-and-spoke implies traffic routed *through* the hub, and nothing does — the
+hub appears in no build and sits in no dependency path. Satellites orbit a centre without routing
+through it, which is the actual relationship. Used mostly when talking about changes that touch many
+repos at once.
 
 ## Environments
 
