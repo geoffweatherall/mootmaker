@@ -16,13 +16,11 @@ Meeting Detail attendee list with the response control (interactive: try changin
 
 ## Status
 
-**Drafting** — 2026-09-20, revised 2026-09-21 (Home page scope added, storage shape reconciled with
-the now-shipped [`dynamodb-storage-compaction.md`](archive/dynamodb-storage-compaction.md), UI
-prototype added, all blocking open questions resolved: naming/colour/icon, card ordering, and
-organiser default status; rollout resolved to a drop-and-reseed via `database_reset` rather than a
-migration; demo-data mix set to 60/40; and concurrency testing raised to a must-have with real
-acceptance-layer coverage for two specific race shapes - see below). No blocking open questions
-remain; awaiting Geoff's move to Ready.
+**Ready** — 2026-09-21. Moved from Drafting by Geoff, approved as-is after all blocking open
+questions were resolved (naming/colour/icon, card ordering, organiser default status) and the
+remaining non-blocking items settled (drop-and-reseed rollout via `database_reset`, 60/40 demo-data
+mix, concurrency testing raised to a must-have with real acceptance-layer coverage). Implementation
+checklist added below.
 
 ## Scope / non-goals
 
@@ -327,7 +325,57 @@ new-shape meetings on top of old-shape ones still missing `attendeeStatuses`.
   concurrency shapes this design specifically needs real acceptance-layer tests for, not just
   reasoning that the existing retry pattern should cover it.
 
+## Implementation checklist
+
+1. `[Claude]` **mootmaker-api**: `mootmaker.graphql` — `AttendeeStatus` enum, `Attendee` type,
+   `Meeting.attendees: [Person!]!` → `[Attendee!]!`, `respondToMeeting` mutation +
+   `RespondToMeetingResult`/error enum.
+2. `[Claude]` **mootmaker-api**: `MeetingRecord.attendeeStatuses`, `toAttributeValue`/
+   `fromAttributeValue`, resolver zip into `Attendee`.
+3. `[Claude]` **mootmaker-api**: `CreateMeetingHandler` — organiser `Going`, others `NoResponse`.
+4. `[Claude]` **mootmaker-api**: `RespondToMeetingHandler` — self-only, whole-day conditional
+   rewrite, conflict retry (same pattern `createMeeting` uses).
+5. `[Claude]` **mootmaker-api**: `deleteMyAccount` — remove same index from both lists together.
+6. `[Claude]` **mootmaker-api**: unit tests (Testing impacts) + `RespondToMeetingHandler` concurrent
+   in-process test covering both race shapes at the handler level (real DynamoDB conflict retry
+   still needs the acceptance layer per step 15, but the handler's own retry loop should have unit
+   coverage too).
+7. `[Claude]` **mootmaker-demo-data**: `DemoData.java` attendee status assignment (60/13.3/13.3/
+   13.3), inline GraphQL query string update, mix-invariant test.
+8. `[Claude]` **mootmaker-webapp**: `types.ts`/`npm run codegen`, status icon+colour component
+   (Option A), self-only status control, `MeetingDetailContent.tsx` attendee rows.
+9. `[Claude]` **mootmaker-webapp**: `HomePage.tsx` — "Needs your response" section, Today/Tomorrow
+   card redesign with show-more expander (per prototype).
+10. `[Claude]` **mootmaker-webapp**: `respondToMeeting` mutation wiring, `daysInvalidated`
+    republish confirmed end-to-end, `openMeeting` snapshot refresh after own mutation.
+11. `[Claude]` **mootmaker-webapp**: unit/mocked-integration tests (Testing impacts).
+12. `[Claude]` **docs**: `data-model.md`, both repos' `README.md`/`testing-strategy.md`,
+    `use-cases.md` (starting at id 107).
+13. `[Claude]` Deploy all three components to a reused ephemeral env; run the existing acceptance
+    suite clean before adding new coverage on top of it.
+14. `[Claude]` **mootmaker-webapp/acceptance**: new acceptance tests for the feature itself
+    (response control, status display, Home page redesign).
+15. `[Claude]` **mootmaker-webapp/acceptance**: the two concurrency scenarios plus Apollo-cache
+    convergence, against the ephemeral env (Testing impacts, concurrency bullet) — this is the one
+    step of the checklist that specifically needs a real deployed AWS/DynamoDB backend, not a mock.
+16. `[Claude]` Full acceptance suite clean on the reused ephemeral env.
+17. `[Claude]` Merge implementation PRs to `main` (one per repo, per this project's normal
+    branch-and-PR flow).
+18. `[Geoff, pre-approved to run autonomously]` Invoke `mootmaker-api`'s `database_reset` Lambda
+    against `test`, then `production` (Rollout & migration) — before the release's own seed step.
+19. `[Claude]` Dispatch `mootmaker-release`'s Release workflow and watch it to completion
+    (deploy-test → smoke-test-test → deploy-production → smoke-test-production).
+20. `[Claude]` Move Status to Shipped, move this doc to `designs/archive/`, confirm
+    `data-model.md` reflects the shipped shape.
+
 ## Definition of done
 
-N/A at Drafting — no blocking open questions remain (see "Open questions"); to be filled in once
-this moves to Ready.
+- This feature's own new/changed acceptance-test coverage (including both concurrency scenarios and
+  cache convergence) is green against a real deployed environment.
+- The full existing acceptance suite is still green on that same environment.
+- Each touched repo's own unit tests pass (`mootmaker-api`, `mootmaker-webapp`, `mootmaker-demo-data`).
+- `mootmaker-api` and `mootmaker-webapp` deploy and are smoke-tested clean on both `test` and
+  `production` via `release.yml`.
+- `test`/`production` have been reset (Rollout & migration) and reseeded under the new shape.
+- Everything under "Documentation impacts" is actually done, not just planned:
+  `data-model.md`, both repos' READMEs/testing-strategy docs, and `use-cases.md`.
