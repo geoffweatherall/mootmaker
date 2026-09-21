@@ -162,12 +162,18 @@ Non-blocking, now also confirmed by Geoff:
   entity). `MeetingRecord` gains `attendeeStatuses: List<AttendeeStatus>` alongside `attendeeIds`;
   its `toAttributeValue`/`fromAttributeValue` read/write both lists together; the resolver layer
   zips them by index into `Attendee` objects for the GraphQL response. `CreateMeetingHandler` sets
-  the organiser's status to `Going` and every other new attendee's to `NoResponse` (see "Open
-  questions"). New `RespondToMeetingHandler` — finds
+  every new attendee's status to `NoResponse` — the organiser's "implicit Going" is a display-time
+  default only (see "Open questions"), never a stored value: the organiser is never in
+  `attendeeIds`/`attendeeStatuses` at all (`OrganiserIsAttendee` already rejects that), so there is
+  no slot to put a status in even if one were wanted. `Meeting.organiser` stays a plain `Person!`,
+  unchanged by this design. New `RespondToMeetingHandler` — finds
   the caller's index in `attendeeIds`, writes the same index in `attendeeStatuses`, inside the same
   whole-day conditional rewrite every other write already uses. `deleteMyAccount`'s existing "removes
   them from every upcoming meeting they only attend" logic needs re-verifying against the new shape:
   removing a person now means removing the same index from *both* lists together, not just one.
+  Also gained an optional `MeetingInput.attendeeStatuses` override (ignored unless it matches
+  `attendeeIds`' length) so `mootmaker-demo-data` can seed a realistic mix without needing
+  DynamoDB access or an identity to call the self-only `respondToMeeting` as.
 - **mootmaker-android**: not yet implemented (checked 2026-09-21 - the repo is still a placeholder,
   no source code). Nothing to change today; noted so this feature isn't forgotten once that app's
   own work starts, and so its own design doc (whenever written) accounts for status from day one
