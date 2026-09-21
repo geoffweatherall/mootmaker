@@ -16,11 +16,18 @@ Meeting Detail attendee list with the response control (interactive: try changin
 
 ## Status
 
-**Ready** — 2026-09-21. Moved from Drafting by Geoff, approved as-is after all blocking open
-questions were resolved (naming/colour/icon, card ordering, organiser default status) and the
-remaining non-blocking items settled (drop-and-reseed rollout via `database_reset`, 60/40 demo-data
-mix, concurrency testing raised to a must-have with real acceptance-layer coverage). Implementation
-checklist added below.
+**Shipped** — 2026-09-21. Implemented across `mootmaker-api` (#59, #60), `mootmaker-demo-data`
+(#33), `mootmaker-webapp` (#106, #107) and this hub repo's own docs (#99); released as `v4.0.0`
+(major bump, per the breaking `Meeting.attendees` schema change) — deployed and smoke-tested clean
+on both `test` and `production`, no rollback. See "Definition of done" below for what that bar
+actually covered.
+
+Left in `designs/` rather than moved to `designs/archive/` as the lifecycle normally calls for: the
+implementation left ~15 bare-text references to this doc's path scattered across code comments in
+all three implementation repos (mostly `// see designs/attendee-response-status.md` javadoc-style
+notes), and updating every one of them across three more small PRs wasn't judged worth it purely for
+path hygiene. `docs/reference/data-model.md` and `use-cases.md` - the two documents that actually
+have to stay current - are both already updated to reflect the shipped shape.
 
 ## Scope / non-goals
 
@@ -333,6 +340,16 @@ new-shape meetings on top of old-shape ones still missing `attendeeStatuses`.
 
 ## Implementation checklist
 
+All 20 steps below are complete as of 2026-09-21 (shipped as `v4.0.0`) - kept unedited as a record of
+the plan actually followed, with two real divergences worth calling out: step 6's "handler-level
+concurrent test coverage" (done, `RespondToMeetingHandlerTest`) still needed step 15's real-DynamoDB
+acceptance layer to catch anything, since a fake client can't produce a genuine
+`ConditionalCheckFailedException`; and step 12/19 surfaced two gaps this checklist didn't anticipate
+- `mootmaker-api`'s separate `verify/` acceptance module (missed until the release build itself
+caught it) and `useMeetingDetailOverlay.tsx`'s snapshot staleness for another client's change (missed
+until step 15's cache-convergence test ran for real) - both fixed before release. See "Definition of
+done" below for the full account.
+
 1. `[Claude]` **mootmaker-api**: `mootmaker.graphql` — `AttendeeStatus` enum, `Attendee` type,
    `Meeting.attendees: [Person!]!` → `[Attendee!]!`, `respondToMeeting` mutation +
    `RespondToMeetingResult`/error enum.
@@ -376,12 +393,27 @@ new-shape meetings on top of old-shape ones still missing `attendeeStatuses`.
 
 ## Definition of done
 
-- This feature's own new/changed acceptance-test coverage (including both concurrency scenarios and
-  cache convergence) is green against a real deployed environment.
-- The full existing acceptance suite is still green on that same environment.
-- Each touched repo's own unit tests pass (`mootmaker-api`, `mootmaker-webapp`, `mootmaker-demo-data`).
-- `mootmaker-api` and `mootmaker-webapp` deploy and are smoke-tested clean on both `test` and
-  `production` via `release.yml`.
-- `test`/`production` have been reset (Rollout & migration) and reseeded under the new shape.
-- Everything under "Documentation impacts" is actually done, not just planned:
-  `data-model.md`, both repos' READMEs/testing-strategy docs, and `use-cases.md`.
+All met as of 2026-09-21:
+
+- **This feature's own acceptance coverage is green against a real deployed environment**
+  (`claude-260920-gzzy`): `acceptance/tests/attendee-response-status.spec.ts`, 4 tests - the feature
+  itself (Home page + detail sheet), both concurrency scenarios (proving a real DynamoDB
+  `ConditionalCheckFailedException` gets hit and retried, not just reasoned about), and cross-client
+  cache convergence. The cache-convergence test failed on its first run and surfaced a real bug -
+  `useMeetingDetailOverlay.tsx`'s `openMeeting` snapshot never picked up another client's change -
+  fixed with `useFragment` (see `mootmaker-webapp` #107); green after the fix.
+- **The full existing acceptance suite is still green on that same environment**: 120/120, run twice
+  (once before the fix above, once after, both clean).
+- **Each touched repo's own unit tests pass**: `mootmaker-api` (230), `mootmaker-webapp` (99 unit +
+  39 mocked-integration), `mootmaker-demo-data` (62).
+- **`mootmaker-api` and `mootmaker-webapp` deploy and are smoke-tested clean on both `test` and
+  `production`**, via `release.yml` - shipped as `v4.0.0`. First release attempt failed at
+  `build-api`'s own `verify/` acceptance module (a separate Java suite this implementation missed
+  entirely - see `mootmaker-api` #60); fixed, and the retry deployed clean through to
+  `smoke-test-production` with no rollback.
+- **`test`/`production` were reset** (`database_reset`, preserving Cognito-linked people in
+  production per the standing per-environment rule) **before** the release's own reseed step, so no
+  environment ever ran the new API against old-shape data.
+- **Documentation**: `data-model.md` and `use-cases.md` (D.107, H.108, M.109-111) are updated;
+  `mootmaker-api`/`mootmaker-webapp` READMEs cover the new mutation/type/UI. `designs/` vs
+  `designs/archive/` - see "Status" above for why this doc itself stayed put.
