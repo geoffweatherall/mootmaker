@@ -23,7 +23,7 @@ Password (both steps), About, Add Meeting, and Meeting Details restyled at wide 
 
 ## Status
 
-**Drafting** — 2026-09-22.
+**Ready** — approved by Geoff 2026-09-22.
 
 ## Scope / non-goals
 
@@ -358,18 +358,20 @@ transition state, no data to backfill.
 
 ## Implementation checklist
 
-Sparse while Drafting, per convention — filled in properly once Status moves to Ready.
-
 1. `[Claude]` Build the search-further-ahead hook/query composition, with unit tests.
 2. `[Claude]` Rework `HomePage.tsx` to the approved prototype (signed-in + signed-out, wide +
    narrow).
 3. `[Claude]` Update `SignInPage`/`SignUpPage`/`ForgotPasswordPage`/`AboutPage`/`AddMeetingPage`/
    `MeetingDetailsPage` chrome.
-4. `[Claude]` Remove now-unused hero SVG assets, after confirming no other referrers.
-5. `[Claude]` New/updated tests per Testing impacts.
-6. `[Claude]` README updates per Documentation impacts.
-7. `[Geoff]` Review the PR.
-8. `[Claude]` Deploy to a reused ephemeral environment, run acceptance, ship through the normal
+4. `[Claude]` Generalize `EmptyState` to the icon-in-a-tinted-circle pattern; update every caller
+   (Home's agenda, Person Calendar, Room Availability).
+5. `[Claude]` Remove now-unused hero SVG assets, after confirming no other referrers.
+6. `[Claude]` New/updated tests per Testing impacts, including the two pre-identified
+   `acceptance/tests/home-page.spec.ts` breaks (`agendaPanel()` helper, D.23's `img` assertion).
+7. `[Claude]` README updates per Documentation impacts.
+8. `[Geoff]` Review the PR — waived for this design unless implementation surfaces cost or
+   security implications, per Geoff's 2026-09-22 go-ahead.
+9. `[Claude]` Deploy to a reused ephemeral environment, run acceptance, ship through the normal
    release path.
 
 ## Definition of done
