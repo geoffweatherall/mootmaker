@@ -10,7 +10,10 @@ loading-state fix with the deeper visual pass Geoff asked for directly, and revi
 [`attendee-response-status.md`](attendee-response-status.md)'s Home page design: "Needs your
 response" gains an explicit time range and an incremental way to look further ahead, and the
 Today/Tomorrow agenda goes from that design's per-list "show more" cards back to one merged
-calendar-style list.
+calendar-style list. Also generalizes its empty-state icon treatment into the app's standard empty
+state, which is the one place this touches `PersonCalendarPage`/`RoomAvailabilityPage` — their own
+empty states (not anything else about those pages) move from the current bespoke SVG illustrations
+to the same icon-in-a-tinted-circle pattern.
 
 **UI prototype**: https://claude.ai/artifact/9PWBGRbGKZBU1CTAcZLP54 — 14 artboards: Home page
 signed-in/signed-out at both wide (1280, with sidebar) and narrow (390×844, collapsed top app bar)
@@ -36,8 +39,16 @@ In scope:
   `attendee-response-status.md`'s two side-by-side card columns.
 - **Sign In, Sign Up (both steps), Reset Password (both steps), About, Add Meeting, Meeting
   Details** — page-chrome-only pass: drop each page's hero SVG, plain page title (no icon beside
-  it), form/content in a card matching Home's shadow/radius/spacing. Wide viewport (1280) only —
-  see the "Mobile scope" decision below.
+  it), form/content in a card matching Home's shadow/radius/spacing, capped to a narrower width
+  (~460–560px) rather than stretching to the full content column. Wide viewport (1280) only — see
+  the "Mobile scope" decision below. No step indicator/progress UI added to the two two-step flows
+  (Sign Up, Reset Password); each screen is restyled in place, the flow itself is unchanged.
+- **`EmptyState` generalized to an icon-in-a-tinted-circle pattern**, app-wide — replaces the
+  bespoke SVG illustrations currently used by `HomePage`'s own agenda empty state,
+  `PersonCalendarPage`'s "No people exist yet.", and `RoomAvailabilityPage`'s "No rooms exist yet.",
+  alongside the new Needs-your-response empty state this design already introduces. This is the one
+  place `PersonCalendarPage`/`RoomAvailabilityPage` are touched — nothing else about either page
+  changes.
 
 Non-goals:
 
@@ -53,8 +64,9 @@ Non-goals:
   single-column pattern already proven on the Home page (top app bar replacing the sidebar,
   everything stacked) without separate prototypes, since these are already simple single-column
   forms.
-- **`PersonCalendarPage`/`RoomAvailabilityPage`** — already match this visual language; not
-  touched.
+- **`PersonCalendarPage`/`RoomAvailabilityPage`** — already match this visual language and are not
+  otherwise touched; their only change is the generalized `EmptyState` icon (see above), not their
+  layout, day sections, or anything else.
 - **Any GraphQL schema or DynamoDB change** — see Technical considerations for how "Search further
   ahead" is built against the existing API surface.
 
@@ -101,6 +113,23 @@ Non-goals:
 - **This ships as one combined issue/PR**, confirmed with Geoff, rather than splitting Home from
   the misc pages or splitting the misc pages from each other — see Risks for how that's kept
   reviewable anyway.
+- **Misc-page forms are capped to a narrower width** (~460–560px), not left stretching to the
+  content column's full 900px, matching the prototype — confirmed with Geoff rather than left as a
+  chrome-only guess, since it's a real layout change beyond "same width, new styling."
+- **No step indicator added to the two-step flows.** Sign Up and Reset Password stay a plain screen
+  swap (details → verify code; request → reset) with no new "Step 1 of 2" affordance — confirmed
+  with Geoff to keep this pass scoped to chrome/imagery, not new UI structure.
+- **`EmptyState` generalizes to one icon-in-a-tinted-circle pattern app-wide**, confirmed with
+  Geoff over keeping the new check-circle treatment scoped to Needs-your-response alone. The
+  colour of the tint carries meaning, not just the icon: green (`secondary`-adjacent success tint)
+  is reserved for "you resolved something" (Needs-your-response's "you're caught up"); a neutral
+  primary-indigo tint is used for "nothing exists yet" states (Person Calendar's no-people,
+  Room Availability's no-rooms, Home's own no-meetings-today) — see "Choices you had me make" for
+  the specific icon picked per page, which is a smaller, unilateral call within this resolved
+  decision.
+- **Meeting Details stays in scope for this combined PR**, confirmed with Geoff over cutting it to
+  a follow-up — it's cheap, chrome-only, and rides along with the rest even though the page itself
+  is rarely reached.
 
 ## Choices you had me make
 
@@ -113,30 +142,31 @@ Made unilaterally while iterating on the prototype; flagged for Geoff to review/
   CTA row on Home, and reused as the page-action pattern generally.
 - Fictional prototype content (NZ-native-tree room names Kauri/Rimu/Tōtara, people like "Priya
   Nair", "Jordan Lee") — placeholder data for the mockup only, not a proposal to change demo data.
-- The empty-state icon (a green check-circle) for "Needs your response" — picked to read as
-  "resolved/caught up" rather than a generic "nothing here" glyph; not checked against any existing
-  empty-state icon convention elsewhere in the app (see Open questions).
+- The specific icon chosen per generalized empty state: a check-circle for Needs-your-response
+  ("caught up"), a person outline for Person Calendar's no-people state, a door/room outline for
+  Room Availability's no-rooms state (reusing the same glyph already used for the "Room
+  Availability" nav item), and a calendar outline for Home's own no-meetings-today state (matching
+  the "Calendar" nav item's glyph). The pattern itself (icon-in-tinted-circle, and green vs.
+  primary-indigo tint carrying meaning) was confirmed with Geoff; which literal icon represents
+  each specific empty condition was my own call, flagged here for a cheap override if any read
+  wrong.
 
 ## Open questions
 
-Blocking: none — the four calls that would have blocked drafting (phasing, input chrome, the
-search cap, and mobile-mockup scope for the misc pages) were all made directly with Geoff before
-this doc was written; see the decisions above.
+Blocking: none — every call that would have blocked drafting (phasing, input chrome, the search
+cap, mobile-mockup scope, form width, step indicators, `EmptyState` generalization, and Meeting
+Details' scope) was made directly with Geoff before this doc was written; see the decisions above.
 
 Non-blocking:
 
-- Should the new empty-state icon/copy pattern be reused by `PersonCalendarPage`'s and
-  `RoomAvailabilityPage`'s own `EmptyState` illustrations for visual consistency, or is a green
-  check-circle specific enough to "you're caught up on responses" that it shouldn't generalize?
-  Doesn't block this design; can be resolved during implementation or left as a follow-up.
-- `MeetingDetailsPage` is a rarely-reached cold-link fallback (nothing in-app links to it any more —
-  see `meeting-detail-consolidation.md`). It's included here since the chrome-only change is cheap
-  and rides along with the rest, but if the combined PR ends up feeling large, dropping it to a
-  follow-up is a reasonable cut.
 - Whether `AddMeetingPage`'s existing `loadingReferenceData` spinner state and other
   unknown/refreshing/settled handling need any adjustment now that the surrounding card changes —
   expected to be untouched, but worth explicit confirmation during implementation given
   mootmaker-webapp#111 was exactly this class of bug.
+- Exact icon glyphs for the generalized `EmptyState` pattern (see "Choices you had me make") were
+  picked unilaterally and not checked against any existing icon-naming convention beyond reusing
+  nav-item glyphs where an obvious match existed — worth a quick visual sanity check during
+  implementation, not a design-level blocker.
 
 ## Impacts on components
 
@@ -154,14 +184,23 @@ All in `mootmaker-webapp`:
   pickers, and the "Suggest a room" button are otherwise unchanged.
 - `webapp/src/pages/MeetingDetailsPage.tsx` — chrome only; renders the same
   `MeetingDetailContent` it already does.
+- `webapp/src/components/EmptyState.tsx` — shape change from an `illustration: string` (image src)
+  prop to an icon-based render (icon-in-a-tinted-circle, with a colour/tone input for the
+  green-vs-primary distinction in Trade-offs). Every existing caller needs updating to the new
+  prop shape, not just the three below.
+- `webapp/src/pages/PersonCalendarPage.tsx` — empty-state branch only ("No people exist yet."
+  moves to the new icon pattern); day sections, Autocomplete, FAB, everything else untouched.
+- `webapp/src/pages/RoomAvailabilityPage.tsx` — empty-state branch only ("No rooms exist yet."
+  moves to the new icon pattern); room cards, timeline bars, everything else untouched.
 - New: a small hook/utility driving "Search further ahead" — tracks the current window's end
   offset, issues one `DAYS` query per newly-added day (or a batched set), merges newly-found
   unresponded meetings into the existing list. Exact shape (hook vs. inline state, per the
   prototype's own `level`/`searching` state machine) is an implementation-time call, not a design
   decision this doc needs to pin down further.
 - Assets to retire once nothing references them: `home-hero.svg`, `home-signed-in.svg`,
-  `signin-hero.svg`, `signup-hero.svg`, `forgot-password-hero.svg`, `add-meeting-hero.svg` — check
-  for other referrers before deleting each (see Risks).
+  `signin-hero.svg`, `signup-hero.svg`, `forgot-password-hero.svg`, `add-meeting-hero.svg`,
+  `empty-meetings.svg`, `empty-people.svg`, `empty-rooms.svg` — check for other referrers before
+  deleting each (see Risks).
 
 ## Changes to the domain data model and data storage models
 
@@ -200,6 +239,9 @@ nothing new is persisted.
   form labels, and button names shouldn't need to change unless a specific test asserted on
   something being removed (e.g. an image's `alt` text, unlikely since these are all `alt=""`
   decorative images already). A full suite run is the actual check, not a prediction here.
+- `EmptyState`'s prop-shape change touches Person Calendar's and Room Availability's own existing
+  empty-state tests (their "No people/rooms exist yet." coverage) — confirm those still locate the
+  message by its text/role, not by anything that assumed an `<img>` was present.
 
 ## Documentation impacts
 
@@ -223,6 +265,12 @@ transition state, no data to backfill.
 - **Deleting hero SVGs is easy to ship but a small papercut to reverse** if a page still references
   one that looked unused — grep for each asset's actual referrers before removing the file, not
   just deleting because removal was the intent.
+- **`EmptyState`'s prop-shape change is a breaking change to a shared component** — every existing
+  caller (Home's agenda, Person Calendar, Room Availability, and this design's new
+  Needs-your-response empty state) must be updated in the same change, or the build fails outright
+  rather than silently regressing. Low risk in practice (TypeScript catches every caller), called
+  out because it's the one place this design's blast radius extends past pages explicitly listed in
+  Scope.
 
 ## Implementation checklist
 
