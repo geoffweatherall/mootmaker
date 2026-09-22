@@ -23,7 +23,7 @@ Password (both steps), About, Add Meeting, and Meeting Details restyled at wide 
 
 ## Status
 
-**Ready** — approved by Geoff 2026-09-22.
+**Building** — approved by Geoff 2026-09-22; implementation started same day.
 
 ## Scope / non-goals
 
