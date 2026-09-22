@@ -24,9 +24,8 @@ In scope:
   single random start plus forward walk; per-room occupancy targets in place of the current flat
   0–2-meeting cap; a relaxed attendee-conflict rule.
 - Raising `TARGET_PEOPLE` to support the resulting volume.
-- Fixing guaranteed-meeting placement (`DemoData.pickFreeSlot`), which currently requires a room
-  with *no* bookings at all that day — a condition that gets rare once rooms are routinely ~60%
-  busy.
+- Correcting this repo's README, whose description of guaranteed-meeting placement is stale (see
+  "Trade-offs and decisions" #6) — no code change needed there.
 - Updating this repo's unit tests and its acceptance-suite invariants to match the new rules.
 - A one-time, deliberate `database-reset` + repopulate of `test` and `production` as part of
   rollout, so the new distribution is visible immediately rather than rolling forward day by day
@@ -105,6 +104,17 @@ Explicitly not in scope:
    deterministic function of the room's existing `id`** (see "Technical considerations") rather than
    a new stored field.
 
+6. **Guaranteed-meeting placement needs no fix.** The first draft of this doc assumed
+   `DemoData.pickFreeSlot` required a wholly-empty room, per this repo's own README ("placed in a
+   room with no bookings at all that day"). Reading `DemoData.java` directly during implementation
+   found that's stale: `pickFreeSlot` already searches per-room, per-hour candidate slots (9 hours ×
+   every room) and only requires that specific room-hour slot to be free, plus a free attendee — the
+   "search slots, not whole free rooms" fix its own javadoc already describes as a lesson from an
+   earlier, abandoned attempt. Nothing in the code changes; only the README's prose does (see
+   "Documentation impacts"). Whether guaranteed-meeting success rate stays acceptable once rooms are
+   routinely busier is worth watching during the ephemeral-environment review, not a reason to change
+   the algorithm pre-emptively.
+
 ## Choices you had me make
 
 These weren't discussed directly; flagged here so they're cheap to override rather than buried in
@@ -125,12 +135,6 @@ code:
 - **Large-meeting sizing**: ~20% of meetings sized to 80–100% of the room's capacity (per Geoff's
   "near full capacity" answer), the remaining ~80% keeping the existing small/medium weighted split
   (`SMALL_MEETING_ATTENDEE_COUNT_CUMULATIVE_WEIGHTS`), unchanged.
-- **Guaranteed-meeting placement fix**: relax `pickFreeSlot`'s "a room with no bookings at all that
-  day" requirement to "any free, correctly-aligned slot in any room, honouring the same
-  organiser-conflict-free rule as regular meetings." Needed because a wholly-empty room-day becomes
-  rare once rooms are routinely 60% busy, and this mechanism is what keeps the public demo account's
-  calendar non-empty — worth Geoff's explicit eyes even though it's written here as a default choice
-  rather than an open question, since it's a real behaviour change visible on www.mootmaker.com.
 
 ## Open questions
 
@@ -146,14 +150,18 @@ not something that needs resolving before this can reach Ready.
   this change (density goes up, but not to 100%) — worth a quick re-check once real numbers exist,
   since any acceptance or e2e test that relies on finding a free time slot (rather than a free room)
   depends on it.
+- **Guaranteed-meeting success rate** under the new density — `pickFreeSlot` doesn't need a code
+  change (see "Trade-offs and decisions" #6), but worth watching during the ephemeral-environment
+  review whether its 9-hours × every-room search still reliably finds a slot once rooms are
+  routinely busier.
 
 ## Impacts on components
 
 - **`mootmaker-demo-data`** (the only repo touched):
   - `impl/src/main/java/com/mootmaker/demodata/MeetingScheduler.java` — the placement rewrite
     described above.
-  - `impl/src/main/java/com/mootmaker/demodata/DemoData.java` — `TARGET_PEOPLE` default,
-    `pickFreeSlot`'s guaranteed-meeting fix.
+  - `impl/src/main/java/com/mootmaker/demodata/DemoData.java` — `TARGET_PEOPLE` default only; no
+    change to `pickFreeSlot` itself (see "Trade-offs and decisions" #6).
   - `impl/src/test/` — new/updated unit tests (see "Testing impacts").
   - `verify/` — updated acceptance-invariant assertions.
   - `README.md`, `testing-strategy.md` — updated description of generated-data behaviour and
@@ -256,9 +264,6 @@ the room's existing `id`; nothing new is persisted.
   DynamoDB items from any real signed-up user's data — see README's "people target counts all
   people" note — but still a real, irreversible production action). Should stay a deliberate,
   explicitly-confirmed step, never folded silently into the release pipeline itself.
-- **The guaranteed-meetings fix is a real behaviour change visible on the public demo** — the signed-
-  out home page's demo account calendar. Worth Geoff's explicit sign-off during doc review rather
-  than treating it as an implementation detail, even though it's written above as a default choice.
 - **Raising `TARGET_PEOPLE` materially increases visible headcount** across the whole demo (people
   list, attendee pickers, etc.) — purely additive and harmless, but worth knowing it isn't only a
   scheduling-internals change.
@@ -267,12 +272,11 @@ the room's existing `id`; nothing new is persisted.
 
 1. [Claude] Rewrite `MeetingScheduler`: room-tier hashing, weighted time-of-day sampling with
    rejection, relaxed attendee-conflict rule, near-capacity large-meeting sizing.
-2. [Claude] Update `DemoData.java`: raise `TARGET_PEOPLE`, fix `pickFreeSlot` for guaranteed
-   meetings.
+2. [Claude] Update `DemoData.java`: raise `TARGET_PEOPLE`.
 3. [Claude] Update/add unit tests for all invariants listed under "Testing impacts"; iterate
    constants against them until the distribution looks right.
-4. [Claude] Update `verify/*IT.java`'s overlap assertion; update `README.md` and
-   `testing-strategy.md`.
+4. [Claude] Update `verify/*IT.java`'s overlap assertion; correct `README.md`'s stale guaranteed-
+   meeting description and update `testing-strategy.md`.
 5. [Claude] Stand up three ephemeral environments with demo data seeded; confirm `verify.sh` passes
    against at least one of them; report the three URLs.
 6. [Geoff] Review each environment's room-availability pages; approve, or send back for another
