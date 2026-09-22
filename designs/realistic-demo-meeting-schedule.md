@@ -14,7 +14,7 @@ already models — and a ~20% share of meetings sized near a room's full capacit
 
 ## Status
 
-**Ready** — 2026-09-22. Approved by Geoff.
+**Building** — 2026-09-22. Approved by Geoff; implementation started same day.
 
 ## Scope / non-goals
 
