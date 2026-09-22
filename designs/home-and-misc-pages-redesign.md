@@ -150,6 +150,11 @@ Made unilaterally while iterating on the prototype; flagged for Geoff to review/
   primary-indigo tint carrying meaning) was confirmed with Geoff; which literal icon represents
   each specific empty condition was my own call, flagged here for a cheap override if any read
   wrong.
+- **Not duplicating the empty→populated-again "Search further ahead" cycle at the acceptance
+  layer** (see Testing impacts) — engineering that precondition for real against a shared deployed
+  environment would prove little beyond what the mocked-integration coverage of the same scenario
+  already proves, so acceptance gets one case covering the ordinary "finds an item further out"
+  path instead of three parallel cases mirroring every mocked-integration scenario.
 
 ## Open questions
 
@@ -228,20 +233,73 @@ nothing new is persisted.
 
 ## Testing impacts
 
-- `layout-stability.spec.ts` (already the home of #111's regression tests) needs new coverage for:
-  the empty "Needs your response" layout, "Search further ahead" actually appending newly-fetched
-  meetings rather than revealing hidden DOM (the same non-vacuous-test rigor #111's tests already
-  established — prove it by checking the new cards are genuinely absent before the click, not just
-  hidden), and the merged Today/Tomorrow list rendering correctly.
-- New unit/mocked-integration coverage for whatever hook drives the day-by-day search-forward
-  accumulation, including that repeated clicks keep extending rather than resetting.
-- The misc pages' changes are chrome-only; existing role/accessible-name-based tests for headings,
-  form labels, and button names shouldn't need to change unless a specific test asserted on
-  something being removed (e.g. an image's `alt` text, unlikely since these are all `alt=""`
-  decorative images already). A full suite run is the actual check, not a prediction here.
-- `EmptyState`'s prop-shape change touches Person Calendar's and Room Availability's own existing
-  empty-state tests (their "No people/rooms exist yet." coverage) — confirm those still locate the
-  message by its text/role, not by anything that assumed an `<img>` was present.
+Mapped onto this repo's four layers (`testing-strategy.md`) rather than left generic, since
+"Search further ahead" has three behaviours worth proving separately: a search that finds nothing
+new, one that finds and appends items, and the empty→populated cycle (settle empty, then a later
+search finds something).
+
+- **Unit** (`webapp/src/**/*.test.ts`, Vitest) — a new pure-logic module for the search-forward
+  accumulation, extracted the same way `addMeetingLogic.ts`/`roomAvailabilityLogic.ts` already
+  pull page logic out for testing without rendering anything or mocking Apollo. Covers: the
+  level→date-window-end computation; merging one newly-fetched day's meetings into the
+  accumulated list (sorted, no duplicates); a day that contributes zero new items leaves the list
+  unchanged (the "nothing found" case, proven at the logic level); and — specifically because it's
+  the easiest place for an off-by-one "was empty" special case to hide — a day that contributes
+  items when the accumulated list was previously empty, proven as its own case rather than assumed
+  to follow from the "finds items" case above.
+- **Mocked-integration** (`webapp/tests/`, Playwright + MSW) — the layer that actually drives the
+  UI and asserts on it. `attendee-response-status.spec.ts` already owns "Needs your response"'s
+  mocked coverage (its mock `meetings` fixture array — `testSupport/mocks/fixtures.ts` — is what
+  both the `PageLoad` and `Days` MSW handlers read from, filtered by date, so seeding a meeting on
+  a specific future date is direct fixture manipulation, not driving the Add Meeting form
+  repeatedly). New tests there, or in a new co-located spec:
+  - "Search further ahead finds nothing new" — no fixture meetings beyond the initial window;
+    click; assert the range-label text updates and the button/spinner behave correctly, but no new
+    card appears (proven absent before the click, not just hidden — the same non-vacuous-test
+    rigor #111's tests established, by checking `toHaveCount(0)` beforehand, matching how
+    `layout-stability.spec.ts`'s existing tests already prove a gate genuinely blocked something
+    rather than racing past it).
+  - "Search further ahead finds and appends an item" — seed one unresponded meeting several days
+    out; click enough times to reach it; assert it appears with the indigo (not amber) border and
+    the count/range update.
+  - "Needs your response goes empty, then a further search finds something" — no fixture meetings
+    in the initial window (settles to the new empty layout); seed one meeting further out; click
+    "Search further ahead" until it's found; assert the empty layout is replaced by the list. This
+    is the scenario `layout-stability.spec.ts`'s existing "does not claim 'No meetings' while
+    revalidating" test is closest in spirit to, but is data-driven (a real transition from zero to
+    one item) rather than a loading-state race.
+- **e2e** (`e2e/`) — not impacted. e2e is deliberately thin and exists for what mocked-integration
+  can't see (real Cognito/SES); nothing about "Search further ahead" touches an external service.
+- **Acceptance** (`acceptance/tests/home-page.spec.ts`, real deployed) — one new case (next
+  available letter after D.25 in `mootmaker/docs/reference/use-cases.md` section D, and
+  `acceptance/test-cases/d-home-page.md`): book a meeting, via the real form, several days beyond
+  the initial 3-day window, with the signed-in demo user as an unresponded attendee; confirm it's
+  absent from Home initially; click "Search further ahead" against the real deployed API until it
+  appears. This organically exercises "finds nothing" on the early clicks without a separate case
+  for it — the empty→populated-again cycle is **not** duplicated at this layer (engineering that
+  precondition for real, against a shared environment, is disproportionate to what it would prove
+  beyond the mocked-integration coverage above); flagging this scope call under "Choices you had
+  me make" rather than leaving it implicit.
+
+Two **existing** tests break under this redesign, not just need new coverage alongside them:
+
+- `acceptance/tests/home-page.spec.ts`'s `agendaPanel()` helper scopes Today vs. Tomorrow by
+  walking up from each `<h2>` to its parent (`.locator('xpath=..')`) — today that parent is each
+  panel's own `Paper`. Once Today/Tomorrow share one merged list, that same parent contains *both*
+  days' rows, breaking the Today/Tomorrow isolation D.22's row-count assertions depend on.
+  `agendaPanel()` needs reworking to scope by a day-section container instead of "nearest ancestor
+  of the heading" — exact shape depends on the merged list's real DOM, an implementation-time
+  detail.
+- D.23 (`'no meetings today or tomorrow shows the empty state, not a bare empty list'`) asserts
+  `panel.locator('img')` is visible for each panel's illustration — that breaks outright once
+  `EmptyState` moves off `<img>`-based SVG illustrations to the icon-in-a-tinted-circle pattern.
+  Needs updating to whatever accessible element the new icon actually renders as (an inline SVG
+  with an accessible name, most likely, matching this project's "locate by role and accessible
+  name" convention rather than reaching for a generic `img` locator again).
+- The misc pages' changes are otherwise chrome-only; existing role/accessible-name-based tests for
+  headings, form labels, and button names on those pages shouldn't need to change beyond the two
+  breaks above. A full suite run against the implementation is the actual check, not a prediction
+  here.
 
 ## Documentation impacts
 
