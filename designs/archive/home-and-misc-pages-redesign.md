@@ -7,7 +7,7 @@ Brings the Home page, and every other webapp page except Settings, into the visu
 layout, no marketing-style hero imagery, restrained actions instead of competing CTA buttons.
 Follows up on [mootmaker-webapp#111](https://github.com/geoffweatherall/mootmaker-webapp/issues/111)'s
 loading-state fix with the deeper visual pass Geoff asked for directly, and revises part of
-[`attendee-response-status.md`](attendee-response-status.md)'s Home page design: "Needs your
+[`attendee-response-status.md`](../attendee-response-status.md)'s Home page design: "Needs your
 response" gains an explicit time range and an incremental way to look further ahead, and the
 Today/Tomorrow agenda goes from that design's per-list "show more" cards back to one merged
 calendar-style list. Also generalizes its empty-state icon treatment into the app's standard empty
@@ -23,7 +23,9 @@ Password (both steps), About, Add Meeting, and Meeting Details restyled at wide 
 
 ## Status
 
-**Building** — approved by Geoff 2026-09-22; implementation started same day.
+**Shipped** — 2026-09-22. Implemented in
+[mootmaker-webapp#113](https://github.com/geoffweatherall/mootmaker-webapp/pull/113), deployed to
+production via release `v4.1.0`, both smoke suites green.
 
 ## Scope / non-goals
 
@@ -358,21 +360,31 @@ transition state, no data to backfill.
 
 ## Implementation checklist
 
-1. `[Claude]` Build the search-further-ahead hook/query composition, with unit tests.
-2. `[Claude]` Rework `HomePage.tsx` to the approved prototype (signed-in + signed-out, wide +
-   narrow).
-3. `[Claude]` Update `SignInPage`/`SignUpPage`/`ForgotPasswordPage`/`AboutPage`/`AddMeetingPage`/
-   `MeetingDetailsPage` chrome.
-4. `[Claude]` Generalize `EmptyState` to the icon-in-a-tinted-circle pattern; update every caller
-   (Home's agenda, Person Calendar, Room Availability).
-5. `[Claude]` Remove now-unused hero SVG assets, after confirming no other referrers.
-6. `[Claude]` New/updated tests per Testing impacts, including the two pre-identified
-   `acceptance/tests/home-page.spec.ts` breaks (`agendaPanel()` helper, D.23's `img` assertion).
-7. `[Claude]` README updates per Documentation impacts.
-8. `[Geoff]` Review the PR — waived for this design unless implementation surfaces cost or
-   security implications, per Geoff's 2026-09-22 go-ahead.
-9. `[Claude]` Deploy to a reused ephemeral environment, run acceptance, ship through the normal
-   release path.
+- [x] **[Claude] 1. Build the search-further-ahead hook/query composition, with unit tests.**
+  `searchFurtherAheadLogic.ts` + `searchFurtherAheadLogic.test.ts` (12 tests).
+- [x] **[Claude] 2. Rework `HomePage.tsx` to the approved prototype** (signed-in + signed-out, wide
+  + narrow via the existing responsive `Layout`).
+- [x] **[Claude] 3. Update `SignInPage`/`SignUpPage`/`ForgotPasswordPage`/`AboutPage`/
+  `AddMeetingPage`/`MeetingDetailsPage` chrome.** `MeetingDetailsPage` needed no change - already
+  matched (no hero, already capped at 480px).
+- [x] **[Claude] 4. Generalize `EmptyState` to the icon-in-a-tinted-circle pattern; update every
+  caller** (Home's agenda, Person Calendar, Room Availability).
+- [x] **[Claude] 5. Remove now-unused hero SVG assets, after confirming no other referrers.** All
+  9 (6 hero + 3 empty-state) removed.
+- [x] **[Claude] 6. New/updated tests per Testing impacts**, including the two pre-identified
+  `acceptance/tests/home-page.spec.ts` breaks (`agendaPanel()` helper, D.23's `img` assertion) plus
+  two more real bugs the first full acceptance run itself surfaced: a dropped room name in the
+  merged agenda rows, and a pre-existing (unrelated to this design) broken assertion in
+  `settings-date-time-format.spec.ts`'s N.105 - see mootmaker-webapp#113's commits.
+- [x] **[Claude] 7. README updates per Documentation impacts.**
+- [x] **[Geoff] 8. Review the PR** — waived for this design unless implementation surfaces cost or
+  security implications, per Geoff's 2026-09-22 go-ahead. No cost/security implications surfaced.
+- [x] **[Claude] 9. Deploy to a reused ephemeral environment, run acceptance, ship through the
+  normal release path.** Deployed to `claude-260922-iah4`; full acceptance suite green (125/125)
+  on the second full run, after fixing what the first run found. PR
+  [mootmaker-webapp#113](https://github.com/geoffweatherall/mootmaker-webapp/pull/113) merged to
+  main 2026-09-22. Release dispatched (`bump: minor`, since this adds real user-facing behaviour -
+  Search further ahead - not just a fix) - see Status for the outcome.
 
 ## Definition of done
 

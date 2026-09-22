@@ -96,7 +96,7 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
     acceptance) needs updating: most designs won't touch it, but say so rather than never
     considering it — the case that matters is a design that changes copy or structure the smoke
     suite asserts on, or adds a path significant enough to belong in that five minutes. See
-    [`home-and-misc-pages-redesign.md`](home-and-misc-pages-redesign.md)'s own Testing impacts
+    [`home-and-misc-pages-redesign.md`](archive/home-and-misc-pages-redesign.md)'s own Testing impacts
     section for the shape this should take.
 11. **Documentation impacts** — which READMEs/CLAUDE.md files/use-case catalogs need updating once
     this ships, and roughly what changes in each.
