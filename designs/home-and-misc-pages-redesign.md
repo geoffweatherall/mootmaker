@@ -281,7 +281,33 @@ search finds something).
   beyond the mocked-integration coverage above); flagging this scope call under "Choices you had
   me make" rather than leaving it implicit.
 
-Two **existing** tests break under this redesign, not just need new coverage alongside them:
+**Smoke suite** (`mootmaker-release/smoke/tests/test-stage.spec.ts` and `production-stage.spec.ts`
+— not one of the four layers above, but a separate release-time gate, so considered explicitly
+rather than folded into "acceptance" or left unmentioned): `test-stage.spec.ts` signs up, signs in,
+creates a meeting, reads demo data, resets the password, and deletes the account — walking through
+Sign Up, Sign In, Add Meeting, Room Availability, Calendar, and Reset Password. Traced through it
+directly rather than assumed: **not broken by this design** — it locates every page it visits by
+field label or button name (`getByLabel('Email')`, `getByRole('button', { name: 'Sign in' })`,
+`getByRole('heading', { name: 'Add Meeting' })`), never by a Sign In/Sign Up/Reset Password page's
+own `<h1>` text, and never touches Home's agenda or Settings at all. Nothing in this design needs
+smoke-suite changes.
+
+Tracing the smoke suite through those pages did surface a real inconsistency in the prototype,
+though: three **existing** tests break under this redesign as prototyped, not just need new
+coverage alongside them, because the prototype's Sign In/Sign Up/Reset Password titles drifted to
+sentence case ("Sign in", "Sign up", "Reset password") while the real pages' `<h1>`s are title
+case ("Sign In", "Sign Up", "Reset Password") — and both `webapp/tests/auth.spec.ts` and
+`webapp/tests/forgot-password.spec.ts` (mocked-integration) plus
+`acceptance/tests/forgot-password.spec.ts` (acceptance) assert that exact title-case text. Since
+this design's own stated scope is chrome/imagery only, with no copy change, the prototype was
+wrong here, not the tests — **fixed directly in the artifact** (all five affected artboards
+republished with the title-case headings restored) rather than left as a discrepancy for
+implementation to discover the hard way. The button labels underneath each title ("Sign in",
+"Sign up", "Reset password") were already correct in the prototype and are unaffected — only the
+page-title `<h1>` text had drifted.
+
+The other two breaking tests are unrelated to casing, and stay genuine implementation-time fixes
+rather than something correctable in the prototype itself:
 
 - `acceptance/tests/home-page.spec.ts`'s `agendaPanel()` helper scopes Today vs. Tomorrow by
   walking up from each `<h2>` to its parent (`.locator('xpath=..')`) — today that parent is each

@@ -78,10 +78,26 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
    forever unless something is configured to expire them — see
    [`../docs/process/principles.md`](../docs/process/principles.md)'s "Nothing accumulates without
    a bound". If nothing deletes it, that is a gap in the design.
-10. **Testing impacts** — which test layers need new or changed coverage (this project's own
-    layering — unit / mocked-integration / real-deployed e2e+acceptance — is described in each
-    repo's own `testing-strategy.md`), and specifically whether *existing* test scenarios need to
-    change, not just whether new ones are needed.
+10. **Testing impacts** — broken down **by layer**, not one undifferentiated list (this project's
+    own layering — unit / mocked-integration / e2e / acceptance — is described in each repo's own
+    `testing-strategy.md`). For each layer that gets new or changed coverage, say what the
+    coverage is *and why that layer is the right one for it* — when a scenario could plausibly be
+    proven two ways (e.g. a real-deployed acceptance case vs. a mocked-integration one with exact
+    fixture control), say why one was chosen, not just where it landed. State explicitly which
+    layers are **not** affected, and why, rather than leaving them unmentioned — "not impacted,
+    nothing here touches an external service" is a real, useful sentence, the same as a decision
+    with something in it. Covers whether *existing* test scenarios need to change, not just
+    whether new ones are needed — read the current suite rather than assuming it's untouched; a
+    layout or shared-component change can break an existing test's locator strategy even when
+    nothing about that test's own assertions was ever wrong. Also explicitly consider whether
+    [mootmaker-release](https://github.com/geoffweatherall/mootmaker-release)'s own smoke suite
+    (`smoke/tests/test-stage.spec.ts` and `production-stage.spec.ts` — deliberately minimal,
+    "roughly the five minutes of clicking a human tester would actually do," and never a re-run of
+    acceptance) needs updating: most designs won't touch it, but say so rather than never
+    considering it — the case that matters is a design that changes copy or structure the smoke
+    suite asserts on, or adds a path significant enough to belong in that five minutes. See
+    [`home-and-misc-pages-redesign.md`](home-and-misc-pages-redesign.md)'s own Testing impacts
+    section for the shape this should take.
 11. **Documentation impacts** — which READMEs/CLAUDE.md files/use-case catalogs need updating once
     this ships, and roughly what changes in each.
 12. **Rollout & migration** — how this reaches users safely: does it need a data migration/backfill
