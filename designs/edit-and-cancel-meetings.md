@@ -1,0 +1,310 @@
+# Edit and cancel meetings
+
+## Summary
+
+Let a meeting's organiser edit or cancel that meeting, and let an admin edit or cancel any meeting.
+Adds two new GraphQL mutations (`updateMeeting`, `cancelMeeting`), a new `/meetings/:meetingId/edit`
+route reusing `AddMeetingPage`'s form, and Edit/Cancel icon buttons on the shared meeting detail
+sheet/panel (`MeetingDetailContent`), gated by `canEdit = isAdmin || meeting.organiser.id ===
+personId`. Cancelling is a hard delete — there is no "cancelled" status to show later — behind a
+destructive-confirmation dialog matching `DeleteAccountSection`'s existing pattern.
+
+**UI prototype**: https://claude.ai/artifact/7wfP7C39nUiQW7p5fEu789 — both edit-surface options
+(Option A: full-page navigation; Option B: dialog-over-sheet) at narrow and wide viewports, plus the
+cancel confirmation dialog. Option A is the one this doc builds — see "Trade-offs and decisions".
+
+## Status
+
+**Drafting** — 2026-09-24.
+
+## Scope / non-goals
+
+- **In scope**: editing every field a meeting has (subject, room, organiser, attendees, date, start
+  and end time) and cancelling (hard-deleting) a meeting, for the organiser or an admin.
+- **Out of scope**: notifying attendees when a meeting they're on is edited or cancelled — no
+  notification mechanism exists anywhere in this app today; this is a deliberate follow-up, not an
+  oversight (Geoff confirmed explicitly during design).
+- **Out of scope**: recurring/series meetings — mootmaker has no concept of a meeting series, so
+  there is no "edit this one / edit all" distinction to design.
+- **Out of scope**: an attendee removing themselves from a meeting via this feature — that's
+  `respondToMeeting`'s job already (setting status), unaffected by this design.
+- **Out of scope**: Android. `mootmaker-android` isn't touched — see "Impacts on components".
+
+## Trade-offs and decisions
+
+1. **Edit opens a full page (`/meetings/:meetingId/edit`), not a dialog.** The UI prototype linked
+   above showed both: a dialog looked plausible in isolation, but `AddMeetingPage` is already a full
+   route navigation from three separate entry points (`HomePage.tsx:397,426`,
+   `PersonCalendarPage.tsx:352`, `RoomAvailabilityPage.tsx:360`), including a deliberate FAB
+   pre-fill mechanism via `location.state`. Making Edit a dialog while Add stays a page navigation
+   would be the one inconsistent outcome between two flows that should feel identical. Geoff chose
+   Option A explicitly for this reason.
+2. **One shared form component for both Add and Edit**, not two separate ones. `SettingsPage.tsx`'s
+   `RoomDialog`/`PersonDialog` already establish this codebase's precedent for a single form
+   component handling both create and edit (`room ? 'Edit room' : 'Add room'`). `AddMeetingPage.tsx`
+   becomes (or is wrapped by) a component that both `/meetings/add` and
+   `/meetings/:meetingId/edit` render, switching on whether a `meetingId` route param is present:
+   heading ("Add Meeting" vs "Edit Meeting"), mutation (`CREATE_MEETING` vs `UPDATE_MEETING`), and
+   post-submit navigation differ; the field set, `addMeetingLogic.ts`'s pure logic (organiser/
+   attendee mutual-exclusion filtering, suggestion-cache, time defaults), validation display, and
+   `MEETING_ERROR_MESSAGES` all stay identical and unduplicated.
+3. **Edit always fetches the meeting fresh by id, never trusts `location.state` or an in-memory
+   snapshot.** This makes a bookmarked/shared `/meetings/:meetingId/edit` link work (consistent
+   with why the full page `/meetings/:meetingId` route was kept alive in
+   `meeting-detail-consolidation.md`) and avoids editing stale data if the sheet's snapshot has
+   drifted from the server. Reuses the same query `MeetingDetailsPage.tsx` already runs for the
+   full-page detail view (names pre-resolved server-side, matching `MeetingDetails`'s shape).
+4. **Cancel is a hard delete, not a soft "Cancelled" status.** Geoff chose this explicitly, aware of
+   the trade-off: nothing will show "this meeting was cancelled" later, to an attendee or anyone
+   else — it simply stops existing, the same outcome `deleteMyAccount`'s existing
+   `cancelUpcomingMeetings` cascade already produces for a deleted user's meetings
+   (`DeleteMyAccountHandler.java:38,114,155`). `cancelMeeting` is the same operation, exposed as its
+   own explicit, organiser/admin-gated mutation instead of only ever happening as an account-deletion
+   side effect.
+5. **The cancel confirmation dialog must not hide the meeting being cancelled.** Caught during UI
+   prototyping: an early version of the mockup made the meeting detail sheet/panel disappear the
+   instant the confirmation dialog opened, which was a mockup-only bug (its states were built as
+   mutually exclusive) rather than an intended behaviour — but it's exactly the kind of thing worth
+   nailing down explicitly here so a real implementation doesn't reproduce it by, say, conditionally
+   rendering the sheet and the dialog as alternatives. **Requirement**: the sheet/panel stays
+   mounted and visible (dimmed by the dialog's own backdrop, not unmounted) behind the confirmation
+   dialog, so the person confirming can still see which meeting — subject, time, room, attendees —
+   they're about to permanently delete. This is a natural consequence of using a real MUI `Dialog`
+   (a portal that overlays without unmounting what's behind it) rather than anything requiring new
+   engineering — the risk is purely in *how* it gets built. Stated explicitly here, and turned into
+   an acceptance assertion (see F.new below under "Testing impacts"), specifically so it doesn't
+   regress silently.
+6. **`updateMeeting` is a full field replacement, exactly like `updateRoom`/`updatePerson`.** Both
+   existing update mutations take `(id: ID!, <Entity>Input!)` and replace every field
+   (`mootmaker.graphql:65,69`) — there is no partial-patch convention anywhere in this API to
+   deviate toward. `updateMeeting(id: ID!, meeting: MeetingInput!): UpdateMeetingResult!` reuses the
+   existing `MeetingInput` unchanged.
+7. **Reassigning the organiser via Edit is allowed**, for both the organiser and an admin, with no
+   special-casing — full parity with `createMeeting`, which already allows picking any organiser.
+   The consequence (the meeting's new organiser, not the person who made the edit, is who can edit
+   it *next* time, since `canEdit` is computed live from the meeting's current organiser on every
+   view) falls out naturally from `canEdit`'s definition rather than needing its own rule.
+8. **Authorization failures are a thrown exception, not a typed `MeetingError`**, mirroring
+   `UpdatePersonHandler.java:91-97` exactly (`IllegalStateException("Forbidden: ...")`, surfaced by
+   AppSync as a top-level GraphQL error). Neither `RoomError` nor `PersonError` has a `Forbidden`
+   case for the same reason (`mootmaker.graphql:131-136,206-210`) — this codebase already treats
+   "not allowed to do this at all" and "allowed, but the input was invalid" as two different
+   channels, and there's no reason to invent a third shape for meetings.
+9. **`MeetingNotFound` is added to the existing `MeetingError` enum**, not a new enum. Precedent:
+   `RoomError`/`PersonError` each gained exactly one `*NotFound` case when their `update` mutation
+   was added (`mootmaker.graphql:134-135,208-209`) — "update-only: id did not match any existing
+   X." `respondToMeeting`'s separate `RespondToMeetingError` enum (`mootmaker.graphql:247-254`) is
+   not the precedent to follow here; that mutation's error set is genuinely disjoint from
+   `createMeeting`'s, where `updateMeeting`/`cancelMeeting` share nearly all of theirs with it.
+
+## Choices you had me make
+
+- The `location.state` FAB pre-fill mechanism (Decision 3) is deliberately *not* reused for Edit —
+  Edit always queries fresh. I made this call unilaterally; it's cheap to revisit if a future
+  entry point wants to pre-seed an edit form with something not on the meeting record itself.
+- Field validation on Edit reuses every rule Create already enforces (15-minute boundary,
+  organiser/attendee mutual exclusion, capacity, room availability, subject length) with one
+  necessary change: the room-availability/double-booking check must exclude the meeting's own
+  existing slot when checking `RoomAvailability.isFree` for an update, or every edit would
+  spuriously conflict with itself. I've treated this as an obvious technical necessity rather than
+  a design decision, but flagging it here since it means `MeetingValidator.dayStateErrors` needs a
+  new "meeting id to exclude" parameter (`Optional<String>`, empty for create) — see "Technical
+  considerations".
+
+## Open questions
+
+**Blocking:**
+
+1. **Can a past or already-started meeting be edited or cancelled?** `createMeeting` already
+   enforces a bookable date range (`OutsideBookableRange`), but that governs how far in the
+   future you can book, not what to do with a meeting that has already happened or is happening
+   right now. `deleteMyAccount`'s cascade explicitly leaves past meetings untouched
+   (`mootmaker.graphql:76`: "Past meetings are left untouched"), which reads as a precedent for
+   blocking edit/cancel on anything in the past — but cancelling a meeting that's *currently in
+   progress* (e.g. it's overrunning and the room is needed) is plausibly something an organiser or
+   admin should still be able to do. I don't have enough signal to default this one — needs
+   Geoff's call before Status can move to Ready.
+
+**Non-blocking:**
+
+2. Should the webapp show *why* an edit/cancel button is hidden (e.g. a disabled button with a
+   tooltip "Only the organiser or an admin can edit this meeting") instead of hiding it outright?
+   Every other permission-gated control in this app (e.g. `AttendeeStatusControl`, shown only to an
+   attendee) hides outright with no explanation, so I'd default to that for consistency — but it's
+   cheap to change during implementation if Geoff prefers a tooltip.
+3. Whether an admin cancelling *someone else's* meeting should read any differently in the
+   confirmation dialog copy than an organiser cancelling their own (e.g. naming the organiser: "This
+   will permanently delete Priya Nair's meeting..."). Cosmetic; can be resolved during
+   implementation.
+
+## Impacts on components
+
+- **`mootmaker-api`** (schema + handlers): new `updateMeeting`/`cancelMeeting` mutations,
+  `UpdateMeetingResult`/`CancelMeetingResult` types, `MeetingNotFound` added to `MeetingError`,
+  `UpdateMeetingHandler.java`/`CancelMeetingHandler.java`, a shared authorization helper (organiser
+  `cognitoSubs` contains caller sub, or `Identity.isAdmin`), and a `MeetingValidator` change to
+  support excluding the meeting-being-edited from its own double-booking check.
+- **`mootmaker-webapp`**: new `/meetings/:meetingId/edit` route in `App.tsx`; `AddMeetingPage.tsx`
+  generalized to handle both add and edit (Decision 2); `MeetingDetailContent.tsx` gains Edit and
+  Cancel icon buttons plus the cancel confirmation dialog (a new `CancelMeetingDialog.tsx`,
+  following `DeleteAccountSection`'s pattern); `graphql/mutations.ts` gains `UPDATE_MEETING`/
+  `CANCEL_MEETING`; `graphql/validationMessages.ts`'s `MEETING_ERROR_MESSAGES` gains
+  `MeetingNotFound` (required — the map is typed `Record<MeetingError, string>`, so this won't
+  compile until it's added); new acceptance test-case file (see "Testing impacts").
+- **`mootmaker`** (hub): this design doc; `docs/reference/use-cases.md` gains a new Section O; no
+  change needed to `docs/reference/data-model.md` — no storage shape changes (see "Changes to the
+  domain data model").
+- **Not touched**: `mootmaker-android`, `mootmaker-demo-data`, `mootmaker-ephemeral-envs`,
+  `mootmaker-release`, `mootmaker-bootstrap-terraform`, `mootmaker-bootstrap-aws-accounts`,
+  `mootmaker-email-testing`, `mootmaker-sensitive-designs`.
+
+## Changes to the domain data model and data storage models
+
+N/A for storage shape — no new DynamoDB attributes, tables, or indexes. `updateMeeting` and
+`cancelMeeting` both go through the existing `DayRepository.mutate` read-modify-write path
+(`DayRepository.java:140-171`), the same one `createMeeting` already uses: read the `DAY#<date>`
+item with `ConsistentRead`, rebuild the whole `meetings` List (`MeetingRecord.java:67-98` — it's a
+List, not a map keyed by id, so both update and cancel filter/replace by matching `id` in
+application code), and `Put` it back conditional on `version`, retrying up to
+`DayRepository.MAX_WRITE_ATTEMPTS` (5) on a version conflict. `cancelMeeting` removing an entry from
+`meetings` means `writeItems`'s existing before/after id-set diff (`DayRepository.java:184-187`)
+deletes that meeting's `PTR#<meetingId>` pointer automatically, in the same transaction, with no new
+code — this is exactly the mechanism it already exists for. The only schema-level addition is the
+`MeetingNotFound` case on the existing `MeetingError` enum (mirrored in both
+`MeetingError.java` and `mootmaker.graphql`, per this repo's error-enum convention).
+
+## Technical considerations
+
+- **`MeetingValidator.dayStateErrors` needs an "exclude this meeting id" parameter.** Today it
+  checks `RoomAvailability.isFree(meetingsThatDay, roomId, startTime, endTime)`
+  (`MeetingValidator.java:85-90`) against every meeting already in the day. For an update, the
+  meeting being edited is itself in `meetingsThatDay` and must be excluded before that check runs,
+  or editing a meeting's own unchanged time/room would always fail as a self-conflict. `create`
+  passes `Optional.empty()`; `update` passes `Optional.of(existingMeetingId)`.
+- **The optimistic-locking retry loop is what makes concurrent edit/cancel safe, not new code.**
+  Two admins cancelling the same meeting at once, or an organiser editing while an admin cancels,
+  both resolve via `DayRepository`'s existing version-conditional retry
+  (`DayRepository.java:140-171`): the loser's retry re-reads the day, finds the meeting already gone
+  from `meetings`, and its mutation function should return `MeetingNotFound` rather than silently
+  no-op-ing or throwing an unrelated error — this needs the read-modify-write callback itself (not
+  just the up-front `validateRequest` pass) to check the target id still exists, the same way
+  `dayStateErrors` is already re-run inside the retry loop for create (per
+  `CreateMeetingHandler.java:117-181`'s existing shape).
+- **Real-time**: after a successful write, both new handlers call `broadcaster.publish(List.of(date))`
+  (`DaysInvalidatedPublisher`), exactly as `CreateMeetingHandler.java:109` and `respondToMeeting`
+  already do, so other open clients' `Day:<date>` cache entries get evicted and refetched. On the
+  webapp side, the mutating client calls `dayInvalidations.noteOwnWrite([date])` after success
+  (matching `AddMeetingPage.tsx:248`'s existing call), so the person who just edited or cancelled
+  doesn't see their own screen flicker from the invalidation they themselves triggered. If an edit
+  changes the meeting's date, both the old and new date need broadcasting — this can't happen today
+  purely from the form, since the date and time pickers always combine into a single-day
+  `startTime`/`endTime`, so this is really "cancel's old date" only for a delete, and update's one
+  date (same as create).
+- **Byte-size check applies to updates too.** `DayRepository.mutate`'s `ItemSizer.sizeOf` check
+  (`DayRepository.java:146-150`) already guards every write; an edit that adds many attendees or a
+  much longer subject to an otherwise-full day could in principle trip `DayItemTooLargeException`,
+  surfaced the same way create already surfaces it (as `DayIsFull`) — no new handling needed, just
+  worth knowing it applies here too.
+- **Top-level (Forbidden) errors need the app's existing generic error handling, not new UI.** A
+  rejected `updateMeeting`/`cancelMeeting` due to authorization surfaces as a top-level GraphQL
+  error (Decision 8), not inside `errors: [MeetingError!]!`. `mootmaker-webapp/README.md` documents
+  how the app already handles errors generically; confirm during implementation that this path
+  (rather than `ErrorBanner`, which only reads the typed `errors` array) is what actually surfaces
+  a Forbidden rejection to the user, since in practice it should be unreachable from the UI (the
+  Edit/Cancel buttons are already hidden for anyone `canEdit` would reject) and only reachable via a
+  direct GraphQL call bypassing the UI, same as `OrganiserIsAttendee` is tested today (F.45's
+  technique).
+
+## Testing impacts
+
+- **Unit (`mootmaker-api`)**: `MeetingValidatorTest` gains cases for the exclude-self room-
+  availability check; new handler unit tests for `UpdateMeetingHandler`/`CancelMeetingHandler`
+  covering organiser-allowed, admin-allowed, neither-rejected (`Forbidden`), and
+  `MeetingNotFound` (an id that doesn't resolve to any meeting, and the concurrent-retry case where
+  it stops existing mid-retry).
+- **Unit/mocked-integration (`mootmaker-webapp`)**: the generalized add/edit form component gets
+  tests for prefilling from a fetched meeting, submitting `UPDATE_MEETING` instead of
+  `CREATE_MEETING`, and the new `MeetingNotFound` error message rendering. `MeetingDetailContent`
+  gets tests for the Edit/Cancel buttons' visibility under `canEdit` (organiser, admin,
+  neither) — mocked, since this is pure permission-flag logic with no need for a real deployed
+  environment. `CancelMeetingDialog` gets a test asserting the underlying sheet/panel content is
+  still present in the DOM (not unmounted) while the dialog is open, directly covering Decision 5.
+- **Acceptance** (real deployed environment, per this project's usual definition of done): a new
+  `o-edit-and-cancel-meetings.md` test-case file (to be created under `acceptance/test-cases/` in
+  `mootmaker-webapp`, following this doc's own naming convention) and a matching new
+  `## O. Edit and Cancel Meetings` section in `mootmaker/docs/reference/use-cases.md` (appended
+  after N, following the precedent `n-date-time-format-settings.md` already set for a section added
+  after the original A–M set rather than relettering everything to keep thematic ordering — see
+  that file's own history). At minimum:
+  - Organiser edits their own meeting (happy path): change subject and time, save, see the change
+    reflected on the grid/detail sheet.
+  - Admin edits a meeting they don't organise.
+  - A signed-in user who is neither the organiser nor an admin does not see Edit/Cancel buttons on
+    that meeting's detail sheet.
+  - Forced server-side authorization check via a raw authenticated GraphQL call bypassing the UI
+    (mirroring F.45's technique) — confirms the "not authorized" case is enforced by the API, not
+    just hidden in the UI.
+  - Organiser cancels their own meeting: confirms the meeting's own details (subject, time, room)
+    remain visible, dimmed, behind the confirmation dialog (Decision 5's explicit assertion — not
+    just "a dialog appears"), and that confirming removes the meeting from the grid.
+  - Admin cancels a meeting they don't organise.
+  - `MeetingNotFound`: two admins both try to cancel the same meeting; the second gets a graceful
+    error, not a crash or a silent no-op.
+  - Whatever Open question 1 resolves to, once answered.
+  - Not planned as a new e2e (mocked-integration) case beyond what's listed under unit/mocked
+    integration above — this feature is a straightforward CRUD extension of an existing,
+    already-well-covered mutation family, and the acceptance layer against a real environment is
+    the right place to prove the authorization boundary specifically, matching how
+    `l-authorization-boundaries.md` already does this for `updatePerson`.
+  - `mootmaker-release`'s smoke suite is **not** touched — editing/cancelling a meeting isn't part
+    of the deliberately minimal five-minute smoke pass, and doesn't change any copy or structure
+    the existing smoke suite asserts on.
+
+## Documentation impacts
+
+- `mootmaker-webapp/README.md` gains a short section on Edit/Cancel, alongside the existing "Meeting
+  details: one shared surface" section, cross-referencing `MeetingDetailContent.tsx`'s new buttons
+  and the generalized add/edit form.
+- `mootmaker-api/README.md`'s data-model section gains the two new mutations and the
+  `MeetingNotFound` error case, matching how `respondToMeeting` is already documented there.
+- `mootmaker/docs/reference/use-cases.md` gains Section O (see "Testing impacts").
+- `docs/reference/data-model.md`: no change (see "Changes to the domain data model").
+
+## Rollout & migration
+
+No data migration or backfill — purely additive API surface (two new mutations, one new enum case)
+and new webapp routes/buttons over existing, unchanged storage. No feature flag: both mutations are
+authorization-gated at the API layer regardless of whether the webapp UI exposing them has deployed
+yet, so there's no unsafe intermediate state to gate against — deploying the API first and the
+webapp second (or the reverse) is both fine. Deploys cleanly through the normal
+ephemeral → `production` path via `mootmaker-release`, same as every other feature.
+
+## Risks
+
+- **Hard delete is irreversible by design** (Decision 4, made explicitly, not overlooked). The
+  confirmation dialog (Decision 5) is the whole mitigation — same accepted trade-off as
+  `delete-my-account.md`'s own "friction, no re-authentication" precedent. There is no undo, no
+  trash/recovery window, and no audit trail of who cancelled what.
+- **Enum addition compatibility**: adding `MeetingNotFound` to the shared `MeetingError` GraphQL
+  enum is additive and should be backward compatible for any existing client selecting on it
+  (unknown-enum-value handling is typically graceful in generated GraphQL clients), but
+  `mootmaker-android` was not researched as part of this design — worth a quick check during
+  implementation that its GraphQL client tolerates an enum gaining a case it doesn't recognise,
+  even though Android has no UI work in this feature.
+- **Reassigning the organiser (Decision 7)** means a meeting's edit/cancel permissions can change
+  out from under the person currently looking at it (they edit themselves out as organiser, then
+  immediately lose their own Edit/Cancel buttons on next render/refetch) — intentional, not a bug,
+  but worth knowing it's a real, reachable interaction rather than a theoretical one.
+
+## Implementation checklist
+
+Deliberately sparse while Drafting — filled in properly once Status moves to Ready (this doc's own
+convention, see `designs/README.md`).
+
+## Definition of done
+
+Per this project's standard bar: the feature's own new acceptance coverage (Section O) is green,
+the full existing acceptance suite is still green on a real deployed environment, each touched
+repo's own unit tests pass, `mootmaker-webapp/README.md` and `mootmaker-api/README.md` are updated,
+`docs/reference/use-cases.md` has Section O, and Open question 1 has been answered and reflected in
+both the validation rules and the acceptance coverage.
