@@ -96,6 +96,13 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
    X." `respondToMeeting`'s separate `RespondToMeetingError` enum (`mootmaker.graphql:247-254`) is
    not the precedent to follow here; that mutation's error set is genuinely disjoint from
    `createMeeting`'s, where `updateMeeting`/`cancelMeeting` share nearly all of theirs with it.
+10. **An already-open meeting detail sheet/panel must reflect another client's edit or cancellation
+    live, with no reload** — this app already promises exactly that for attendee responses
+    (`designs/archive/attendee-response-status.md`, proven by acceptance case M.111, "A response
+    made by another client is reflected live"), and there is no principled reason edit/cancel
+    should be held to a weaker bar than RSVP was. This is **not automatic** from the existing
+    `daysInvalidated` broadcast alone — see "Technical considerations" for why, and what has to
+    change. I did not address this in the first draft of this doc; Geoff caught the gap.
 
 ## Choices you had me make
 
@@ -136,6 +143,12 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
    confirmation dialog copy than an organiser cancelling their own (e.g. naming the organiser: "This
    will permanently delete Priya Nair's meeting..."). Cosmetic; can be resolved during
    implementation.
+4. When a meeting a viewer has open gets cancelled by someone else (Decision 10), should the sheet
+   auto-close after showing "This meeting was cancelled" for a moment, or stay open with that
+   message until the viewer closes it themselves? I'd default to staying open — auto-closing a
+   panel out from under someone reading it is its own kind of surprising, and `EmptyState` already
+   establishes the visual language for "nothing here" without needing a timed dismissal anywhere
+   else in the app. Cheap to change during implementation.
 
 ## Impacts on components
 
@@ -146,11 +159,14 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
   support excluding the meeting-being-edited from its own double-booking check.
 - **`mootmaker-webapp`**: new `/meetings/:meetingId/edit` route in `App.tsx`; `AddMeetingPage.tsx`
   generalized to handle both add and edit (Decision 2); `MeetingDetailContent.tsx` gains Edit and
-  Cancel icon buttons plus the cancel confirmation dialog (a new `CancelMeetingDialog.tsx`,
-  following `DeleteAccountSection`'s pattern); `graphql/mutations.ts` gains `UPDATE_MEETING`/
-  `CANCEL_MEETING`; `graphql/validationMessages.ts`'s `MEETING_ERROR_MESSAGES` gains
-  `MeetingNotFound` (required — the map is typed `Record<MeetingError, string>`, so this won't
-  compile until it's added); new acceptance test-case file (see "Testing impacts").
+  Cancel icon buttons, the cancel confirmation dialog (a new `CancelMeetingDialog.tsx`, following
+  `DeleteAccountSection`'s pattern), and the `useFragment` live-binding moved in from
+  `useMeetingDetailOverlay.tsx` (Decision 10) plus the "meeting no longer exists" `EmptyState`;
+  `graphql/queries.ts`'s `MEETING_ATTENDEES_FRAGMENT` broadened to cover every editable field, not
+  just `attendees`; `graphql/mutations.ts` gains `UPDATE_MEETING`/`CANCEL_MEETING`;
+  `graphql/validationMessages.ts`'s `MEETING_ERROR_MESSAGES` gains `MeetingNotFound` (required — the
+  map is typed `Record<MeetingError, string>`, so this won't compile until it's added); new
+  acceptance test-case file plus two new cases in `m-cross-cutting.md` (see "Testing impacts").
 - **`mootmaker`** (hub): this design doc; `docs/reference/use-cases.md` gains a new Section O; no
   change needed to `docs/reference/data-model.md` — no storage shape changes (see "Changes to the
   domain data model").
@@ -175,6 +191,48 @@ code — this is exactly the mechanism it already exists for. The only schema-le
 
 ## Technical considerations
 
+- **Why the existing `daysInvalidated` broadcast alone is not enough for an open sheet.** Cancelling
+  or creating a meeting already broadcasts `publishDaysInvalidated` → `Subscription.daysInvalidated`
+  → every other client evicts its `Day:<date>` cache entry and (via `cache.gc()`,
+  `daysInvalidated.ts:66`) garbage-collects any now-unreachable normalized entity — this is real and
+  correct, and it's exactly why the underlying page (Home, Room Availability, Person Calendar) behind
+  an open sheet already updates its list/grid live today. The gap is narrower and more specific: the
+  **open sheet itself** does not read from that refetched Day query. `useMeetingDetailOverlay.tsx`'s
+  `openMeeting` is `useState` set once, from whichever `Meeting` object the caller passed to `open()`
+  at click time — a frozen snapshot, deliberately, per `resolveMeetingDetails`'s own doc comment
+  (`useMeetingDetailOverlay.tsx:9-13`). The one thing that currently escapes that freeze is attendee
+  status, via `MEETING_ATTENDEES_FRAGMENT` and `useFragment` (`queries.ts:184-203`) — Apollo's
+  mechanism for reading one normalized entity's *current* cached fields regardless of which query
+  populated them, independent of the frozen snapshot around it. Its own doc comment is explicit that
+  the snapshot was considered "correct for fields that never change after creation (subject, times,
+  room, organiser)" — true when that comment was written, false as soon as `updateMeeting` exists.
+- **The fix: broaden the existing fragment, and move it to where both surfaces share it.**
+  `MEETING_ATTENDEES_FRAGMENT` becomes a fragment covering every field `updateMeeting` can change
+  (`subject`, `room { id name }`, `organiser { id name }`, `startTime`, `endTime`, `attendees` as
+  today) — the same `useFragment` mechanism, just no longer artificially narrowed to the one field
+  that used to be the only mutable one. The `useFragment` call itself should move from
+  `useMeetingDetailOverlay.tsx` into `MeetingDetailContent.tsx`, the single shared render surface
+  ("PARITY INVARIANT", `MeetingDetailContent.tsx:34-41`) — not just for symmetry, but because
+  `MeetingDetailsPage.tsx` (the full-page bookmarked-link view) currently has **no live binding of
+  any kind**, not even for attendee status (`MeetingDetailsPage.tsx` runs a plain one-shot
+  `useQuery(MEETING_BY_ID)`); moving the fragment into the shared component fixes that pre-existing
+  gap for free, consistent with the whole reason that component exists. As long as something is
+  still watching the underlying Day query (true whenever the sheet/panel is open, since opening it
+  requires the hosting page to be mounted; also true for `MeetingDetailsPage` itself, which runs its
+  own `MEETING_BY_ID` query), the ordinary gap-refetch after eviction writes fresh field values into
+  the normalized `Meeting:<id>` entity, and the broadened fragment picks them up with no new
+  plumbing beyond the fragment's field list.
+- **Detecting "this meeting no longer exists" needs the fragment's `complete` flag, tracked across
+  renders.** When `cancelMeeting` removes a meeting from its Day and `cache.gc()` collects the
+  now-unreachable `Meeting:<id>` entity, `useFragment`'s `complete` flips to `false` — but `complete`
+  is also `false` for an instant before the *first* read resolves, so the sheet needs to distinguish
+  "hasn't loaded yet" from "existed, and now doesn't" (e.g. a ref/state tracking whether `complete`
+  was ever `true` for this meeting id). Once detected, `MeetingDetailContent` should show something
+  in place of the (now-stale) frozen content — reusing the existing `EmptyState` component
+  (`components/EmptyState.tsx`) with copy like "This meeting was cancelled," never silently
+  continuing to show frozen data and never crashing on now-missing fields. Whether the sheet also
+  auto-closes after a delay, or stays open showing that message until the viewer closes it
+  themselves, is Open question 4 below.
 - **`MeetingValidator.dayStateErrors` needs an "exclude this meeting id" parameter.** Today it
   checks `RoomAvailability.isFree(meetingsThatDay, roomId, startTime, endTime)`
   (`MeetingValidator.java:85-90`) against every meeting already in the day. For an update, the
@@ -259,6 +317,22 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   - `mootmaker-release`'s smoke suite is **not** touched — editing/cancelling a meeting isn't part
     of the deliberately minimal five-minute smoke pass, and doesn't change any copy or structure
     the existing smoke suite asserts on.
+- **Acceptance — cross-client live update**: two new cases in the existing
+  `m-cross-cutting.md`/`## M. Cross-cutting` (not the new O section — this is where the project
+  already houses cross-client real-time-sync proofs, per M.109–M.111 covering the same mechanism
+  for `respondToMeeting`), directly answering Decision 10 and this doc's own earlier gap:
+  - **An edit made by another client is reflected on an already-open meeting detail sheet.** Mirrors
+    M.111's exact shape: observer opens a meeting's detail sheet (organiser or an unrelated admin
+    session); a second session calls `updateMeeting` directly over the API, changing subject and
+    time; the observer's already-open sheet — untouched, no reload or navigation — is asserted again
+    and shows the new subject and time within the same window M.111 uses (30s).
+  - **A cancellation made by another client is reflected on an already-open meeting detail sheet.**
+    Same shape, but the second session calls `cancelMeeting`; the observer's sheet is asserted to
+    show the "This meeting was cancelled" `EmptyState` (Decision 10/Open question 4), not the stale
+    frozen content, and not an error or a blank crash. If Open question 4 resolves to auto-close,
+    this assertion changes to "the sheet closes itself" instead.
+  - Both reuse `tests/attendee-response-status.spec.ts`'s existing two-browser-context technique
+    (M.111's own Steps/Preconditions shape) rather than inventing a new one.
 
 ## Documentation impacts
 
