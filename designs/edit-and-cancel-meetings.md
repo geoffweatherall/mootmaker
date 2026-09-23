@@ -103,6 +103,27 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
     should be held to a weaker bar than RSVP was. This is **not automatic** from the existing
     `daysInvalidated` broadcast alone — see "Technical considerations" for why, and what has to
     change. I did not address this in the first draft of this doc; Geoff caught the gap.
+11. **When a meeting a viewer has open gets cancelled by someone else, the sheet stays open showing
+    "This meeting was cancelled" rather than auto-closing** — Geoff confirmed. Auto-closing a panel
+    out from under someone reading it would be its own kind of surprising; `EmptyState` already
+    establishes the visual language for this without needing a timed dismissal anywhere else in the
+    app.
+12. **No restriction based on whether the meeting has already happened or is in progress** — Geoff
+    chose this explicitly over `deleteMyAccount`'s "past meetings untouched" precedent, which is
+    narrower and account-deletion-specific, not a general precedent this feature has to follow.
+    `updateMeeting`/`cancelMeeting` apply the same field-level validation `create` already does to
+    the *requested* new time (15-minute boundary, `OutsideBookableRange` against the submitted
+    start/end, capacity, room availability) but add no check of the *existing* meeting's own
+    start/end against the current time at all — a meeting that ended yesterday, or one happening
+    right now, can be edited or cancelled exactly like one next week.
+13. **A hidden Edit/Cancel button shows nothing — no disabled state, no tooltip.** Matches
+    `AttendeeStatusControl`'s existing precedent (shown only to an attendee, absent otherwise) —
+    Geoff confirmed keeping this consistent rather than introducing a new disabled-with-tooltip
+    pattern for just this one control.
+14. **The cancel confirmation dialog uses the same generic copy regardless of who's cancelling** —
+    "This permanently deletes '\<subject\>' for every attendee..." whether it's the organiser
+    cancelling their own meeting or an admin cancelling someone else's. Geoff confirmed; one string,
+    no admin-specific variant naming the organiser.
 
 ## Choices you had me make
 
@@ -120,35 +141,9 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
 
 ## Open questions
 
-**Blocking:**
-
-1. **Can a past or already-started meeting be edited or cancelled?** `createMeeting` already
-   enforces a bookable date range (`OutsideBookableRange`), but that governs how far in the
-   future you can book, not what to do with a meeting that has already happened or is happening
-   right now. `deleteMyAccount`'s cascade explicitly leaves past meetings untouched
-   (`mootmaker.graphql:76`: "Past meetings are left untouched"), which reads as a precedent for
-   blocking edit/cancel on anything in the past — but cancelling a meeting that's *currently in
-   progress* (e.g. it's overrunning and the room is needed) is plausibly something an organiser or
-   admin should still be able to do. I don't have enough signal to default this one — needs
-   Geoff's call before Status can move to Ready.
-
-**Non-blocking:**
-
-2. Should the webapp show *why* an edit/cancel button is hidden (e.g. a disabled button with a
-   tooltip "Only the organiser or an admin can edit this meeting") instead of hiding it outright?
-   Every other permission-gated control in this app (e.g. `AttendeeStatusControl`, shown only to an
-   attendee) hides outright with no explanation, so I'd default to that for consistency — but it's
-   cheap to change during implementation if Geoff prefers a tooltip.
-3. Whether an admin cancelling *someone else's* meeting should read any differently in the
-   confirmation dialog copy than an organiser cancelling their own (e.g. naming the organiser: "This
-   will permanently delete Priya Nair's meeting..."). Cosmetic; can be resolved during
-   implementation.
-4. When a meeting a viewer has open gets cancelled by someone else (Decision 10), should the sheet
-   auto-close after showing "This meeting was cancelled" for a moment, or stay open with that
-   message until the viewer closes it themselves? I'd default to staying open — auto-closing a
-   panel out from under someone reading it is its own kind of surprising, and `EmptyState` already
-   establishes the visual language for "nothing here" without needing a timed dismissal anywhere
-   else in the app. Cheap to change during implementation.
+None outstanding. All three raised during drafting (past/in-progress meetings; hidden vs.
+disabled-with-tooltip buttons; admin-specific cancel copy) were resolved directly with Geoff — see
+Decisions 12–14.
 
 ## Impacts on components
 
@@ -230,9 +225,8 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   was ever `true` for this meeting id). Once detected, `MeetingDetailContent` should show something
   in place of the (now-stale) frozen content — reusing the existing `EmptyState` component
   (`components/EmptyState.tsx`) with copy like "This meeting was cancelled," never silently
-  continuing to show frozen data and never crashing on now-missing fields. Whether the sheet also
-  auto-closes after a delay, or stays open showing that message until the viewer closes it
-  themselves, is Open question 4 below.
+  continuing to show frozen data and never crashing on now-missing fields. The sheet stays open
+  showing that message rather than auto-closing (Decision 11).
 - **`MeetingValidator.dayStateErrors` needs an "exclude this meeting id" parameter.** Today it
   checks `RoomAvailability.isFree(meetingsThatDay, roomId, startTime, endTime)`
   (`MeetingValidator.java:85-90`) against every meeting already in the day. For an update, the
@@ -308,7 +302,9 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   - Admin cancels a meeting they don't organise.
   - `MeetingNotFound`: two admins both try to cancel the same meeting; the second gets a graceful
     error, not a crash or a silent no-op.
-  - Whatever Open question 1 resolves to, once answered.
+  - A past meeting (already ended) and a currently-in-progress meeting can both still be edited and
+    cancelled by their organiser or an admin, same as an upcoming one (Decision 12) — one case per
+    state is enough to prove no time-based restriction was accidentally introduced.
   - Not planned as a new e2e (mocked-integration) case beyond what's listed under unit/mocked
     integration above — this feature is a straightforward CRUD extension of an existing,
     already-well-covered mutation family, and the acceptance layer against a real environment is
@@ -328,9 +324,8 @@ code — this is exactly the mechanism it already exists for. The only schema-le
     and shows the new subject and time within the same window M.111 uses (30s).
   - **A cancellation made by another client is reflected on an already-open meeting detail sheet.**
     Same shape, but the second session calls `cancelMeeting`; the observer's sheet is asserted to
-    show the "This meeting was cancelled" `EmptyState` (Decision 10/Open question 4), not the stale
-    frozen content, and not an error or a blank crash. If Open question 4 resolves to auto-close,
-    this assertion changes to "the sheet closes itself" instead.
+    stay open and show the "This meeting was cancelled" `EmptyState` (Decisions 10-11), not the
+    stale frozen content, and not an error or a blank crash.
   - Both reuse `tests/attendee-response-status.spec.ts`'s existing two-browser-context technique
     (M.111's own Steps/Preconditions shape) rather than inventing a new one.
 
@@ -377,8 +372,8 @@ convention, see `designs/README.md`).
 
 ## Definition of done
 
-Per this project's standard bar: the feature's own new acceptance coverage (Section O) is green,
-the full existing acceptance suite is still green on a real deployed environment, each touched
-repo's own unit tests pass, `mootmaker-webapp/README.md` and `mootmaker-api/README.md` are updated,
-`docs/reference/use-cases.md` has Section O, and Open question 1 has been answered and reflected in
-both the validation rules and the acceptance coverage.
+Per this project's standard bar: the feature's own new acceptance coverage (Section O, plus the two
+new cross-client cases in `m-cross-cutting.md`) is green, the full existing acceptance suite is
+still green on a real deployed environment, each touched repo's own unit tests pass, and
+`mootmaker-webapp/README.md`, `mootmaker-api/README.md`, and `docs/reference/use-cases.md` are
+updated.
