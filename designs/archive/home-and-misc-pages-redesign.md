@@ -7,7 +7,7 @@ Brings the Home page, and every other webapp page except Settings, into the visu
 layout, no marketing-style hero imagery, restrained actions instead of competing CTA buttons.
 Follows up on [mootmaker-webapp#111](https://github.com/geoffweatherall/mootmaker-webapp/issues/111)'s
 loading-state fix with the deeper visual pass Geoff asked for directly, and revises part of
-[`attendee-response-status.md`](../attendee-response-status.md)'s Home page design: "Needs your
+[`attendee-response-status.md`](attendee-response-status.md)'s Home page design: "Needs your
 response" gains an explicit time range and an incremental way to look further ahead, and the
 Today/Tomorrow agenda goes from that design's per-list "show more" cards back to one merged
 calendar-style list. Also generalizes its empty-state icon treatment into the app's standard empty
