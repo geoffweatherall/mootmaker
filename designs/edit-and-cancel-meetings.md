@@ -147,6 +147,18 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
     front. No new backend ranking rule, no new schema field beyond Decision 15's
     `excludingMeetingId` (which this reuses), and it's a pure-function change to test the same way
     `addMeetingLogic.test.ts` already tests the rest of this file.
+17. **Editing a meeting's date to a different calendar day is supported**, not blocked. Caught
+    mid-implementation: a meeting lives inside one calendar day's DynamoDB item, and moving it
+    means removing it from one day's item and adding it to a different one - genuinely two
+    separate writes, not something `DayRepository.mutate`'s existing single-day transaction can do
+    (it manages exactly one day item plus that day's own pointer diff). Geoff chose to support
+    this properly (write-to-new-day-first, then remove-from-old-day) over the simpler
+    same-day-only restriction, accepting the added complexity documented in "Technical
+    considerations" below - a new `DayRepository.moveMeeting` method, ordered so a failure between
+    the two writes leaves the meeting briefly on *both* days (an overcount, harmless, recoverable)
+    rather than on neither (unrecoverable data loss). A same-day edit never calls this at all - it
+    stays on the existing, unchanged `DayRepository.mutate` path (Decision 6 and "Choices you had
+    me make", untouched by this decision).
 
 ## Choices you had me make
 
@@ -308,6 +320,34 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   much longer subject to an otherwise-full day could in principle trip `DayItemTooLargeException`,
   surfaced the same way create already surfaces it (as `DayIsFull`) — no new handling needed, just
   worth knowing it applies here too.
+- **A new `DayRepository.moveMeeting` method, for a cross-day edit (Decision 17).** The existing
+  pointer write (`pointerPut`, `DayRepository.java:224-233`) is conditional on
+  `attribute_not_exists(pk)` — collision-safety for a freshly allocated id, but it means re-adding
+  an *existing* id to a different day's `meetings` list via the ordinary `mutate`/`writeItems`
+  path would collide with that same id's own still-live pointer at the old date and fail every
+  retry identically, not just once. `mutate` is refactored into a shared internal retry/size-check
+  loop (`mutateInternal`, parameterised over how pointer-related transaction items are built from
+  before/after state) plus two callers: `mutate` itself (unchanged external behaviour — always
+  diffs and manages pointers automatically, exactly as today) and the new `moveMeeting`, which
+  supplies its own pointer handling instead of the automatic diff:
+  1. **Add** the updated record to `toDate`'s day, in the same transaction as an `Update` (not
+     `Put`) on the pointer item — `SET date = :toDate` conditional on the pointer's *current* value
+     still being `:fromDate`, so two concurrent moves of the same meeting cannot both "win" and
+     leave the pointer in an inconsistent state.
+  2. **Remove** the record from `fromDate`'s day — a write that must touch *no* pointer at all
+     (it was already repointed in step 1), unlike an ordinary loss through `mutate`, which always
+     deletes a lost id's pointer as part of its normal diff.
+
+  Add-then-remove is deliberate, not incidental: a failure (a thrown exception, a Lambda timeout,
+  the process dying) between the two steps leaves the meeting visible on *both* days — an
+  overcount, harmless, and safe for a retry to finish cleaning up — never gone from *both*, which
+  nothing could recover. Idempotent by construction: `moveMeeting` starts by reading the pointer
+  itself; already at `toDate` means step 1 already committed (this is a retry of a call whose
+  first write actually succeeded) and only step 2 runs; still at `fromDate` means neither step has
+  run and both do. `UpdateMeetingHandler` calls this only when the requested new date differs from
+  the meeting's current one (itself resolved via the existing `findDateOfMeeting`, which already
+  backs `Query.meeting(id:)`); a same-day edit never touches any of this and stays on the ordinary,
+  completely unchanged `mutate` path.
 - **Top-level (Forbidden) errors need the app's existing generic error handling, not new UI.** A
   rejected `updateMeeting`/`cancelMeeting` due to authorization surfaces as a top-level GraphQL
   error (Decision 8), not inside `errors: [MeetingError!]!`. `mootmaker-webapp/README.md` documents
@@ -339,6 +379,13 @@ code — this is exactly the mechanism it already exists for. The only schema-le
     organiser-allowed, admin-allowed, neither-rejected (`Forbidden`), and `MeetingNotFound` (an id
     that doesn't resolve to any meeting, and the concurrent-retry case where it stops existing
     mid-retry).
+  - New `DayRepositoryTest` cases for `moveMeeting` (Decision 17): a normal move (the record
+    appears on `toDate`, is gone from `fromDate`, and the pointer resolves to `toDate` afterward);
+    idempotent resume (calling it again after the pointer already points to `toDate` only performs
+    the removal, never attempts step 1 twice); a version conflict on either day during either step
+    still converges within `MAX_WRITE_ATTEMPTS`; `UpdateMeetingHandler` picks `moveMeeting` only
+    when the requested date differs from the meeting's current one, plain `mutate` otherwise
+    (asserted at the handler level, not just the repository's).
 - **Unit/mocked-integration (`mootmaker-webapp`)**: the generalized add/edit form component gets
   tests for prefilling from a fetched meeting, submitting `UPDATE_MEETING` instead of
   `CREATE_MEETING`, and the new `MeetingNotFound` error message rendering. A new `addMeetingLogic.ts`
@@ -381,6 +428,11 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   - A past meeting (already ended) and a currently-in-progress meeting can both still be edited and
     cancelled by their organiser or an admin, same as an upcoming one (Decision 12) — one case per
     state is enough to prove no time-based restriction was accidentally introduced.
+  - **Edit a meeting's date to a different day** (Decision 17): the meeting disappears from its
+    original date's grid and appears on the new date's, its id is unchanged (the same meeting, not
+    a new one — checked via a direct `meeting(id:)` lookup resolving to the new date), and a second
+    edit of the same meeting immediately afterward still works (proves the pointer genuinely moved,
+    not just the day's own meetings list).
   - Not planned as a new e2e (mocked-integration) case beyond what's listed under unit/mocked
     integration above — this feature is a straightforward CRUD extension of an existing,
     already-well-covered mutation family, and the acceptance layer against a real environment is
@@ -490,63 +542,69 @@ Each repo gets its own `feature/edit-and-cancel-meetings` branch and PR (a PR ca
    (self-overlap, day-at-cap-during-edit).
 4. Same `isFree` → `isFreeIgnoring` swap in `SuggestRoomHandler.java`, gated on the new
    `excludingMeetingId` argument; new `SuggestRoomHandlerTest` cases.
-5. `UpdateMeetingHandler.java`: mirrors `CreateMeetingHandler`'s `DayRepository.mutate`
-   read-modify-write/retry shape; authorization (organiser's `cognitoSubs` contains caller `sub`,
-   or `Identity.isAdmin`) before the mutation runs, `Forbidden` `IllegalStateException` on failure;
-   `MeetingNotFound` if the id isn't in `meetingsThatDay`, re-checked inside the retry loop, not
-   just up front; `broadcaster.publish(List.of(date))` after a successful write. Unit tests:
-   organiser-allowed, admin-allowed, forbidden, not-found, concurrent-retry-finds-it-gone.
-6. `CancelMeetingHandler.java`: same shape, removing the meeting from `meetings` instead of
+5. New `DayRepository.moveMeeting` (Decision 17) plus its `mutateInternal` refactor of `mutate` -
+   land and unit-test this first, since `UpdateMeetingHandler` depends on it for a cross-day edit.
+6. `UpdateMeetingHandler.java`: resolves the meeting's current date via `findDateOfMeeting`
+   (`MeetingNotFound` if absent); authorization against the *current* record's organiser
+   (`cognitoSubs` contains caller `sub`, or `Identity.isAdmin`) before applying anything, `Forbidden`
+   `IllegalStateException` on failure; same-date edit uses the existing `DayRepository.mutate`
+   (mirroring `CreateMeetingHandler`'s read-modify-write/retry shape exactly, with
+   `excludingMeetingId` threaded through `dayStateErrors`); different-date edit uses the new
+   `moveMeeting` instead; `broadcaster.publish` for the date(s) actually written (both, on a move) on
+   success. Unit tests: organiser-allowed, admin-allowed, forbidden, not-found,
+   concurrent-retry-finds-it-gone, same-date-uses-mutate vs different-date-uses-moveMeeting.
+7. `CancelMeetingHandler.java`: same shape, removing the meeting from `meetings` instead of
    replacing a field-set; relies on `DayRepository.writeItems`'s existing pointer diff to delete the
-   `PTR#<meetingId>` row. Same unit test set as step 5.
-7. Terraform: register both new Lambda handlers the same way `CreateMeetingHandler`'s is wired
+   `PTR#<meetingId>` row. Same unit test set as step 6 (minus the move-vs-mutate case, which has
+   no cancel equivalent).
+8. Terraform: register both new Lambda handlers the same way `CreateMeetingHandler`'s is wired
    (`deploy/terraform/`), and their AppSync resolvers.
-8. `mvn -f impl/pom.xml spotless:apply` and `mvn -f impl/pom.xml test` green.
-9. Update `mootmaker-api/README.md`'s data-model section.
+9. `mvn -f impl/pom.xml spotless:apply` and `mvn -f impl/pom.xml test` green.
+10. Update `mootmaker-api/README.md`'s data-model section.
 
 **`mootmaker-webapp`**:
-10. `graphql/queries.ts`: broaden `MEETING_ATTENDEES_FRAGMENT` to every editable field (subject,
+11. `graphql/queries.ts`: broaden `MEETING_ATTENDEES_FRAGMENT` to every editable field (subject,
     room, organiser, startTime, endTime, attendees); add `excludingMeetingId` variable to
     `SUGGEST_ROOM`.
-11. `graphql/mutations.ts`: `UPDATE_MEETING`/`CANCEL_MEETING`. `graphql/validationMessages.ts`:
+12. `graphql/mutations.ts`: `UPDATE_MEETING`/`CANCEL_MEETING`. `graphql/validationMessages.ts`:
     `MeetingNotFound` added to `MEETING_ERROR_MESSAGES` (required for the `Record<MeetingError,
     string>` type to compile once step 1's schema change lands).
-12. `npm run codegen` (against the updated `mootmaker-api` schema) and `npm run codegen:check`.
-13. Generalize `AddMeetingPage.tsx` for add+edit (Decision 2): a `meetingId` route param switches
+13. `npm run codegen` (against the updated `mootmaker-api` schema) and `npm run codegen:check`.
+14. Generalize `AddMeetingPage.tsx` for add+edit (Decision 2): a `meetingId` route param switches
     heading/mutation/post-submit navigation; edit mode fetches fresh via the existing `MEETING_BY_ID`
     query (Decision 3), never `location.state`.
-14. `addMeetingLogic.ts`: same-room-priority reordering (Decision 16) when editing, plus its unit
+15. `addMeetingLogic.ts`: same-room-priority reordering (Decision 16) when editing, plus its unit
     tests.
-15. New route `/meetings/:meetingId/edit` in `App.tsx`.
-16. `MeetingDetailContent.tsx`: Edit/Cancel icon buttons gated by `canEdit`; the `useFragment`
+16. New route `/meetings/:meetingId/edit` in `App.tsx`.
+17. `MeetingDetailContent.tsx`: Edit/Cancel icon buttons gated by `canEdit`; the `useFragment`
     live-binding moved in from `useMeetingDetailOverlay.tsx` (now covering every broadened field);
     the "This meeting was cancelled" `EmptyState` on the fragment going incomplete.
     `useMeetingDetailOverlay.tsx` loses the binding it no longer owns.
-17. New `CancelMeetingDialog.tsx`, following `DeleteAccountSection`'s confirm-dialog pattern,
+18. New `CancelMeetingDialog.tsx`, following `DeleteAccountSection`'s confirm-dialog pattern,
     mounted so the sheet/panel stays visible (dimmed) behind it (Decision 5) — never conditionally
     rendered as an alternative to it.
-18. Tests: form prefill/submit/`MeetingNotFound` rendering; `addMeetingLogic.ts` reorder test;
+19. Tests: form prefill/submit/`MeetingNotFound` rendering; `addMeetingLogic.ts` reorder test;
     `MeetingDetailContent` button-visibility under `canEdit`; `CancelMeetingDialog` DOM-presence
     test; mocked live-binding tests (all fields including attendee status, plus the
     complete-flips-false → `EmptyState` case) — see "Testing impacts" for the full list.
-19. Update `mootmaker-webapp/README.md`.
+20. Update `mootmaker-webapp/README.md`.
 
 **`mootmaker`** (hub):
-20. `docs/reference/use-cases.md`: new `## O. Edit and Cancel Meetings` section (appended after N).
-21. New `acceptance/test-cases/o-edit-and-cancel-meetings.md` in `mootmaker-webapp` (lives in that
+21. `docs/reference/use-cases.md`: new `## O. Edit and Cancel Meetings` section (appended after N).
+22. New `acceptance/test-cases/o-edit-and-cancel-meetings.md` in `mootmaker-webapp` (lives in that
     repo, tracked here since it's driven by this doc's own use-case numbering) with every case
     listed under "Testing impacts", plus the two new `m-cross-cutting.md` cases.
-22. Corresponding Playwright specs in `mootmaker-webapp/acceptance/tests/`.
+23. Corresponding Playwright specs in `mootmaker-webapp/acceptance/tests/`.
 
 **Deploy and verify**:
-23. `[Claude]` Create (or reuse this session's) ephemeral environment; deploy `mootmaker-api` then
+24. `[Claude]` Create (or reuse this session's) ephemeral environment; deploy `mootmaker-api` then
     `mootmaker-webapp` to it, in that order (webapp reads the API's Terraform outputs).
-24. `[Claude]` Fix any bugs surfaced along the way; re-confirm each touched repo's own unit tests.
-25. `[Claude]` Full acceptance suite green against that environment — not just the new Section O/M
+25. `[Claude]` Fix any bugs surfaced along the way; re-confirm each touched repo's own unit tests.
+26. `[Claude]` Full acceptance suite green against that environment — not just the new Section O/M
     cases, the whole existing suite, per this project's actual definition of working.
-26. `[Geoff]` Review and merge each repo's PR — no separate approval step beyond reading the diff,
+27. `[Geoff]` Review and merge each repo's PR — no separate approval step beyond reading the diff,
     per `docs/process/branching-and-prs.md`.
-27. `[Claude]` Tear down the ephemeral environment once Geoff confirms, as part of finishing.
+28. `[Claude]` Tear down the ephemeral environment once Geoff confirms, as part of finishing.
 
 ## Definition of done
 
