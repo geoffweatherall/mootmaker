@@ -15,7 +15,9 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
 
 ## Status
 
-**Drafting** — 2026-09-24.
+**Ready** — 2026-09-24, promoted by Geoff. Every blocking open question is resolved (see Decisions
+12-14); the cross-client live-update gap and the room-availability self-overlap bug (Decisions
+10-11, 15-16) were caught and closed during review.
 
 ## Scope / non-goals
 
@@ -472,8 +474,79 @@ ephemeral → `production` path via `mootmaker-release`, same as every other fea
 
 ## Implementation checklist
 
-Deliberately sparse while Drafting — filled in properly once Status moves to Ready (this doc's own
-convention, see `designs/README.md`).
+Ordered by dependency — `mootmaker-api` first (webapp can't be wired up without the schema it
+targets), then `mootmaker-webapp`, then `mootmaker` (hub docs/use-cases), then deploy and verify.
+Each repo gets its own `feature/edit-and-cancel-meetings` branch and PR (a PR cannot span repos —
+`docs/process/branching-and-prs.md`).
+
+**`mootmaker-api`** (all `[Claude]` unless noted):
+1. Add `MeetingNotFound` to `MeetingError` (both `MeetingError.java` and `mootmaker.graphql`,
+   mirrored per this repo's convention).
+2. Schema: `UpdateMeetingResult`/`CancelMeetingResult` types; `updateMeeting`/`cancelMeeting`
+   mutations; `excludingMeetingId: ID` added to `Query.suggestRoom`.
+3. New `RoomAvailabilityTest.java`; switch `MeetingValidator.dayStateErrors` from `isFree` to
+   `isFreeIgnoring`, threading an `excludingMeetingId` parameter through (`null` from `create`); fix
+   `DayIsFull`'s count to exclude that same id when present; new `MeetingValidatorTest` cases
+   (self-overlap, day-at-cap-during-edit).
+4. Same `isFree` → `isFreeIgnoring` swap in `SuggestRoomHandler.java`, gated on the new
+   `excludingMeetingId` argument; new `SuggestRoomHandlerTest` cases.
+5. `UpdateMeetingHandler.java`: mirrors `CreateMeetingHandler`'s `DayRepository.mutate`
+   read-modify-write/retry shape; authorization (organiser's `cognitoSubs` contains caller `sub`,
+   or `Identity.isAdmin`) before the mutation runs, `Forbidden` `IllegalStateException` on failure;
+   `MeetingNotFound` if the id isn't in `meetingsThatDay`, re-checked inside the retry loop, not
+   just up front; `broadcaster.publish(List.of(date))` after a successful write. Unit tests:
+   organiser-allowed, admin-allowed, forbidden, not-found, concurrent-retry-finds-it-gone.
+6. `CancelMeetingHandler.java`: same shape, removing the meeting from `meetings` instead of
+   replacing a field-set; relies on `DayRepository.writeItems`'s existing pointer diff to delete the
+   `PTR#<meetingId>` row. Same unit test set as step 5.
+7. Terraform: register both new Lambda handlers the same way `CreateMeetingHandler`'s is wired
+   (`deploy/terraform/`), and their AppSync resolvers.
+8. `mvn -f impl/pom.xml spotless:apply` and `mvn -f impl/pom.xml test` green.
+9. Update `mootmaker-api/README.md`'s data-model section.
+
+**`mootmaker-webapp`**:
+10. `graphql/queries.ts`: broaden `MEETING_ATTENDEES_FRAGMENT` to every editable field (subject,
+    room, organiser, startTime, endTime, attendees); add `excludingMeetingId` variable to
+    `SUGGEST_ROOM`.
+11. `graphql/mutations.ts`: `UPDATE_MEETING`/`CANCEL_MEETING`. `graphql/validationMessages.ts`:
+    `MeetingNotFound` added to `MEETING_ERROR_MESSAGES` (required for the `Record<MeetingError,
+    string>` type to compile once step 1's schema change lands).
+12. `npm run codegen` (against the updated `mootmaker-api` schema) and `npm run codegen:check`.
+13. Generalize `AddMeetingPage.tsx` for add+edit (Decision 2): a `meetingId` route param switches
+    heading/mutation/post-submit navigation; edit mode fetches fresh via the existing `MEETING_BY_ID`
+    query (Decision 3), never `location.state`.
+14. `addMeetingLogic.ts`: same-room-priority reordering (Decision 16) when editing, plus its unit
+    tests.
+15. New route `/meetings/:meetingId/edit` in `App.tsx`.
+16. `MeetingDetailContent.tsx`: Edit/Cancel icon buttons gated by `canEdit`; the `useFragment`
+    live-binding moved in from `useMeetingDetailOverlay.tsx` (now covering every broadened field);
+    the "This meeting was cancelled" `EmptyState` on the fragment going incomplete.
+    `useMeetingDetailOverlay.tsx` loses the binding it no longer owns.
+17. New `CancelMeetingDialog.tsx`, following `DeleteAccountSection`'s confirm-dialog pattern,
+    mounted so the sheet/panel stays visible (dimmed) behind it (Decision 5) — never conditionally
+    rendered as an alternative to it.
+18. Tests: form prefill/submit/`MeetingNotFound` rendering; `addMeetingLogic.ts` reorder test;
+    `MeetingDetailContent` button-visibility under `canEdit`; `CancelMeetingDialog` DOM-presence
+    test; mocked live-binding tests (all fields including attendee status, plus the
+    complete-flips-false → `EmptyState` case) — see "Testing impacts" for the full list.
+19. Update `mootmaker-webapp/README.md`.
+
+**`mootmaker`** (hub):
+20. `docs/reference/use-cases.md`: new `## O. Edit and Cancel Meetings` section (appended after N).
+21. New `acceptance/test-cases/o-edit-and-cancel-meetings.md` in `mootmaker-webapp` (lives in that
+    repo, tracked here since it's driven by this doc's own use-case numbering) with every case
+    listed under "Testing impacts", plus the two new `m-cross-cutting.md` cases.
+22. Corresponding Playwright specs in `mootmaker-webapp/acceptance/tests/`.
+
+**Deploy and verify**:
+23. `[Claude]` Create (or reuse this session's) ephemeral environment; deploy `mootmaker-api` then
+    `mootmaker-webapp` to it, in that order (webapp reads the API's Terraform outputs).
+24. `[Claude]` Fix any bugs surfaced along the way; re-confirm each touched repo's own unit tests.
+25. `[Claude]` Full acceptance suite green against that environment — not just the new Section O/M
+    cases, the whole existing suite, per this project's actual definition of working.
+26. `[Geoff]` Review and merge each repo's PR — no separate approval step beyond reading the diff,
+    per `docs/process/branching-and-prs.md`.
+27. `[Claude]` Tear down the ephemeral environment once Geoff confirms, as part of finishing.
 
 ## Definition of done
 
