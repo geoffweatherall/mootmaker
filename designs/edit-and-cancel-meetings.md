@@ -396,15 +396,23 @@ code — this is exactly the mechanism it already exists for. The only schema-le
     normalized `Meeting:<id>` Apollo cache entity already holds different field values than the
     frozen snapshot it was opened with (an Apollo `MockedProvider` test writes the cache directly —
     this is standing in for "a refetch already landed," not exercising how it got there), the
-    component renders the *live* values, not the stale ones; given that entity's `useFragment`
-    result transitions from `complete: true` to `complete: false` (simulating what `cache.gc()`
-    leaves behind once `cancelMeeting`'s day-eviction removes the last reference to it), the
-    component renders the "This meeting was cancelled" `EmptyState` instead of crashing on
-    now-missing fields or silently keeping the frozen snapshot. **This layer of coverage doesn't
-    exist today even for the sibling attendee-status live-binding** this reuses
-    (`MEETING_ATTENDEES_FRAGMENT`/`useFragment` in `useMeetingDetailOverlay.tsx` has no test file
-    of its own, mocked or otherwise — only M.111 covers it, end to end, at the acceptance layer) —
-    adding it here is new, not just matching existing precedent.
+    component renders the *live* values, not the stale ones — asserted across **every field the
+    broadened fragment now covers, attendee status included, not just the newly-added
+    subject/time/room/organiser fields**. Given that entity's `useFragment` result transitions from
+    `complete: true` to `complete: false` (simulating what `cache.gc()` leaves behind once
+    `cancelMeeting`'s day-eviction removes the last reference to it), the component renders the
+    "This meeting was cancelled" `EmptyState` instead of crashing on now-missing fields or silently
+    keeping the frozen snapshot.
+
+    Including attendee status here isn't backfilling coverage for unrelated old code for its own
+    sake — Decision 10 *relocates* the `useFragment` call itself from `useMeetingDetailOverlay.tsx`
+    into `MeetingDetailContent.tsx`, so it stops being untouched, pre-existing behaviour and becomes
+    code this design moves and modifies. Today that relocation would have **zero** fast-running
+    regression coverage: the only thing that currently proves it works at all is the acceptance-
+    layer M.111, which is slow, runs against a real environment, and on a failure wouldn't
+    distinguish "the relocated attendee-status binding broke" from "the new subject/time/room logic
+    broke." Asserting all fields in the same mocked test the new fields already need costs
+    approximately nothing extra and closes that gap directly, for the first time.
   - **Acceptance (`m-cross-cutting.md`/`## M. Cross-cutting`, real deployed environment, two real
     browser contexts)** proves the actual wire mechanism the mocked test above assumes already
     happened: that a genuine `updateMeeting`/`cancelMeeting` call from one real, independent session
