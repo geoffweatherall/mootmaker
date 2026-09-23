@@ -387,21 +387,44 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   - `mootmaker-release`'s smoke suite is **not** touched — editing/cancelling a meeting isn't part
     of the deliberately minimal five-minute smoke pass, and doesn't change any copy or structure
     the existing smoke suite asserts on.
-- **Acceptance — cross-client live update**: two new cases in the existing
-  `m-cross-cutting.md`/`## M. Cross-cutting` (not the new O section — this is where the project
-  already houses cross-client real-time-sync proofs, per M.109–M.111 covering the same mechanism
-  for `respondToMeeting`), directly answering Decision 10 and this doc's own earlier gap:
-  - **An edit made by another client is reflected on an already-open meeting detail sheet.** Mirrors
-    M.111's exact shape: observer opens a meeting's detail sheet (organiser or an unrelated admin
-    session); a second session calls `updateMeeting` directly over the API, changing subject and
-    time; the observer's already-open sheet — untouched, no reload or navigation — is asserted again
-    and shows the new subject and time within the same window M.111 uses (30s).
-  - **A cancellation made by another client is reflected on an already-open meeting detail sheet.**
-    Same shape, but the second session calls `cancelMeeting`; the observer's sheet is asserted to
-    stay open and show the "This meeting was cancelled" `EmptyState` (Decisions 10-11), not the
-    stale frozen content, and not an error or a blank crash.
-  - Both reuse `tests/attendee-response-status.spec.ts`'s existing two-browser-context technique
-    (M.111's own Steps/Preconditions shape) rather than inventing a new one.
+- **Cross-client live update is proven at two layers, deliberately, not one** — this was under-
+  specified in an earlier draft of this doc (only the acceptance layer was there) until Geoff asked
+  which layer actually covers it. The two prove genuinely different things and neither substitutes
+  for the other:
+  - **Mocked-integration (`mootmaker-webapp`, no real deployed environment)** proves
+    `MeetingDetailContent`'s own rendering logic in isolation, fast and deterministic: given the
+    normalized `Meeting:<id>` Apollo cache entity already holds different field values than the
+    frozen snapshot it was opened with (an Apollo `MockedProvider` test writes the cache directly —
+    this is standing in for "a refetch already landed," not exercising how it got there), the
+    component renders the *live* values, not the stale ones; given that entity's `useFragment`
+    result transitions from `complete: true` to `complete: false` (simulating what `cache.gc()`
+    leaves behind once `cancelMeeting`'s day-eviction removes the last reference to it), the
+    component renders the "This meeting was cancelled" `EmptyState` instead of crashing on
+    now-missing fields or silently keeping the frozen snapshot. **This layer of coverage doesn't
+    exist today even for the sibling attendee-status live-binding** this reuses
+    (`MEETING_ATTENDEES_FRAGMENT`/`useFragment` in `useMeetingDetailOverlay.tsx` has no test file
+    of its own, mocked or otherwise — only M.111 covers it, end to end, at the acceptance layer) —
+    adding it here is new, not just matching existing precedent.
+  - **Acceptance (`m-cross-cutting.md`/`## M. Cross-cutting`, real deployed environment, two real
+    browser contexts)** proves the actual wire mechanism the mocked test above assumes already
+    happened: that a genuine `updateMeeting`/`cancelMeeting` call from one real, independent session
+    triggers AppSync's real `daysInvalidated` broadcast, which a second real session actually
+    receives, evicts, and refetches — infrastructure a mock cannot exercise at all, since there is
+    no real AppSync subscription or Lambda broadcast involved. This is where the project already
+    houses cross-client real-time-sync proofs (M.109–M.111, the same mechanism, for
+    `respondToMeeting`); two new cases here, directly answering Decision 10:
+    - **An edit made by another client is reflected on an already-open meeting detail sheet.**
+      Mirrors M.111's exact shape: observer opens a meeting's detail sheet (organiser or an
+      unrelated admin session); a second session calls `updateMeeting` directly over the API,
+      changing subject and time; the observer's already-open sheet — untouched, no reload or
+      navigation — is asserted again and shows the new subject and time within the same window
+      M.111 uses (30s).
+    - **A cancellation made by another client is reflected on an already-open meeting detail
+      sheet.** Same shape, but the second session calls `cancelMeeting`; the observer's sheet is
+      asserted to stay open and show the "This meeting was cancelled" `EmptyState`
+      (Decisions 10-11), not the stale frozen content, and not an error or a blank crash.
+    - Both reuse `tests/attendee-response-status.spec.ts`'s existing two-browser-context technique
+      (M.111's own Steps/Preconditions shape) rather than inventing a new one.
 
 ## Documentation impacts
 
