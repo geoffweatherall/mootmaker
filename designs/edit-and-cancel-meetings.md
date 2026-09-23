@@ -386,17 +386,37 @@ code — this is exactly the mechanism it already exists for. The only schema-le
     still converges within `MAX_WRITE_ATTEMPTS`; `UpdateMeetingHandler` picks `moveMeeting` only
     when the requested date differs from the meeting's current one, plain `mutate` otherwise
     (asserted at the handler level, not just the repository's).
-- **Unit/mocked-integration (`mootmaker-webapp`)**: the generalized add/edit form component gets
-  tests for prefilling from a fetched meeting, submitting `UPDATE_MEETING` instead of
-  `CREATE_MEETING`, and the new `MeetingNotFound` error message rendering. A new `addMeetingLogic.ts`
-  test covers Decision 16's reordering: the meeting's current room, if present anywhere in
-  `suggestRoom`'s returned candidates, is moved to the front before `advanceSuggestion`'s existing
-  cycling logic runs; absent from the candidates (e.g. genuinely unavailable or under capacity for
-  the new attendee count), the existing ranked-list behaviour is untouched. `MeetingDetailContent`
-  gets tests for the Edit/Cancel buttons' visibility under `canEdit` (organiser, admin,
-  neither) — mocked, since this is pure permission-flag logic with no need for a real deployed
-  environment. `CancelMeetingDialog` gets a test asserting the underlying sheet/panel content is
-  still present in the DOM (not unmounted) while the dialog is open, directly covering Decision 5.
+- **Unit (`mootmaker-webapp`, `webapp/src/**/*.test.ts`, Vitest)**: this layer is pure-logic only
+  in this repo — `addMeetingLogic.ts`'s own tests already exist "so they're testable without
+  rendering the component or mocking Apollo" (its own doc comment; see `testing-strategy.md`'s
+  "Unit tests" section). Nothing here renders `MeetingDetailContent`/`AddMeetingPage` directly, and
+  this design doesn't introduce that pattern. A new `addMeetingLogic.test.ts` case covers Decision
+  16's reordering directly: the meeting's current room, if present anywhere in `suggestRoom`'s
+  returned candidates, is moved to the front before `advanceSuggestion`'s existing cycling logic
+  runs; absent from the candidates (e.g. genuinely unavailable or under capacity for the new
+  attendee count), the existing ranked-list behaviour is untouched.
+- **Integration (`mootmaker-webapp`, `webapp/tests/`, Playwright + MSW)** — this is the layer that
+  actually renders and drives the real UI against a mocked API (`vite --mode mock`, no real AWS at
+  all); an earlier draft of this doc called this layer "mocked-integration" and proposed jsdom
+  component tests with an Apollo `MockedProvider`, a pattern that **doesn't exist anywhere in this
+  codebase today** — every existing component-level proof already lives here instead (see
+  `attendee-response-status.spec.ts`, `meeting-detail-survives-refetch.spec.ts`). Corrected once
+  this was checked against the actual repo rather than assumed. `src/testSupport/mocks/handlers.ts`
+  needs new `UpdateMeeting`/`CancelMeeting` cases (mirroring `CreateMeeting`/`RespondToMeeting`'s
+  existing shape) before any of this can run at all — without them, an edit or cancel from the UI
+  under `vite --mode mock` just hits the handler's "no handler for this operation" fallback. New
+  specs cover: the edit form fetching and prefilling from an existing meeting (`meeting-form.spec.ts`
+  already covers create; a new `meeting-edit.spec.ts` or an extension of it covers edit reusing the
+  same field assertions); Edit/Cancel button visibility under `canEdit` (organiser, admin, neither —
+  driven through real sign-ins via `cognito.mock.ts`'s `DEMO_USER`/`ADMIN_USER`, not a synthetic
+  prop); the cancel confirmation dialog leaving the meeting's own details visible behind it
+  (Decision 5, queryable in the real rendered DOM without unmounting anything); and, mirroring
+  `meeting-detail-survives-refetch.spec.ts`'s own established technique (a visibility-triggered
+  refetch stands in for a real subscription push, which needs a real AppSync endpoint this layer
+  doesn't have) — an open meeting detail sheet reflecting a same-session edit or cancel once that
+  same refetch fires, proving `MeetingDetailContent`'s broadened live-fragment binding and its
+  "This meeting was cancelled" `EmptyState` actually render correctly, not just that the mechanism
+  is plausible in the abstract.
 - **Acceptance** (real deployed environment, per this project's usual definition of done): a new
   `o-edit-and-cancel-meetings.md` test-case file (to be created under `acceptance/test-cases/` in
   `mootmaker-webapp`, following this doc's own naming convention) and a matching new
@@ -433,45 +453,47 @@ code — this is exactly the mechanism it already exists for. The only schema-le
     a new one — checked via a direct `meeting(id:)` lookup resolving to the new date), and a second
     edit of the same meeting immediately afterward still works (proves the pointer genuinely moved,
     not just the day's own meetings list).
-  - Not planned as a new e2e (mocked-integration) case beyond what's listed under unit/mocked
-    integration above — this feature is a straightforward CRUD extension of an existing,
-    already-well-covered mutation family, and the acceptance layer against a real environment is
-    the right place to prove the authorization boundary specifically, matching how
-    `l-authorization-boundaries.md` already does this for `updatePerson`.
+  - Not planned as a new e2e (`e2e/`) case beyond what's listed under Integration above — this
+    feature is a straightforward CRUD extension of an existing, already-well-covered mutation
+    family, and the acceptance layer against a real environment is the right place to prove the
+    authorization boundary specifically, matching how `l-authorization-boundaries.md` already does
+    this for `updatePerson`.
   - `mootmaker-release`'s smoke suite is **not** touched — editing/cancelling a meeting isn't part
     of the deliberately minimal five-minute smoke pass, and doesn't change any copy or structure
     the existing smoke suite asserts on.
 - **Cross-client live update is proven at two layers, deliberately, not one** — this was under-
   specified in an earlier draft of this doc (only the acceptance layer was there) until Geoff asked
-  which layer actually covers it. The two prove genuinely different things and neither substitutes
-  for the other:
-  - **Mocked-integration (`mootmaker-webapp`, no real deployed environment)** proves
-    `MeetingDetailContent`'s own rendering logic in isolation, fast and deterministic: given the
-    normalized `Meeting:<id>` Apollo cache entity already holds different field values than the
-    frozen snapshot it was opened with (an Apollo `MockedProvider` test writes the cache directly —
-    this is standing in for "a refetch already landed," not exercising how it got there), the
-    component renders the *live* values, not the stale ones — asserted across **every field the
-    broadened fragment now covers, attendee status included, not just the newly-added
-    subject/time/room/organiser fields**. Given that entity's `useFragment` result transitions from
-    `complete: true` to `complete: false` (simulating what `cache.gc()` leaves behind once
-    `cancelMeeting`'s day-eviction removes the last reference to it), the component renders the
-    "This meeting was cancelled" `EmptyState` instead of crashing on now-missing fields or silently
-    keeping the frozen snapshot.
+  which layer actually covers it, and the *name* of the other layer was wrong in the draft after
+  that (called "mocked-integration" with an Apollo `MockedProvider`, a pattern this codebase
+  doesn't use anywhere — corrected above once actually checked against `testing-strategy.md` and
+  the existing specs, rather than assumed). The two that actually exist here prove genuinely
+  different things and neither substitutes for the other:
+  - **Integration (`webapp/tests/`, Playwright + MSW, one browser, no real deployed
+    environment)** proves `MeetingDetailContent`'s own rendering logic against the real running
+    app, fast and deterministic, using the same visibility-triggered-refetch technique
+    `meeting-detail-survives-refetch.spec.ts` already established for exactly this limitation (no
+    real AppSync subscription under `vite --mode mock`): open a meeting's detail sheet, mutate the
+    MSW fixture directly (an edit or a cancel, via the new `UpdateMeeting`/`CancelMeeting` handler
+    cases), fire the same simulated `visibilitychange` refetch, and assert the open sheet now shows
+    the new subject/time/room/organiser/attendee-status values, or - for a cancel - the "This
+    meeting was cancelled" `EmptyState`, never a crash or stale content.
 
-    Including attendee status here isn't backfilling coverage for unrelated old code for its own
-    sake — Decision 10 *relocates* the `useFragment` call itself from `useMeetingDetailOverlay.tsx`
-    into `MeetingDetailContent.tsx`, so it stops being untouched, pre-existing behaviour and becomes
-    code this design moves and modifies. Today that relocation would have **zero** fast-running
-    regression coverage: the only thing that currently proves it works at all is the acceptance-
-    layer M.111, which is slow, runs against a real environment, and on a failure wouldn't
-    distinguish "the relocated attendee-status binding broke" from "the new subject/time/room logic
-    broke." Asserting all fields in the same mocked test the new fields already need costs
-    approximately nothing extra and closes that gap directly, for the first time.
+    Asserting attendee status here too isn't backfilling coverage for unrelated old code for its
+    own sake — Decision 10 *relocates* the `useFragment` call itself from
+    `useMeetingDetailOverlay.tsx` into `MeetingDetailContent.tsx`, so it stops being untouched,
+    pre-existing behaviour and becomes code this design moves and modifies. Today that relocation
+    would have **zero** fast-running regression coverage of its own: the only thing that currently
+    proves the underlying mechanism works at all is the acceptance-layer M.111, which is slow, runs
+    against a real environment, and on a failure wouldn't distinguish "the relocated attendee-status
+    binding broke" from "the new subject/time/room logic broke." Covering all fields in the same
+    integration spec the new fields already need costs little extra and closes that gap directly,
+    for the first time.
   - **Acceptance (`m-cross-cutting.md`/`## M. Cross-cutting`, real deployed environment, two real
-    browser contexts)** proves the actual wire mechanism the mocked test above assumes already
-    happened: that a genuine `updateMeeting`/`cancelMeeting` call from one real, independent session
+    browser contexts)** proves the actual wire mechanism the Integration-layer test above stands in
+    for: that a genuine `updateMeeting`/`cancelMeeting` call from one real, independent session
     triggers AppSync's real `daysInvalidated` broadcast, which a second real session actually
-    receives, evicts, and refetches — infrastructure a mock cannot exercise at all, since there is
+    receives, evicts, and refetches — infrastructure neither a mock nor a same-tab visibility
+    trigger can exercise at all, since there is
     no real AppSync subscription or Lambda broadcast involved. This is where the project already
     houses cross-client real-time-sync proofs (M.109–M.111, the same mechanism, for
     `respondToMeeting`); two new cases here, directly answering Decision 10:
