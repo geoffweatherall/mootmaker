@@ -124,6 +124,27 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
     "This permanently deletes '\<subject\>' for every attendee..." whether it's the organiser
     cancelling their own meeting or an admin cancelling someone else's. Geoff confirmed; one string,
     no admin-specific variant naming the organiser.
+15. **`suggestRoom` must also ignore the meeting being edited, and gets a new optional
+    `excludingMeetingId: ID` argument for it.** Caught during review: editing a meeting's time
+    within its own current room (e.g. 10:00–11:00 → 10:30–11:30 in Room A) must not make Room A
+    look unavailable because of the meeting's own prior 10:00–11:00 record, either when
+    `updateMeeting` saves (Decision/"Choices" below) **or** when the Edit form's "Suggest a room"
+    button is pressed — `SuggestRoomHandler.java:83-88` filters candidate rooms through the same
+    `RoomAvailability.isFree` with no exclusion at all today, so it has the identical bug, in a
+    second place I hadn't originally covered. `excludingMeetingId` is optional and only ever sent by
+    the webapp in edit mode; create's call to `suggestRoom` is unaffected (the argument is simply
+    absent, same as today). Schema: `suggestRoom(startTime: String!, endTime: String!,
+    requiredCapacity: Int!, excludingMeetingId: ID): [Room!]!`.
+16. **"Suggest a room" prioritizes the meeting's current room when editing, done client-side, not
+    as new backend ranking logic.** Geoff asked for this "if not too complex" — it isn't: the
+    backend keeps returning its existing ranked list (smallest surplus capacity first,
+    `SuggestRoomHandler.java:18-19`) unchanged; `addMeetingLogic.ts` (already pure, already
+    unit-tested, already the sole owner of `advanceSuggestion`'s cycling behaviour) gets one added
+    step in edit mode only: before applying the existing cache/cycling logic, if the meeting's
+    current room appears anywhere in the (correctness-fixed) returned candidates, move it to the
+    front. No new backend ranking rule, no new schema field beyond Decision 15's
+    `excludingMeetingId` (which this reuses), and it's a pure-function change to test the same way
+    `addMeetingLogic.test.ts` already tests the rest of this file.
 
 ## Choices you had me make
 
@@ -133,11 +154,24 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
 - Field validation on Edit reuses every rule Create already enforces (15-minute boundary,
   organiser/attendee mutual exclusion, capacity, room availability, subject length) with one
   necessary change: the room-availability/double-booking check must exclude the meeting's own
-  existing slot when checking `RoomAvailability.isFree` for an update, or every edit would
-  spuriously conflict with itself. I've treated this as an obvious technical necessity rather than
-  a design decision, but flagging it here since it means `MeetingValidator.dayStateErrors` needs a
-  new "meeting id to exclude" parameter (`Optional<String>`, empty for create) — see "Technical
-  considerations".
+  existing slot when checking room availability for an update, or every edit would spuriously
+  conflict with itself — e.g. moving a 10:00–11:00 meeting in Room A to 10:30–11:30, still in Room
+  A, must not reject against its own old 10:00–11:00 record. I've treated this as an obvious
+  technical necessity rather than a design decision, but flagging it here since it turns out the
+  fix already half-exists: `RoomAvailability.java` has an `isFreeIgnoring(meetingsThatDay, roomId,
+  startTime, endTime, ignoredMeetingId)` method today, with **zero callers anywhere in the
+  codebase** and no test file of its own — `MeetingValidator.dayStateErrors` calls the plain
+  `isFree` and needs to switch to `isFreeIgnoring`, passing the meeting's own id on update (`null`/
+  absent on create, unchanged). The same swap is needed a second time in `SuggestRoomHandler.java`
+  — see Decision 15.
+- **`dayStateErrors`'s `DayIsFull` check also needs adjusting for update**, a related gap I found
+  while reading that method: `meetingsThatDay.size() >= Limits.MAX_MEETINGS_PER_DAY`
+  (`MeetingValidator.java:80-81`) counts the meeting being edited as part of the day's total, so
+  editing a meeting on a day that's already exactly at the cap would spuriously reject as
+  `DayIsFull` even though editing never changes the day's meeting count. `dayStateErrors` needs to
+  exclude the meeting-being-edited from that count too when an `excludingMeetingId` is present
+  (effectively comparing against `meetingsThatDay.size() - 1`), not just from the room-availability
+  check.
 
 ## Open questions
 
@@ -150,18 +184,24 @@ Decisions 12–14.
 - **`mootmaker-api`** (schema + handlers): new `updateMeeting`/`cancelMeeting` mutations,
   `UpdateMeetingResult`/`CancelMeetingResult` types, `MeetingNotFound` added to `MeetingError`,
   `UpdateMeetingHandler.java`/`CancelMeetingHandler.java`, a shared authorization helper (organiser
-  `cognitoSubs` contains caller sub, or `Identity.isAdmin`), and a `MeetingValidator` change to
-  support excluding the meeting-being-edited from its own double-booking check.
+  `cognitoSubs` contains caller sub, or `Identity.isAdmin`); `MeetingValidator.dayStateErrors`
+  switched to the already-existing-but-unused `RoomAvailability.isFreeIgnoring` plus a `DayIsFull`
+  count fix (Decisions 15-16, "Choices you had me make"); `Query.suggestRoom` gains the optional
+  `excludingMeetingId: ID` argument and the same `isFreeIgnoring` swap in `SuggestRoomHandler.java`;
+  a new `RoomAvailabilityTest.java` (doesn't exist today) covering `isFreeIgnoring` directly.
 - **`mootmaker-webapp`**: new `/meetings/:meetingId/edit` route in `App.tsx`; `AddMeetingPage.tsx`
-  generalized to handle both add and edit (Decision 2); `MeetingDetailContent.tsx` gains Edit and
-  Cancel icon buttons, the cancel confirmation dialog (a new `CancelMeetingDialog.tsx`, following
-  `DeleteAccountSection`'s pattern), and the `useFragment` live-binding moved in from
-  `useMeetingDetailOverlay.tsx` (Decision 10) plus the "meeting no longer exists" `EmptyState`;
-  `graphql/queries.ts`'s `MEETING_ATTENDEES_FRAGMENT` broadened to cover every editable field, not
-  just `attendees`; `graphql/mutations.ts` gains `UPDATE_MEETING`/`CANCEL_MEETING`;
-  `graphql/validationMessages.ts`'s `MEETING_ERROR_MESSAGES` gains `MeetingNotFound` (required — the
-  map is typed `Record<MeetingError, string>`, so this won't compile until it's added); new
-  acceptance test-case file plus two new cases in `m-cross-cutting.md` (see "Testing impacts").
+  generalized to handle both add and edit (Decision 2), including passing `excludingMeetingId` on
+  its `SUGGEST_ROOM` call and reordering results to prioritize the meeting's current room (Decision
+  16, in `addMeetingLogic.ts`); `MeetingDetailContent.tsx` gains Edit and Cancel icon buttons, the
+  cancel confirmation dialog (a new `CancelMeetingDialog.tsx`, following `DeleteAccountSection`'s
+  pattern), and the `useFragment` live-binding moved in from `useMeetingDetailOverlay.tsx`
+  (Decision 10) plus the "meeting no longer exists" `EmptyState`; `graphql/queries.ts`'s
+  `MEETING_ATTENDEES_FRAGMENT` broadened to cover every editable field, not just `attendees`, and
+  `SUGGEST_ROOM` gains the `excludingMeetingId` variable; `graphql/mutations.ts` gains
+  `UPDATE_MEETING`/`CANCEL_MEETING`; `graphql/validationMessages.ts`'s `MEETING_ERROR_MESSAGES`
+  gains `MeetingNotFound` (required — the map is typed `Record<MeetingError, string>`, so this
+  won't compile until it's added); new acceptance test-case file plus two new cases in
+  `m-cross-cutting.md` (see "Testing impacts").
 - **`mootmaker`** (hub): this design doc; `docs/reference/use-cases.md` gains a new Section O; no
   change needed to `docs/reference/data-model.md` — no storage shape changes (see "Changes to the
   domain data model").
@@ -227,12 +267,21 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   (`components/EmptyState.tsx`) with copy like "This meeting was cancelled," never silently
   continuing to show frozen data and never crashing on now-missing fields. The sheet stays open
   showing that message rather than auto-closing (Decision 11).
-- **`MeetingValidator.dayStateErrors` needs an "exclude this meeting id" parameter.** Today it
-  checks `RoomAvailability.isFree(meetingsThatDay, roomId, startTime, endTime)`
-  (`MeetingValidator.java:85-90`) against every meeting already in the day. For an update, the
-  meeting being edited is itself in `meetingsThatDay` and must be excluded before that check runs,
-  or editing a meeting's own unchanged time/room would always fail as a self-conflict. `create`
-  passes `Optional.empty()`; `update` passes `Optional.of(existingMeetingId)`.
+- **`MeetingValidator.dayStateErrors` needs to call `RoomAvailability.isFreeIgnoring`, not
+  `isFree`.** Today it checks `RoomAvailability.isFree(meetingsThatDay, roomId, startTime,
+  endTime)` (`MeetingValidator.java:85-90`) against every meeting already in the day. For an
+  update, the meeting being edited is itself in `meetingsThatDay` and must be excluded before that
+  check runs, or editing a meeting's own unchanged (or merely overlapping) time/room would fail as
+  a self-conflict — e.g. 10:00–11:00 → 10:30–11:30 in the same room, which genuinely overlaps its
+  own prior slot by design, must still succeed. `RoomAvailability.isFreeIgnoring(meetingsThatDay,
+  roomId, startTime, endTime, ignoredMeetingId)` already exists for exactly this (`ignoredMeetingId`
+  filtered out before the overlap check runs) but has no callers and no tests today — `create`
+  keeps calling plain `isFree`; `update` switches to `isFreeIgnoring` with its own id.
+  `dayStateErrors`'s `DayIsFull` count needs the same exclusion (see "Choices you had me make").
+  `SuggestRoomHandler.java:83-88` needs the identical swap, gated on the new
+  `excludingMeetingId` GraphQL argument (Decision 15) — it has the same bug today, since "Suggest a
+  room" pressed while editing would otherwise also see the meeting's own current room as occupied
+  by its own prior slot and wrongly drop it from the candidate list.
 - **The optimistic-locking retry loop is what makes concurrent edit/cancel safe, not new code.**
   Two admins cancelling the same meeting at once, or an organiser editing while an admin cancels,
   both resolve via `DayRepository`'s existing version-conditional retry
@@ -269,14 +318,32 @@ code — this is exactly the mechanism it already exists for. The only schema-le
 
 ## Testing impacts
 
-- **Unit (`mootmaker-api`)**: `MeetingValidatorTest` gains cases for the exclude-self room-
-  availability check; new handler unit tests for `UpdateMeetingHandler`/`CancelMeetingHandler`
-  covering organiser-allowed, admin-allowed, neither-rejected (`Forbidden`), and
-  `MeetingNotFound` (an id that doesn't resolve to any meeting, and the concurrent-retry case where
-  it stops existing mid-retry).
+- **Unit (`mootmaker-api`)**:
+  - New `RoomAvailabilityTest.java` (none exists today) testing `isFreeIgnoring` directly: the
+    excluded meeting's own overlapping slot does not block its own room (the user's exact
+    10:00–11:00 → 10:30–11:30-in-Room-A example, as a named case); a genuine conflict from a
+    *different* meeting in that room still blocks it even when a (different) id is excluded;
+    excluding an id that doesn't appear in `meetingsThatDay` behaves identically to plain `isFree`.
+  - `MeetingValidatorTest` gains: the same overlap-with-self case exercised through
+    `dayStateErrors` end to end (not just the `RoomAvailability` unit); a day already at
+    `MAX_MEETINGS_PER_DAY` does *not* reject an edit to one of the meetings already counted in it
+    ("Choices you had me make"'s `DayIsFull` fix).
+  - New `SuggestRoomHandlerTest` cases: a room currently occupied only by the meeting named in
+    `excludingMeetingId` is returned as a candidate for a new, overlapping time range; a room with a
+    genuine conflict from a *different* meeting is still correctly excluded even when
+    `excludingMeetingId` is set (proves the exclusion is scoped to the one named meeting, not a
+    blanket bypass); `excludingMeetingId` absent (create's call shape) behaves exactly as today.
+  - New handler unit tests for `UpdateMeetingHandler`/`CancelMeetingHandler` covering
+    organiser-allowed, admin-allowed, neither-rejected (`Forbidden`), and `MeetingNotFound` (an id
+    that doesn't resolve to any meeting, and the concurrent-retry case where it stops existing
+    mid-retry).
 - **Unit/mocked-integration (`mootmaker-webapp`)**: the generalized add/edit form component gets
   tests for prefilling from a fetched meeting, submitting `UPDATE_MEETING` instead of
-  `CREATE_MEETING`, and the new `MeetingNotFound` error message rendering. `MeetingDetailContent`
+  `CREATE_MEETING`, and the new `MeetingNotFound` error message rendering. A new `addMeetingLogic.ts`
+  test covers Decision 16's reordering: the meeting's current room, if present anywhere in
+  `suggestRoom`'s returned candidates, is moved to the front before `advanceSuggestion`'s existing
+  cycling logic runs; absent from the candidates (e.g. genuinely unavailable or under capacity for
+  the new attendee count), the existing ranked-list behaviour is untouched. `MeetingDetailContent`
   gets tests for the Edit/Cancel buttons' visibility under `canEdit` (organiser, admin,
   neither) — mocked, since this is pure permission-flag logic with no need for a real deployed
   environment. `CancelMeetingDialog` gets a test asserting the underlying sheet/panel content is
@@ -290,6 +357,13 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   that file's own history). At minimum:
   - Organiser edits their own meeting (happy path): change subject and time, save, see the change
     reflected on the grid/detail sheet.
+  - **Edit a meeting's time within its own current room, where the new range overlaps the old
+    one** (e.g. 10:00–11:00 → 10:30–11:30, same Room A): saving succeeds, with no
+    `TimeRangeUnavailable` error, and the meeting shows the new time on the grid. Then, still
+    editing (or re-opening edit), pressing **Suggest a room** for that same new time also succeeds
+    and offers Room A — not skipped, not passed over — as the top suggestion (Decisions 15-16).
+    This is the specific case that motivated `RoomAvailability.isFreeIgnoring` actually being wired
+    up, so it's covered end to end here, not just at the unit layer.
   - Admin edits a meeting they don't organise.
   - A signed-in user who is neither the organiser nor an admin does not see Edit/Cancel buttons on
     that meeting's detail sheet.
