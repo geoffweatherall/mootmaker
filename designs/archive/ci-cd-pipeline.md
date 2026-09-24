@@ -9,15 +9,17 @@ first draft), and a **specifically-initiated release pipeline** — triggered by
 `mootmaker-webapp` and `mootmaker-demo-data` together, proves them in a standing `test` environment,
 and only then promotes the same artifacts to `production`.
 
-**Status:** Building — 2026-09-04. Supersedes this doc's own 2026-08-29 draft on the trigger model
-and the standing-`test` question; see "What changed since the last draft" below.
+**Status:** Shipped — 2026-09-24, confirmed complete by Geoff. Supersedes this doc's own 2026-08-29
+draft on the trigger model and the standing-`test` question; see "What changed since the last
+draft" below.
 
 It stayed at Drafting through the whole build-out, which was simply wrong — Geoff authorized
 building from it on 2026-09-03 (see "Execution authorization for this build-out"), which is the
-Ready transition, and implementation started immediately. The Implementation checklist below is now
-fully ticked and eight of the nine Definition-of-done items are met. It moves to **Shipped**, and
-into [`archive/`](archive/), when the ninth does: the ephemeral sweep's report-only trial period,
-whose length is asked in [#51](https://github.com/geoffweatherall/mootmaker/issues/51).
+Ready transition, and implementation started immediately. The Implementation checklist below is
+fully ticked, and the pipeline has run 20+ releases in regular use (see `mootmaker-release`'s own
+README). The ephemeral sweep's report-only trial period (the ninth Definition-of-done item) is
+still open, tracked separately in [#51](https://github.com/geoffweatherall/mootmaker/issues/51) —
+not a reason to hold the rest of this design at Drafting/Building any longer.
 
 ---
 
@@ -943,7 +945,7 @@ the workspace root is not a git repository. That is why its `Bash(gh *)`, `Bash(
 Anyone reading that file should not trust it to be in force.
 
 **Python is required too.** This repository's own link check — `python3 tools/check-links.py ..`, see
-[`CLAUDE.md`](../CLAUDE.md) — is mandatory before committing prose changes, and several build-out
+[`CLAUDE.md`](../../CLAUDE.md) — is mandatory before committing prose changes, and several build-out
 steps need small scripts. `Bash(python3:*)` and `Bash(python:*)` therefore belong in the same
 user-scope allow list. Noted explicitly because a bare `python3` is a broader grant than the others
 here: unlike `git` or `terraform`, it executes arbitrary code, so it is the one entry on this list
