@@ -14,7 +14,8 @@ already models — and a ~20% share of meetings sized near a room's full capacit
 
 ## Status
 
-**Building** — 2026-09-22. Approved by Geoff; implementation started same day.
+**Shipped** — 2026-09-24. Implemented in `mootmaker-demo-data` (#39, "Realistic demo meeting
+scheduling"), merged to `main`.
 
 ## Scope / non-goals
 
@@ -40,7 +41,7 @@ Explicitly not in scope:
   domain data model" below.
 - A reset/backfill mechanism inside `mootmaker-demo-data` itself. Still explicitly out of bounds per
   the component's own founding design
-  ([`archive/demo-data-component.md`](archive/demo-data-component.md)): "This tool never deletes
+  ([`demo-data-component.md`](demo-data-component.md)): "This tool never deletes
   anything, and must not learn how." Rollout uses the existing separate `database-reset` tool, same
   as any other manual reset.
 - Splitting meeting generation across multiple Lambda invocations (e.g. one per week). See

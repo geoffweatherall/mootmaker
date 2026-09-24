@@ -15,10 +15,8 @@ URL this doc already commits to keeping alive as a standalone deep link.
 
 ## Status
 
-**Building** — 2026-09-20. Geoff approved Ready and authorized starting implementation the same day,
-in the same conversation that produced this doc — mirroring how `ci-cd-pipeline.md`'s own build-out
-was authorized (see that doc's "Execution authorization for this build-out"), so this doc moves
-straight to Building rather than sitting at Ready with nothing acting on it.
+**Shipped** — 2026-09-24. Implemented in `mootmaker-webapp` (#78, "Meeting detail consolidation:
+shared overlay, Share action, safe Back"), merged to `main`.
 
 ## Scope / non-goals
 
