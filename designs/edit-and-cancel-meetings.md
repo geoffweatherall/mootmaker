@@ -214,8 +214,11 @@ Decisions 12–14.
   `SUGGEST_ROOM` gains the `excludingMeetingId` variable; `graphql/mutations.ts` gains
   `UPDATE_MEETING`/`CANCEL_MEETING`; `graphql/validationMessages.ts`'s `MEETING_ERROR_MESSAGES`
   gains `MeetingNotFound` (required — the map is typed `Record<MeetingError, string>`, so this
-  won't compile until it's added); new acceptance test-case file plus two new cases in
-  `m-cross-cutting.md` (see "Testing impacts").
+  won't compile until it's added); `realtime/daysInvalidated.ts`'s `evict()` now also evicts every
+  `Meeting` a day referenced before evicting the day itself (see "Technical considerations" — a
+  fix to shared real-time infrastructure every meeting feature uses, found and made while building
+  this one); new acceptance test-case file plus two new cases in `m-cross-cutting.md` (see "Testing
+  impacts").
 - **`mootmaker`** (hub): this design doc; `docs/reference/use-cases.md` gains a new Section O; no
   change needed to `docs/reference/data-model.md` — no storage shape changes (see "Changes to the
   domain data model").
@@ -272,15 +275,34 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   the normalized `Meeting:<id>` entity, and the broadened fragment picks them up with no new
   plumbing beyond the fragment's field list.
 - **Detecting "this meeting no longer exists" needs the fragment's `complete` flag, tracked across
-  renders.** When `cancelMeeting` removes a meeting from its Day and `cache.gc()` collects the
-  now-unreachable `Meeting:<id>` entity, `useFragment`'s `complete` flips to `false` — but `complete`
-  is also `false` for an instant before the *first* read resolves, so the sheet needs to distinguish
-  "hasn't loaded yet" from "existed, and now doesn't" (e.g. a ref/state tracking whether `complete`
-  was ever `true` for this meeting id). Once detected, `MeetingDetailContent` should show something
-  in place of the (now-stale) frozen content — reusing the existing `EmptyState` component
-  (`components/EmptyState.tsx`) with copy like "This meeting was cancelled," never silently
-  continuing to show frozen data and never crashing on now-missing fields. The sheet stays open
-  showing that message rather than auto-closing (Decision 11).
+  renders — and `cache.gc()` alone turned out not to be enough.** The original plan here was:
+  `cancelMeeting` removes a meeting from its Day, `cache.gc()` collects the now-unreachable
+  `Meeting:<id>` entity, and `useFragment`'s `complete` flips to `false`. Built and tested against
+  the real running app (Integration layer, not just reasoned about), that didn't hold up:
+  `daysInvalidated.ts`'s existing `evict()` only ever evicted the `Day:<date>` entity itself,
+  leaving each `Meeting`'s own cached fields completely untouched — and Apollo's automatic
+  `cache.gc()` does not reliably collect an entity that still has an *active watcher*, which an
+  open `MeetingDetailContent`'s own `useFragment` on that exact id always is. Measured directly:
+  `complete` sometimes flipped to `false` eventually, sometimes didn't within any reasonable wait,
+  never inside a UI-relevant timeframe. Geoff chose the architecturally correct fix over a
+  same-tab workaround: `daysInvalidated.ts`'s `evict()` now reads a day's current `meetings` list
+  *before* evicting the day, and explicitly `cache.evict()`s every one of those `Meeting:<id>`
+  entities too — safe for a meeting that's still valid (the refetch this triggers writes it fresh
+  a moment later regardless, same brief-incomplete window every day-level eviction here already
+  accepts), and now reliably, quickly incomplete for one that's genuinely gone. This is a fix to
+  shared real-time infrastructure every meeting feature uses, not something scoped to edit/cancel
+  alone — it was always a latent gap, just one attendee-response-status never needed to expose,
+  since RSVP changes a field on a meeting that keeps existing rather than making the meeting itself
+  disappear.
+
+  With that fixed, the rest of the original plan holds: `complete` is also `false` for an instant
+  before the *first* read resolves, so the sheet needs to distinguish "hasn't loaded yet" from
+  "existed, and now doesn't" (a ref/state tracking whether `complete` was ever `true` for this
+  meeting id). Once detected, `MeetingDetailContent` shows something in place of the (now-stale)
+  frozen content — reusing the existing `EmptyState` component (`components/EmptyState.tsx`) with
+  copy like "This meeting was cancelled," never silently continuing to show frozen data and never
+  crashing on now-missing fields. The sheet stays open showing that message rather than
+  auto-closing (Decision 11).
 - **`MeetingValidator.dayStateErrors` needs to call `RoomAvailability.isFreeIgnoring`, not
   `isFree`.** Today it checks `RoomAvailability.isFree(meetingsThatDay, roomId, startTime,
   endTime)` (`MeetingValidator.java:85-90`) against every meeting already in the day. For an
@@ -394,7 +416,10 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   16's reordering directly: the meeting's current room, if present anywhere in `suggestRoom`'s
   returned candidates, is moved to the front before `advanceSuggestion`'s existing cycling logic
   runs; absent from the candidates (e.g. genuinely unavailable or under capacity for the new
-  attendee count), the existing ranked-list behaviour is untouched.
+  attendee count), the existing ranked-list behaviour is untouched. `daysInvalidated.test.ts`
+  (already exists, already exercises `DayInvalidations` directly against a real `InMemoryCache`)
+  gains a case for the eviction fix above: invalidating a day also evicts the `Meeting` entities
+  it referenced, and leaves an unrelated day's own meeting alone.
 - **Integration (`mootmaker-webapp`, `webapp/tests/`, Playwright + MSW)** — this is the layer that
   actually renders and drives the real UI against a mocked API (`vite --mode mock`, no real AWS at
   all); an earlier draft of this doc called this layer "mocked-integration" and proposed jsdom
