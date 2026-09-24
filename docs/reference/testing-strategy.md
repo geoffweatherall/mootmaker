@@ -18,6 +18,7 @@ Each repository also has its own `testing-strategy.md` with the detail specific 
 - [mootmaker-api/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-api/blob/main/testing-strategy.md)
 - [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md) —
   including its `e2e/` and `acceptance/` suites; each frontend owns its own, not shared centrally.
+- [mootmaker-demo-data/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-demo-data/blob/main/testing-strategy.md)
 - [mootmaker-ephemeral-envs/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-ephemeral-envs/blob/main/testing-strategy.md) —
   the ephemeral-environment lifecycle scripts genuinely shared across frontends.
 - [mootmaker-email-testing/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-email-testing/blob/main/testing-strategy.md) —
@@ -47,6 +48,59 @@ Two goals shape every decision below, and they pull in different directions:
 Every layer below trades these off against each other: real infrastructure catches real failures
 but is slow, costly, and non-deterministic; mocks and unit tests are fast and free but can't see a
 wiring mistake between two systems that were never actually connected during the test.
+
+## The pyramid, and the terms we use
+
+Four layer names are used across this project. Not every repo has all four (see the table below —
+`mootmaker-api` only has two), but where a repo does have a given layer, it means the same thing
+every time: same defining question, same environment, same speed class. Use these names, in this
+sense, when talking about tests here rather than inventing a repo-local synonym.
+
+```
+                   ┌──────────────┐
+                   │  Acceptance  │      real env · business use cases · slowest, fewest
+                   └──────────────┘
+              ┌────────────────────────┐
+              │          e2e           │      real env · thin · infrastructure wiring only
+              └────────────────────────┘
+       ┌──────────────────────────────────────┐
+       │             Integration              │      mocked API/auth · page/component wiring
+       └──────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│                        Unit                        │      no environment · pure logic · fastest, most numerous
+└────────────────────────────────────────────────────┘
+```
+
+The defining question going up the pyramid is **"what does this test actually run against?"** —
+each layer up trades speed and determinism for something the layer below it structurally cannot
+see:
+
+- **Unit** — no environment at all. A pure function, or a class exercised directly, in-process. No
+  network, no browser, no AWS. Fastest and most numerous by design; run constantly while writing
+  code. This project's own convention (see `mootmaker-webapp/testing-strategy.md`) is that these
+  are **pure-logic-only** — extracted functions, not rendered components — specifically so they
+  stay in this fast, deterministic tier rather than drifting into what Integration is for.
+- **Integration** — one process/page exercised close to for-real, but every *external* system it
+  talks to is mocked or faked in-process: a mocked GraphQL layer (MSW) in the webapp, a fake
+  DynamoDB client in the API's own unit tier doing this same job at smaller scope. No real AWS, no
+  real network hop, but now a whole component or page is wired up and rendered/invoked as a unit —
+  this is the layer that catches "the pieces inside this one process don't actually fit together,"
+  which a pure-logic unit test structurally cannot, since nothing here is rendered or wired.
+- **e2e** — a real deployed environment, but deliberately thin and infrastructure-focused: does
+  Cognito actually deliver an email, does the custom domain actually resolve and serve over TLS,
+  does a cold Lambda actually respond in time. Proving the wiring between real services exists and
+  works, not proving product behaviour.
+- **Acceptance** — the same real deployed environment, but now asking whether the actual use cases
+  a person cares about are satisfied end to end through the real UI/API — the definition of
+  "working" for this project (see the hub `README.md`/`docs/process/README.md`). `mootmaker-api`
+  folds what the webapp splits into `e2e`/`acceptance` into one tier of the same name, since its
+  API-only surface doesn't have a separate "does the infrastructure exist" question distinct from
+  "does the operation work" the way a browser-facing app's DNS/email/CDN wiring does.
+
+The `Best at catching` column in the table below is the same idea applied per repo — read it as
+"if a bug of this shape existed, which layer would actually see it," and use that question (not a
+fixed checklist) when deciding where a new test belongs: what does the thing you're testing
+actually need to be real to fail the way you're worried it might fail?
 
 ## Layers
 
