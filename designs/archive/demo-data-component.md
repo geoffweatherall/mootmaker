@@ -42,7 +42,7 @@ Explicitly **not** in scope:
   invoke demo-data. This removes the single most dangerous property either tool has today: that
   `sample-data-generator/run.sh`, an innocuously-named script, destroys data as its first action.
 - **Moving deployment into pipelines.** Raised alongside this in `ideas.md` and worth doing, but it
-  is [`ci-cd-pipeline.md`](../ci-cd-pipeline.md)'s problem. This design keeps scripts as the primitive
+  is [`ci-cd-pipeline.md`](ci-cd-pipeline.md)'s problem. This design keeps scripts as the primitive
   so a pipeline can later call them — it does not pre-empt that decision.
 - **A shared Java library between demo-data and the api.** Dropped on 2026-09-01 after checking:
   demo-data touches DynamoDB in zero Java files. It writes exclusively through the GraphQL API, so
@@ -217,7 +217,7 @@ promoting it to `Ready` is Geoff's call, per [`README.md`](../README.md)'s lifec
 **Non-blocking**
 
 1. **Where does demo-data's acceptance suite run in a future pipeline?** It needs a deployed api, so
-   it cannot run on every push cheaply. Deferred to [`ci-cd-pipeline.md`](../ci-cd-pipeline.md).
+   it cannot run on every push cheaply. Deferred to [`ci-cd-pipeline.md`](ci-cd-pipeline.md).
 2. **Should the past-window depth be a deployment variable rather than a constant?** `DAYS_IN_PAST`
    is fixed at 7 for now, matching what `sample-data-generator` seeds today. If an ephemeral
    environment ever wants a different depth from `production`, promoting it to a Terraform variable

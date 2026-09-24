@@ -4,7 +4,7 @@
 
 `test` was retired on 2026-08-29 and brought back on 2026-09-03 — for a different reason than it
 existed for the first time, which is why this is not simply an undo. See
-[`../../designs/ci-cd-pipeline.md`](../../designs/ci-cd-pipeline.md) Decision 6.
+[`../../designs/archive/ci-cd-pipeline.md`](../../designs/archive/ci-cd-pipeline.md) Decision 6.
 
 ## production
 
@@ -167,4 +167,4 @@ around anyway, and the honest case for using the pipeline is that it does more, 
 alternative was taken away. If a deploy by hand is ever genuinely needed — recovering from a broken
 pipeline, say — that is a considered exception, not the normal path.
 
-See [`../../designs/ci-cd-pipeline.md`](../../designs/ci-cd-pipeline.md).
+See [`../../designs/archive/ci-cd-pipeline.md`](../../designs/archive/ci-cd-pipeline.md).
