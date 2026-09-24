@@ -11,9 +11,9 @@ user's booking appears on another's screen without a refetch.
 
 ## Status
 
-**Ready** — 2026-09-09, promoted by Geoff. Every blocking open question is closed. The AppSync
-behaviours that were outstanding have since been answered empirically — see "Verified: AppSync
-subscription behaviour".
+**Shipped** — 2026-09-24. Implemented across `mootmaker-api` (#37 "Move meeting storage to day
+items", #42 "Replace the three list fields with one composite entry point") and `mootmaker-webapp`
+(#52 "Move the webapp onto the composite entry point"), merged to `main`.
 
 ## Decisions
 
