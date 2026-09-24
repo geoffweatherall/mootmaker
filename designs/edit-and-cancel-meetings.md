@@ -147,6 +147,18 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
     front. No new backend ranking rule, no new schema field beyond Decision 15's
     `excludingMeetingId` (which this reuses), and it's a pure-function change to test the same way
     `addMeetingLogic.test.ts` already tests the rest of this file.
+17. **Editing a meeting's date to a different calendar day is supported**, not blocked. Caught
+    mid-implementation: a meeting lives inside one calendar day's DynamoDB item, and moving it
+    means removing it from one day's item and adding it to a different one - genuinely two
+    separate writes, not something `DayRepository.mutate`'s existing single-day transaction can do
+    (it manages exactly one day item plus that day's own pointer diff). Geoff chose to support
+    this properly (write-to-new-day-first, then remove-from-old-day) over the simpler
+    same-day-only restriction, accepting the added complexity documented in "Technical
+    considerations" below - a new `DayRepository.moveMeeting` method, ordered so a failure between
+    the two writes leaves the meeting briefly on *both* days (an overcount, harmless, recoverable)
+    rather than on neither (unrecoverable data loss). A same-day edit never calls this at all - it
+    stays on the existing, unchanged `DayRepository.mutate` path (Decision 6 and "Choices you had
+    me make", untouched by this decision).
 
 ## Choices you had me make
 
@@ -202,8 +214,11 @@ Decisions 12–14.
   `SUGGEST_ROOM` gains the `excludingMeetingId` variable; `graphql/mutations.ts` gains
   `UPDATE_MEETING`/`CANCEL_MEETING`; `graphql/validationMessages.ts`'s `MEETING_ERROR_MESSAGES`
   gains `MeetingNotFound` (required — the map is typed `Record<MeetingError, string>`, so this
-  won't compile until it's added); new acceptance test-case file plus two new cases in
-  `m-cross-cutting.md` (see "Testing impacts").
+  won't compile until it's added); `realtime/daysInvalidated.ts`'s `evict()` now also evicts every
+  `Meeting` a day referenced before evicting the day itself (see "Technical considerations" — a
+  fix to shared real-time infrastructure every meeting feature uses, found and made while building
+  this one); new acceptance test-case file plus two new cases in `m-cross-cutting.md` (see "Testing
+  impacts").
 - **`mootmaker`** (hub): this design doc; `docs/reference/use-cases.md` gains a new Section O; no
   change needed to `docs/reference/data-model.md` — no storage shape changes (see "Changes to the
   domain data model").
@@ -260,15 +275,34 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   the normalized `Meeting:<id>` entity, and the broadened fragment picks them up with no new
   plumbing beyond the fragment's field list.
 - **Detecting "this meeting no longer exists" needs the fragment's `complete` flag, tracked across
-  renders.** When `cancelMeeting` removes a meeting from its Day and `cache.gc()` collects the
-  now-unreachable `Meeting:<id>` entity, `useFragment`'s `complete` flips to `false` — but `complete`
-  is also `false` for an instant before the *first* read resolves, so the sheet needs to distinguish
-  "hasn't loaded yet" from "existed, and now doesn't" (e.g. a ref/state tracking whether `complete`
-  was ever `true` for this meeting id). Once detected, `MeetingDetailContent` should show something
-  in place of the (now-stale) frozen content — reusing the existing `EmptyState` component
-  (`components/EmptyState.tsx`) with copy like "This meeting was cancelled," never silently
-  continuing to show frozen data and never crashing on now-missing fields. The sheet stays open
-  showing that message rather than auto-closing (Decision 11).
+  renders — and `cache.gc()` alone turned out not to be enough.** The original plan here was:
+  `cancelMeeting` removes a meeting from its Day, `cache.gc()` collects the now-unreachable
+  `Meeting:<id>` entity, and `useFragment`'s `complete` flips to `false`. Built and tested against
+  the real running app (Integration layer, not just reasoned about), that didn't hold up:
+  `daysInvalidated.ts`'s existing `evict()` only ever evicted the `Day:<date>` entity itself,
+  leaving each `Meeting`'s own cached fields completely untouched — and Apollo's automatic
+  `cache.gc()` does not reliably collect an entity that still has an *active watcher*, which an
+  open `MeetingDetailContent`'s own `useFragment` on that exact id always is. Measured directly:
+  `complete` sometimes flipped to `false` eventually, sometimes didn't within any reasonable wait,
+  never inside a UI-relevant timeframe. Geoff chose the architecturally correct fix over a
+  same-tab workaround: `daysInvalidated.ts`'s `evict()` now reads a day's current `meetings` list
+  *before* evicting the day, and explicitly `cache.evict()`s every one of those `Meeting:<id>`
+  entities too — safe for a meeting that's still valid (the refetch this triggers writes it fresh
+  a moment later regardless, same brief-incomplete window every day-level eviction here already
+  accepts), and now reliably, quickly incomplete for one that's genuinely gone. This is a fix to
+  shared real-time infrastructure every meeting feature uses, not something scoped to edit/cancel
+  alone — it was always a latent gap, just one attendee-response-status never needed to expose,
+  since RSVP changes a field on a meeting that keeps existing rather than making the meeting itself
+  disappear.
+
+  With that fixed, the rest of the original plan holds: `complete` is also `false` for an instant
+  before the *first* read resolves, so the sheet needs to distinguish "hasn't loaded yet" from
+  "existed, and now doesn't" (a ref/state tracking whether `complete` was ever `true` for this
+  meeting id). Once detected, `MeetingDetailContent` shows something in place of the (now-stale)
+  frozen content — reusing the existing `EmptyState` component (`components/EmptyState.tsx`) with
+  copy like "This meeting was cancelled," never silently continuing to show frozen data and never
+  crashing on now-missing fields. The sheet stays open showing that message rather than
+  auto-closing (Decision 11).
 - **`MeetingValidator.dayStateErrors` needs to call `RoomAvailability.isFreeIgnoring`, not
   `isFree`.** Today it checks `RoomAvailability.isFree(meetingsThatDay, roomId, startTime,
   endTime)` (`MeetingValidator.java:85-90`) against every meeting already in the day. For an
@@ -308,6 +342,34 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   much longer subject to an otherwise-full day could in principle trip `DayItemTooLargeException`,
   surfaced the same way create already surfaces it (as `DayIsFull`) — no new handling needed, just
   worth knowing it applies here too.
+- **A new `DayRepository.moveMeeting` method, for a cross-day edit (Decision 17).** The existing
+  pointer write (`pointerPut`, `DayRepository.java:224-233`) is conditional on
+  `attribute_not_exists(pk)` — collision-safety for a freshly allocated id, but it means re-adding
+  an *existing* id to a different day's `meetings` list via the ordinary `mutate`/`writeItems`
+  path would collide with that same id's own still-live pointer at the old date and fail every
+  retry identically, not just once. `mutate` is refactored into a shared internal retry/size-check
+  loop (`mutateInternal`, parameterised over how pointer-related transaction items are built from
+  before/after state) plus two callers: `mutate` itself (unchanged external behaviour — always
+  diffs and manages pointers automatically, exactly as today) and the new `moveMeeting`, which
+  supplies its own pointer handling instead of the automatic diff:
+  1. **Add** the updated record to `toDate`'s day, in the same transaction as an `Update` (not
+     `Put`) on the pointer item — `SET date = :toDate` conditional on the pointer's *current* value
+     still being `:fromDate`, so two concurrent moves of the same meeting cannot both "win" and
+     leave the pointer in an inconsistent state.
+  2. **Remove** the record from `fromDate`'s day — a write that must touch *no* pointer at all
+     (it was already repointed in step 1), unlike an ordinary loss through `mutate`, which always
+     deletes a lost id's pointer as part of its normal diff.
+
+  Add-then-remove is deliberate, not incidental: a failure (a thrown exception, a Lambda timeout,
+  the process dying) between the two steps leaves the meeting visible on *both* days — an
+  overcount, harmless, and safe for a retry to finish cleaning up — never gone from *both*, which
+  nothing could recover. Idempotent by construction: `moveMeeting` starts by reading the pointer
+  itself; already at `toDate` means step 1 already committed (this is a retry of a call whose
+  first write actually succeeded) and only step 2 runs; still at `fromDate` means neither step has
+  run and both do. `UpdateMeetingHandler` calls this only when the requested new date differs from
+  the meeting's current one (itself resolved via the existing `findDateOfMeeting`, which already
+  backs `Query.meeting(id:)`); a same-day edit never touches any of this and stays on the ordinary,
+  completely unchanged `mutate` path.
 - **Top-level (Forbidden) errors need the app's existing generic error handling, not new UI.** A
   rejected `updateMeeting`/`cancelMeeting` due to authorization surfaces as a top-level GraphQL
   error (Decision 8), not inside `errors: [MeetingError!]!`. `mootmaker-webapp/README.md` documents
@@ -339,17 +401,47 @@ code — this is exactly the mechanism it already exists for. The only schema-le
     organiser-allowed, admin-allowed, neither-rejected (`Forbidden`), and `MeetingNotFound` (an id
     that doesn't resolve to any meeting, and the concurrent-retry case where it stops existing
     mid-retry).
-- **Unit/mocked-integration (`mootmaker-webapp`)**: the generalized add/edit form component gets
-  tests for prefilling from a fetched meeting, submitting `UPDATE_MEETING` instead of
-  `CREATE_MEETING`, and the new `MeetingNotFound` error message rendering. A new `addMeetingLogic.ts`
-  test covers Decision 16's reordering: the meeting's current room, if present anywhere in
-  `suggestRoom`'s returned candidates, is moved to the front before `advanceSuggestion`'s existing
-  cycling logic runs; absent from the candidates (e.g. genuinely unavailable or under capacity for
-  the new attendee count), the existing ranked-list behaviour is untouched. `MeetingDetailContent`
-  gets tests for the Edit/Cancel buttons' visibility under `canEdit` (organiser, admin,
-  neither) — mocked, since this is pure permission-flag logic with no need for a real deployed
-  environment. `CancelMeetingDialog` gets a test asserting the underlying sheet/panel content is
-  still present in the DOM (not unmounted) while the dialog is open, directly covering Decision 5.
+  - New `DayRepositoryTest` cases for `moveMeeting` (Decision 17): a normal move (the record
+    appears on `toDate`, is gone from `fromDate`, and the pointer resolves to `toDate` afterward);
+    idempotent resume (calling it again after the pointer already points to `toDate` only performs
+    the removal, never attempts step 1 twice); a version conflict on either day during either step
+    still converges within `MAX_WRITE_ATTEMPTS`; `UpdateMeetingHandler` picks `moveMeeting` only
+    when the requested date differs from the meeting's current one, plain `mutate` otherwise
+    (asserted at the handler level, not just the repository's).
+- **Unit (`mootmaker-webapp`, `webapp/src/**/*.test.ts`, Vitest)**: this layer is pure-logic only
+  in this repo — `addMeetingLogic.ts`'s own tests already exist "so they're testable without
+  rendering the component or mocking Apollo" (its own doc comment; see `testing-strategy.md`'s
+  "Unit tests" section). Nothing here renders `MeetingDetailContent`/`AddMeetingPage` directly, and
+  this design doesn't introduce that pattern. A new `addMeetingLogic.test.ts` case covers Decision
+  16's reordering directly: the meeting's current room, if present anywhere in `suggestRoom`'s
+  returned candidates, is moved to the front before `advanceSuggestion`'s existing cycling logic
+  runs; absent from the candidates (e.g. genuinely unavailable or under capacity for the new
+  attendee count), the existing ranked-list behaviour is untouched. `daysInvalidated.test.ts`
+  (already exists, already exercises `DayInvalidations` directly against a real `InMemoryCache`)
+  gains a case for the eviction fix above: invalidating a day also evicts the `Meeting` entities
+  it referenced, and leaves an unrelated day's own meeting alone.
+- **Integration (`mootmaker-webapp`, `webapp/tests/`, Playwright + MSW)** — this is the layer that
+  actually renders and drives the real UI against a mocked API (`vite --mode mock`, no real AWS at
+  all); an earlier draft of this doc called this layer "mocked-integration" and proposed jsdom
+  component tests with an Apollo `MockedProvider`, a pattern that **doesn't exist anywhere in this
+  codebase today** — every existing component-level proof already lives here instead (see
+  `attendee-response-status.spec.ts`, `meeting-detail-survives-refetch.spec.ts`). Corrected once
+  this was checked against the actual repo rather than assumed. `src/testSupport/mocks/handlers.ts`
+  needs new `UpdateMeeting`/`CancelMeeting` cases (mirroring `CreateMeeting`/`RespondToMeeting`'s
+  existing shape) before any of this can run at all — without them, an edit or cancel from the UI
+  under `vite --mode mock` just hits the handler's "no handler for this operation" fallback. New
+  specs cover: the edit form fetching and prefilling from an existing meeting (`meeting-form.spec.ts`
+  already covers create; a new `meeting-edit.spec.ts` or an extension of it covers edit reusing the
+  same field assertions); Edit/Cancel button visibility under `canEdit` (organiser, admin, neither —
+  driven through real sign-ins via `cognito.mock.ts`'s `DEMO_USER`/`ADMIN_USER`, not a synthetic
+  prop); the cancel confirmation dialog leaving the meeting's own details visible behind it
+  (Decision 5, queryable in the real rendered DOM without unmounting anything); and, mirroring
+  `meeting-detail-survives-refetch.spec.ts`'s own established technique (a visibility-triggered
+  refetch stands in for a real subscription push, which needs a real AppSync endpoint this layer
+  doesn't have) — an open meeting detail sheet reflecting a same-session edit or cancel once that
+  same refetch fires, proving `MeetingDetailContent`'s broadened live-fragment binding and its
+  "This meeting was cancelled" `EmptyState` actually render correctly, not just that the mechanism
+  is plausible in the abstract.
 - **Acceptance** (real deployed environment, per this project's usual definition of done): a new
   `o-edit-and-cancel-meetings.md` test-case file (to be created under `acceptance/test-cases/` in
   `mootmaker-webapp`, following this doc's own naming convention) and a matching new
@@ -381,45 +473,52 @@ code — this is exactly the mechanism it already exists for. The only schema-le
   - A past meeting (already ended) and a currently-in-progress meeting can both still be edited and
     cancelled by their organiser or an admin, same as an upcoming one (Decision 12) — one case per
     state is enough to prove no time-based restriction was accidentally introduced.
-  - Not planned as a new e2e (mocked-integration) case beyond what's listed under unit/mocked
-    integration above — this feature is a straightforward CRUD extension of an existing,
-    already-well-covered mutation family, and the acceptance layer against a real environment is
-    the right place to prove the authorization boundary specifically, matching how
-    `l-authorization-boundaries.md` already does this for `updatePerson`.
+  - **Edit a meeting's date to a different day** (Decision 17): the meeting disappears from its
+    original date's grid and appears on the new date's, its id is unchanged (the same meeting, not
+    a new one — checked via a direct `meeting(id:)` lookup resolving to the new date), and a second
+    edit of the same meeting immediately afterward still works (proves the pointer genuinely moved,
+    not just the day's own meetings list).
+  - Not planned as a new e2e (`e2e/`) case beyond what's listed under Integration above — this
+    feature is a straightforward CRUD extension of an existing, already-well-covered mutation
+    family, and the acceptance layer against a real environment is the right place to prove the
+    authorization boundary specifically, matching how `l-authorization-boundaries.md` already does
+    this for `updatePerson`.
   - `mootmaker-release`'s smoke suite is **not** touched — editing/cancelling a meeting isn't part
     of the deliberately minimal five-minute smoke pass, and doesn't change any copy or structure
     the existing smoke suite asserts on.
 - **Cross-client live update is proven at two layers, deliberately, not one** — this was under-
   specified in an earlier draft of this doc (only the acceptance layer was there) until Geoff asked
-  which layer actually covers it. The two prove genuinely different things and neither substitutes
-  for the other:
-  - **Mocked-integration (`mootmaker-webapp`, no real deployed environment)** proves
-    `MeetingDetailContent`'s own rendering logic in isolation, fast and deterministic: given the
-    normalized `Meeting:<id>` Apollo cache entity already holds different field values than the
-    frozen snapshot it was opened with (an Apollo `MockedProvider` test writes the cache directly —
-    this is standing in for "a refetch already landed," not exercising how it got there), the
-    component renders the *live* values, not the stale ones — asserted across **every field the
-    broadened fragment now covers, attendee status included, not just the newly-added
-    subject/time/room/organiser fields**. Given that entity's `useFragment` result transitions from
-    `complete: true` to `complete: false` (simulating what `cache.gc()` leaves behind once
-    `cancelMeeting`'s day-eviction removes the last reference to it), the component renders the
-    "This meeting was cancelled" `EmptyState` instead of crashing on now-missing fields or silently
-    keeping the frozen snapshot.
+  which layer actually covers it, and the *name* of the other layer was wrong in the draft after
+  that (called "mocked-integration" with an Apollo `MockedProvider`, a pattern this codebase
+  doesn't use anywhere — corrected above once actually checked against `testing-strategy.md` and
+  the existing specs, rather than assumed). The two that actually exist here prove genuinely
+  different things and neither substitutes for the other:
+  - **Integration (`webapp/tests/`, Playwright + MSW, one browser, no real deployed
+    environment)** proves `MeetingDetailContent`'s own rendering logic against the real running
+    app, fast and deterministic, using the same visibility-triggered-refetch technique
+    `meeting-detail-survives-refetch.spec.ts` already established for exactly this limitation (no
+    real AppSync subscription under `vite --mode mock`): open a meeting's detail sheet, mutate the
+    MSW fixture directly (an edit or a cancel, via the new `UpdateMeeting`/`CancelMeeting` handler
+    cases), fire the same simulated `visibilitychange` refetch, and assert the open sheet now shows
+    the new subject/time/room/organiser/attendee-status values, or - for a cancel - the "This
+    meeting was cancelled" `EmptyState`, never a crash or stale content.
 
-    Including attendee status here isn't backfilling coverage for unrelated old code for its own
-    sake — Decision 10 *relocates* the `useFragment` call itself from `useMeetingDetailOverlay.tsx`
-    into `MeetingDetailContent.tsx`, so it stops being untouched, pre-existing behaviour and becomes
-    code this design moves and modifies. Today that relocation would have **zero** fast-running
-    regression coverage: the only thing that currently proves it works at all is the acceptance-
-    layer M.111, which is slow, runs against a real environment, and on a failure wouldn't
-    distinguish "the relocated attendee-status binding broke" from "the new subject/time/room logic
-    broke." Asserting all fields in the same mocked test the new fields already need costs
-    approximately nothing extra and closes that gap directly, for the first time.
+    Asserting attendee status here too isn't backfilling coverage for unrelated old code for its
+    own sake — Decision 10 *relocates* the `useFragment` call itself from
+    `useMeetingDetailOverlay.tsx` into `MeetingDetailContent.tsx`, so it stops being untouched,
+    pre-existing behaviour and becomes code this design moves and modifies. Today that relocation
+    would have **zero** fast-running regression coverage of its own: the only thing that currently
+    proves the underlying mechanism works at all is the acceptance-layer M.111, which is slow, runs
+    against a real environment, and on a failure wouldn't distinguish "the relocated attendee-status
+    binding broke" from "the new subject/time/room logic broke." Covering all fields in the same
+    integration spec the new fields already need costs little extra and closes that gap directly,
+    for the first time.
   - **Acceptance (`m-cross-cutting.md`/`## M. Cross-cutting`, real deployed environment, two real
-    browser contexts)** proves the actual wire mechanism the mocked test above assumes already
-    happened: that a genuine `updateMeeting`/`cancelMeeting` call from one real, independent session
+    browser contexts)** proves the actual wire mechanism the Integration-layer test above stands in
+    for: that a genuine `updateMeeting`/`cancelMeeting` call from one real, independent session
     triggers AppSync's real `daysInvalidated` broadcast, which a second real session actually
-    receives, evicts, and refetches — infrastructure a mock cannot exercise at all, since there is
+    receives, evicts, and refetches — infrastructure neither a mock nor a same-tab visibility
+    trigger can exercise at all, since there is
     no real AppSync subscription or Lambda broadcast involved. This is where the project already
     houses cross-client real-time-sync proofs (M.109–M.111, the same mechanism, for
     `respondToMeeting`); two new cases here, directly answering Decision 10:
@@ -490,63 +589,69 @@ Each repo gets its own `feature/edit-and-cancel-meetings` branch and PR (a PR ca
    (self-overlap, day-at-cap-during-edit).
 4. Same `isFree` → `isFreeIgnoring` swap in `SuggestRoomHandler.java`, gated on the new
    `excludingMeetingId` argument; new `SuggestRoomHandlerTest` cases.
-5. `UpdateMeetingHandler.java`: mirrors `CreateMeetingHandler`'s `DayRepository.mutate`
-   read-modify-write/retry shape; authorization (organiser's `cognitoSubs` contains caller `sub`,
-   or `Identity.isAdmin`) before the mutation runs, `Forbidden` `IllegalStateException` on failure;
-   `MeetingNotFound` if the id isn't in `meetingsThatDay`, re-checked inside the retry loop, not
-   just up front; `broadcaster.publish(List.of(date))` after a successful write. Unit tests:
-   organiser-allowed, admin-allowed, forbidden, not-found, concurrent-retry-finds-it-gone.
-6. `CancelMeetingHandler.java`: same shape, removing the meeting from `meetings` instead of
+5. New `DayRepository.moveMeeting` (Decision 17) plus its `mutateInternal` refactor of `mutate` -
+   land and unit-test this first, since `UpdateMeetingHandler` depends on it for a cross-day edit.
+6. `UpdateMeetingHandler.java`: resolves the meeting's current date via `findDateOfMeeting`
+   (`MeetingNotFound` if absent); authorization against the *current* record's organiser
+   (`cognitoSubs` contains caller `sub`, or `Identity.isAdmin`) before applying anything, `Forbidden`
+   `IllegalStateException` on failure; same-date edit uses the existing `DayRepository.mutate`
+   (mirroring `CreateMeetingHandler`'s read-modify-write/retry shape exactly, with
+   `excludingMeetingId` threaded through `dayStateErrors`); different-date edit uses the new
+   `moveMeeting` instead; `broadcaster.publish` for the date(s) actually written (both, on a move) on
+   success. Unit tests: organiser-allowed, admin-allowed, forbidden, not-found,
+   concurrent-retry-finds-it-gone, same-date-uses-mutate vs different-date-uses-moveMeeting.
+7. `CancelMeetingHandler.java`: same shape, removing the meeting from `meetings` instead of
    replacing a field-set; relies on `DayRepository.writeItems`'s existing pointer diff to delete the
-   `PTR#<meetingId>` row. Same unit test set as step 5.
-7. Terraform: register both new Lambda handlers the same way `CreateMeetingHandler`'s is wired
+   `PTR#<meetingId>` row. Same unit test set as step 6 (minus the move-vs-mutate case, which has
+   no cancel equivalent).
+8. Terraform: register both new Lambda handlers the same way `CreateMeetingHandler`'s is wired
    (`deploy/terraform/`), and their AppSync resolvers.
-8. `mvn -f impl/pom.xml spotless:apply` and `mvn -f impl/pom.xml test` green.
-9. Update `mootmaker-api/README.md`'s data-model section.
+9. `mvn -f impl/pom.xml spotless:apply` and `mvn -f impl/pom.xml test` green.
+10. Update `mootmaker-api/README.md`'s data-model section.
 
 **`mootmaker-webapp`**:
-10. `graphql/queries.ts`: broaden `MEETING_ATTENDEES_FRAGMENT` to every editable field (subject,
+11. `graphql/queries.ts`: broaden `MEETING_ATTENDEES_FRAGMENT` to every editable field (subject,
     room, organiser, startTime, endTime, attendees); add `excludingMeetingId` variable to
     `SUGGEST_ROOM`.
-11. `graphql/mutations.ts`: `UPDATE_MEETING`/`CANCEL_MEETING`. `graphql/validationMessages.ts`:
+12. `graphql/mutations.ts`: `UPDATE_MEETING`/`CANCEL_MEETING`. `graphql/validationMessages.ts`:
     `MeetingNotFound` added to `MEETING_ERROR_MESSAGES` (required for the `Record<MeetingError,
     string>` type to compile once step 1's schema change lands).
-12. `npm run codegen` (against the updated `mootmaker-api` schema) and `npm run codegen:check`.
-13. Generalize `AddMeetingPage.tsx` for add+edit (Decision 2): a `meetingId` route param switches
+13. `npm run codegen` (against the updated `mootmaker-api` schema) and `npm run codegen:check`.
+14. Generalize `AddMeetingPage.tsx` for add+edit (Decision 2): a `meetingId` route param switches
     heading/mutation/post-submit navigation; edit mode fetches fresh via the existing `MEETING_BY_ID`
     query (Decision 3), never `location.state`.
-14. `addMeetingLogic.ts`: same-room-priority reordering (Decision 16) when editing, plus its unit
+15. `addMeetingLogic.ts`: same-room-priority reordering (Decision 16) when editing, plus its unit
     tests.
-15. New route `/meetings/:meetingId/edit` in `App.tsx`.
-16. `MeetingDetailContent.tsx`: Edit/Cancel icon buttons gated by `canEdit`; the `useFragment`
+16. New route `/meetings/:meetingId/edit` in `App.tsx`.
+17. `MeetingDetailContent.tsx`: Edit/Cancel icon buttons gated by `canEdit`; the `useFragment`
     live-binding moved in from `useMeetingDetailOverlay.tsx` (now covering every broadened field);
     the "This meeting was cancelled" `EmptyState` on the fragment going incomplete.
     `useMeetingDetailOverlay.tsx` loses the binding it no longer owns.
-17. New `CancelMeetingDialog.tsx`, following `DeleteAccountSection`'s confirm-dialog pattern,
+18. New `CancelMeetingDialog.tsx`, following `DeleteAccountSection`'s confirm-dialog pattern,
     mounted so the sheet/panel stays visible (dimmed) behind it (Decision 5) — never conditionally
     rendered as an alternative to it.
-18. Tests: form prefill/submit/`MeetingNotFound` rendering; `addMeetingLogic.ts` reorder test;
+19. Tests: form prefill/submit/`MeetingNotFound` rendering; `addMeetingLogic.ts` reorder test;
     `MeetingDetailContent` button-visibility under `canEdit`; `CancelMeetingDialog` DOM-presence
     test; mocked live-binding tests (all fields including attendee status, plus the
     complete-flips-false → `EmptyState` case) — see "Testing impacts" for the full list.
-19. Update `mootmaker-webapp/README.md`.
+20. Update `mootmaker-webapp/README.md`.
 
 **`mootmaker`** (hub):
-20. `docs/reference/use-cases.md`: new `## O. Edit and Cancel Meetings` section (appended after N).
-21. New `acceptance/test-cases/o-edit-and-cancel-meetings.md` in `mootmaker-webapp` (lives in that
+21. `docs/reference/use-cases.md`: new `## O. Edit and Cancel Meetings` section (appended after N).
+22. New `acceptance/test-cases/o-edit-and-cancel-meetings.md` in `mootmaker-webapp` (lives in that
     repo, tracked here since it's driven by this doc's own use-case numbering) with every case
     listed under "Testing impacts", plus the two new `m-cross-cutting.md` cases.
-22. Corresponding Playwright specs in `mootmaker-webapp/acceptance/tests/`.
+23. Corresponding Playwright specs in `mootmaker-webapp/acceptance/tests/`.
 
 **Deploy and verify**:
-23. `[Claude]` Create (or reuse this session's) ephemeral environment; deploy `mootmaker-api` then
+24. `[Claude]` Create (or reuse this session's) ephemeral environment; deploy `mootmaker-api` then
     `mootmaker-webapp` to it, in that order (webapp reads the API's Terraform outputs).
-24. `[Claude]` Fix any bugs surfaced along the way; re-confirm each touched repo's own unit tests.
-25. `[Claude]` Full acceptance suite green against that environment — not just the new Section O/M
+25. `[Claude]` Fix any bugs surfaced along the way; re-confirm each touched repo's own unit tests.
+26. `[Claude]` Full acceptance suite green against that environment — not just the new Section O/M
     cases, the whole existing suite, per this project's actual definition of working.
-26. `[Geoff]` Review and merge each repo's PR — no separate approval step beyond reading the diff,
+27. `[Geoff]` Review and merge each repo's PR — no separate approval step beyond reading the diff,
     per `docs/process/branching-and-prs.md`.
-27. `[Claude]` Tear down the ephemeral environment once Geoff confirms, as part of finishing.
+28. `[Claude]` Tear down the ephemeral environment once Geoff confirms, as part of finishing.
 
 ## Definition of done
 
