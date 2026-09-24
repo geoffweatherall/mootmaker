@@ -15,9 +15,11 @@ cancel confirmation dialog. Option A is the one this doc builds — see "Trade-o
 
 ## Status
 
-**Ready** — 2026-09-24, promoted by Geoff. Every blocking open question is resolved (see Decisions
-12-14); the cross-client live-update gap and the room-availability self-overlap bug (Decisions
-10-11, 15-16) were caught and closed during review.
+**Shipped** — 2026-09-24. Implemented across `mootmaker-api` (#66, #67, #68, #69) and
+`mootmaker-webapp` (#118, #120, #121), including a real IAM gap (`dynamodb:UpdateItem`) and two
+unrelated pre-existing acceptance-suite bugs caught while chasing a clean full run; released as
+`v4.4.0` via `mootmaker-release`, deployed to `test` then `production`, both smoke tests green, no
+rollback triggered.
 
 ## Scope / non-goals
 
