@@ -459,9 +459,8 @@ ephemeral environment, created once and reused throughout, left running at the e
    from this suite at all (no linked/reserved Cognito account this client can reach), so those stay
    unit-test-only. `verify`'s own black-box `RoomError`/`PersonError` mirrors updated to match. Module
    compiles clean; not yet run against a real deployment (that's still step 9).
-9. [Claude] **Partially done** - unit suite is green (see 7), `/verify` compiles clean (see 8); not
-   yet deployed to an ephemeral environment, so `/verify` hasn't actually run against real
-   infrastructure yet. Depends on: 7 (done), 8 (done at compile level, not yet run for real).
+9. [Claude] ✅ Deployed to ephemeral environment `claude-1790308482-4344`; `/verify` 62/62 green
+   against real infrastructure.
 
 **Tooling consumers (still `mootmaker-api`'s change, different repo):**
 10. [Claude] ✅ `mootmaker-demo-data`'s `DemoData.java` `createPerson` call updated. Also caught and
@@ -478,33 +477,56 @@ ephemeral environment, created once and reused throughout, left running at the e
     `mootmaker-webapp` draft PR #124.
 
 **Webapp (`mootmaker-webapp`):**
-12. [Claude] `webapp/src/graphql/types.ts`'s hand-maintained schema mirror, updated to match step 2.
-    Depends on: 9.
-13. [Claude] `MenuContent.tsx` — new Admin section (Rooms, Persons) between the existing items and
-    Settings. Depends on: 12.
-14. [Claude] `SettingsPage.tsx` — remove `AdminSections()` entirely; cut to Your name, Date & time
-    format, Delete account, plus the "moved" banner. Depends on: 12.
-15. [Claude] New `RoomsPage.tsx` — card grid (matching `RoomAvailabilityPage`'s card pattern),
-    Add/Edit dialog with the colour-swatch picker, delete confirmation (including the
-    `RoomHasUpcomingMeetings`-rejected case's own messaging). Depends on: 12.
-16. [Claude] New `PersonsPage.tsx` — card grid with admin badge and linked-email chips, Add/Edit
-    dialog with the admin switch (Edit only), its two disabled states (no linked account; editing
-    self) and their inline copy, delete confirmation, and the `cognitoSyncFailed` retry/cancel
-    dialog. Depends on: 12.
-17. [Claude] Mobile layouts for both new pages (app bar + drawer, FAB), per the prototype. Depends
-    on: 15, 16.
-18. [Claude] Deploy webapp to the same ephemeral environment as step 9. Depends on: 13-17.
+12. [Claude] ✅ **Superseded by an earlier, unrelated change**: `types.ts` no longer a hand-maintained
+    mirror at all - `mootmaker-webapp`'s own `npm run codegen` now generates it from the live schema
+    (see that repo's `CLAUDE.md`). This step became "run codegen and update the operations that
+    changed", not a hand-edit.
+13. [Claude] ✅ `MenuContent.tsx` — new Admin section (Rooms, Persons), gated on `isAdmin`. **Placement
+    deviates from the plan**: Settings lives in a separate `AccountBox` icon-button, not in
+    `MenuContent`'s own list, so "between the existing items and Settings" didn't literally apply -
+    placed inside `MenuContent`'s existing signed-in nav list instead, matching the actual component
+    structure rather than this doc's assumption about it.
+14. [Claude] ✅ `SettingsPage.tsx` cut to Your name, Date & time format, Delete account, plus the
+    "moved" banner, exactly as planned.
+15. [Claude] ✅ New `RoomsPage.tsx`. **Deviates from the plan**: no colour-swatch picker - confirmed
+    via the schema that `Room`/`RoomInput` have no `color` field at all; room colour is purely
+    `roomColorAt(sorted-index, mode)`, computed client-side, matching `RoomAvailabilityPage`'s
+    existing behaviour. The prototype this checklist item was written against apparently invented a
+    field that was never actually part of the design's own schema changes above.
+16. [Claude] ✅ New `PersonsPage.tsx`, per plan - admin badge, linked-email chips, the admin switch's
+    two disabled states with inline copy, delete confirmation, `cognitoSyncFailed` retry/cancel.
+17. [Claude] ✅ Not a separate step in practice - the responsive grid (`xs: 1fr` / `md: repeat(2,
+    1fr)`) and fixed-position FAB are part of 15/16's own implementation, matching
+    `RoomAvailabilityPage`'s existing mobile pattern rather than needing distinct mobile-specific
+    work.
+18. [Claude] ✅ Deployed to `claude-1790308482-4344` (redeployed several times over the course of
+    steps 19-22 as bugs were found and fixed).
 
 **Testing (`mootmaker-webapp`):**
-19. [Claude] Integration coverage (`webapp/tests/`) for both new pages' client-side logic, including
-    the `cognitoSyncFailed` retry/cancel behaviour against a mocked response, per Testing impacts.
-    Depends on: 15, 16.
-20. [Claude] New acceptance sections **P** (`p-rooms.md` + spec) and **Q** (`q-persons.md` + spec),
-    case numbers from 122, superseding **J**/**K**'s Settings-scoped cases. Depends on: 18.
-21. [Claude] Update **L.89** and **L.91** for the new pages/nav and the new mutation names. Depends
-    on: 11, 18.
-22. [Claude] Full acceptance suite green on the deployed environment (this project's usual done
-    condition). Depends on: 19, 20, 21.
+19. [Claude] ✅ `rooms-page.spec.ts`/`persons-page.spec.ts` added against the mocked layer - 13 tests,
+    including both `cognitoSyncFailed` retry/cancel paths.
+20. [Claude] ✅ New sections **P** (cases 124-131) and **Q** (cases 132-142), superseding **J**/**K**.
+    **Case numbers deviate from the plan** ("from 122") - actual next-free number was 124 by the
+    time this was implemented, since other use cases had landed on `main` first.
+21. [Claude] ✅ **Wider than planned**: updated **L.89**, **L.90**, and **L.91**, not just 89/91 - the
+    plan's own list missed that L.90's standard-user-forcing-a-mutation probe needed extending from
+    3 mutations to 7 to cover every new admin mutation, not just the three that existed when this
+    checklist was drafted.
+22. [Claude] ✅ Full acceptance suite green (137/137) against `claude-1790308482-4344` - reached only
+    after four full runs and three real bugs found and fixed along the way, none caught by any
+    earlier layer:
+    - Ten pre-existing spec files' local `createRoom`/`createPerson` helpers still drove the removed
+      Settings UI, not the new `/rooms`/`/persons` pages.
+    - A genuine Apollo cache race: `RoomsPage`/`PersonsPage`'s `cache-and-network` fetch (needed for
+      cross-session freshness - see acceptance case M.99) could have its still-in-flight,
+      pre-mutation response overwrite a create/edit/delete's own cache write if the action fired
+      before that fetch settled. Fixed by disabling the FAB and each card's Edit/Remove until the
+      page's own `loading` flag first goes false.
+    - The demo and e2e Persons, created directly by Terraform rather than through sign-up, were
+      missing `isAdmin`/`cognitoEmails` entirely (`PostConfirmationCreatePersonHandler` is the only
+      other code that sets them) - the demo admin's own Persons-page card rendered as an unlinked
+      guest. Fixed in `mootmaker-api` (Terraform, `cognito.tf`; closed mootmaker-api#73 via #74), not
+      in the webapp.
 
 **Review:**
 23. [Geoff] Sign off on the deployed behaviour before this moves to Shipped.
