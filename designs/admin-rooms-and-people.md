@@ -65,11 +65,14 @@ Resolved through discussion before drafting:
 
 - **`deletePerson` cascades exactly like `deleteMyAccount` already does to the caller's own
   account** — cancel every upcoming meeting they organise, remove them from every upcoming meeting
-  they only attend, leave the past untouched — just admin-invoked against someone else. Same
-  reasoning `DeleteMyAccountHandler` already documents for the ordering (Cognito user deleted
-  first, then DynamoDB cleanup, so a partial failure fails toward "still works" rather than
-  "silently broken"), and `MeetingResponse.resolvePerson`'s "Deleted user" placeholder already
-  covers what a past meeting sees afterward — this path is proven, not new.
+  they only attend, leave the past untouched — just admin-invoked against someone else. Same write
+  order `DeleteMyAccountHandler` actually uses (verified by reading the code during implementation,
+  not assumed from its own class-level comment, which turned out to be stale and got fixed
+  alongside this work): meetings, then the Person, then the Cognito account(s) **last** - deleting
+  Cognito first would risk the worse failure, a version-conflicted meeting cascade leaving someone
+  locked out with no way to sign back in and retry. `MeetingResponse.resolvePerson`'s "Deleted
+  user" placeholder already covers what a past meeting sees afterward - this path is proven, not
+  new.
 
 - **`Person.linkedEmails: [String!]!` — added during implementation, not originally specified.**
   The very first prototype requirement was "persons with a linked cognito account(s) should show
@@ -197,7 +200,7 @@ Resolved through discussion before drafting:
 
 - **`deletePerson` refuses to delete the caller's own Person** (new `PersonError.CannotDeleteSelf`)
   — an admin deleting themselves through the admin path would skip `deleteMyAccount`'s own
-  ordering guarantees (Cognito-first, reserved-account check) entirely. Point them at
+  guarantees (its specific write ordering, its reserved-account check) entirely. Point them at
   `deleteMyAccount` instead.
 - **`deletePerson` refuses to delete a reserved system account's Person** (new
   `PersonError.ReservedAccount`) — reusing the same `RESERVED_ACCOUNT_EMAILS` mechanism
@@ -418,38 +421,39 @@ rather than stopping, recording each such call in this doc rather than pausing f
 ephemeral environment, created once and reused throughout, left running at the end for review.
 
 **API (`mootmaker-api`):**
-1. [Claude] **Blast-radius sweep first, before any new logic** — per Risks, this is the step most
-   likely to be under-scoped if skipped. Confirm the full list of `PersonInput`/`updatePerson`
-   consumers found during design (nine `/verify` IT classes, `DemoData.java`,
-   `authorization-boundaries.spec.ts`) is still accurate against current `main`, and note anything
-   new.
-2. [Claude] Schema: `api/mootmaker.graphql` changes from Trade-offs and decisions / Impacts on
-   components — remove `updatePerson`/`UpdatePersonResult`/`PersonInput`; add `updateMyName`,
-   `renamePerson`, `setPersonAdmin` (with `cognitoSyncFailed`), `deleteRoom`, `deletePerson`, and
-   their result types; add `Person.isAdmin`; `createPerson(name: String!)`; new `RoomError`/
-   `PersonError` cases.
-3. [Claude] `Person.java` — add `isAdmin`, defaulting like `dateFormat`/`timeFormat` (absent
-   attribute → `false`); `toItem()`/`fromItem()` updated; unit test the default path.
-4. [Claude] Extract `DeleteMyAccountHandler`'s cascade (cancel-upcoming-organised,
-   remove-from-upcoming-attended) into something both it and the new `DeletePersonHandler` call,
-   rather than duplicating it.
-5. [Claude] New handlers — `UpdateMyNameHandler`, `RenamePersonHandler`, `SetPersonAdminHandler`,
-   `DeleteRoomHandler`, `DeletePersonHandler` — each per its own Trade-offs and decisions entry:
-   read-then-full-replace carrying every untouched field forward (closing #71's bug, not repeating
-   it), DynamoDB-then-Cognito write order, the guard errors (`CannotDeleteSelf`, `ReservedAccount`,
-   `NoLinkedAccount`, `CannotRevokeOwnAdminAccess`), `cognitoSyncFailed` on `SetPersonAdminHandler`
-   only. Retire `UpdatePersonHandler`; rewrite `CreatePersonHandler` for the new signature. Depends
-   on: 2, 3, 4.
-6. [Claude] Terraform: five new resolvers in `deploy/terraform/appsync.tf`, matching the existing
-   `create_room`/`update_room`/`create_person`/`update_person` blocks' shape. Depends on: 5.
-7. [Claude] Unit tests for every new/changed handler — the #71-regression case (untouched fields
-   survive), the guard-error cases, and `SetPersonAdminHandler`'s `cognitoSyncFailed` case (mocked
-   Cognito client throws) per Testing impacts. Depends on: 5.
-8. [Claude] Update the nine existing `/verify` IT classes and add new `*AcceptanceIT` classes per
-   new mutation (admin succeeds, non-admin rejected, M2M admin-scope token succeeds), mirroring
-   `CreateRoomAcceptanceIT`'s shape. Depends on: 1, 6.
-9. [Claude] `mvn -f impl/pom.xml test` green; deploy to the ephemeral environment; `/verify` green
-   against it. Depends on: 7, 8.
+1. [Claude] ✅ **Blast-radius sweep first, before any new logic.** Confirmed against current `main`:
+   the actual list was wider than drafted (also `SelectionAwareMeetingsAcceptanceIT`,
+   `SuggestRoomAcceptanceIT`, `DaysInvalidatedAcceptanceIT` create fixtures via `PersonInput`) - see
+   the updated list under Impacts on components.
+2. [Claude] ✅ Schema updated as specified. Also fixed doc comments in `updateMeeting`/
+   `updateMyPreferences` that referenced the now-gone `updatePerson` by name.
+3. [Claude] ✅ `Person.java` - `isAdmin` and `cognitoEmails` both added (the latter per the
+   `linkedEmails` addendum above), defaulting on absence, unit-tested directly in `PersonTest`. Kept
+   the existing 3-arg `Person(id, name, cognitoSub)` convenience constructor rather than widening it
+   to 4 args - that would have forced an unrelated edit onto roughly 20 existing test files that
+   don't care about email; added a 4-arg overload alongside it instead, used only at the two sign-up
+   call sites that actually have an email to pass.
+4. [Claude] ✅ Extracted into `UpcomingMeetings` (not literally "into `DeletePersonHandler`" - a
+   shared package-private class both handlers and `DeleteRoomHandler` call, since the room-deletion
+   upcoming-check needed the same "scan days, filter by `now`" shape). **Found and fixed a real bug
+   while doing this**: `DeleteMyAccountHandler`'s own class-level javadoc claimed it deletes Cognito
+   *first*, before any DynamoDB cleanup - the opposite of what the code (and its own inline comment
+   at the call site) actually does. Fixed the stale javadoc; this design's own text above had
+   quoted the wrong version too and is now corrected.
+5. [Claude] ✅ All five new handlers written per their Trade-offs and decisions entries.
+   `UpdatePersonHandler` deleted.
+6. [Claude] ✅ Terraform: **turned out to be six resolver blocks, not five new Lambdas** -
+   `ResolverDispatchHandler` is a single shared Lambda routed by a `fieldName` map, so this was
+   `aws_appsync_resolver` blocks plus one dispatch-map entry each, not new compute. Also updated
+   `iam.tf`'s doc comment (named the retired/renamed handlers).
+7. [Claude] ✅ Unit tests written for all five, plus `PersonTest` extended and `CreatePersonHandlerTest`
+   fixed for the new argument shape. **286/286 tests green**, `spotless:apply` and `checkstyle:check`
+   both clean.
+8. [Claude] **Not started.** Existing `/verify` IT classes still reference the old shapes; no new
+   `*AcceptanceIT` classes written yet.
+9. [Claude] **Partially done** - unit suite is green (see 7); not yet deployed to an ephemeral
+   environment, so `/verify` hasn't run against real infrastructure yet. Depends on: 7 (done), 8
+   (not done).
 
 **Tooling consumers (still `mootmaker-api`'s change, different repo):**
 10. [Claude] `mootmaker-demo-data`'s `DemoData.java` `createPerson` call, updated for the new
