@@ -71,6 +71,21 @@ Resolved through discussion before drafting:
   "silently broken"), and `MeetingResponse.resolvePerson`'s "Deleted user" placeholder already
   covers what a past meeting sees afterward — this path is proven, not new.
 
+- **`Person.linkedEmails: [String!]!` — added during implementation, not originally specified.**
+  The very first prototype requirement was "persons with a linked cognito account(s) should show
+  the email addresses of those accounts," but this doc's drafting got absorbed into the admin-toggle
+  and delete design and never actually gave that a GraphQL shape — caught starting on the code, not
+  during design, which is itself worth noting for next time. Resolved the same way `isAdmin` was:
+  a **denormalised DynamoDB copy**, not a live per-account Cognito lookup (same N-calls-per-page-load
+  problem `isAdmin` already avoided this way). Safe here specifically because this app has no
+  "change your email" flow at all — the value written at sign-up never goes stale the way a mutable
+  field would. New `Person.cognitoEmails: List<String>` attribute (parallel to `cognitoSubs`, same
+  optional/defaults-to-empty pattern), written by `PostConfirmationCreatePersonHandler` alongside
+  `cognitoSubs` at sign-up time (the trigger event already carries `email` in `userAttributes`, no
+  new Cognito call needed) — same lockstep write, so there's no separate ordering/consistency
+  concern between the two lists. Never touched by any of this design's new mutations; read-only
+  everywhere but sign-up.
+
 - **`updatePerson` is retired and split by caller, not merged with the new admin fields.** Today one
   mutation serves two different authorization shapes (self-rename, or admin renaming anyone) under
   a name that reveals neither. Replaced by:
@@ -266,7 +281,8 @@ See [`data-model.md`](../docs/reference/data-model.md) for the current state. De
 - **DynamoDB, People table**: new `isAdmin` attribute (Boolean, optional — absent means `false`,
   same "optional attribute, non-null GraphQL field with a default" pattern `dateFormat`/
   `timeFormat` already use). Read-optimised copy of admin status; `custom:class` on the linked
-  Cognito account(s) stays the actual authorization source.
+  Cognito account(s) stays the actual authorization source. Also new `cognitoEmails` (List\<String\>,
+  optional, defaults to empty) — see `Person.linkedEmails` above.
 - **Cognito**: no new attribute — `custom:class` already exists and already takes `"admin"`/
   `"standard"`. What's new is a client-invocable path to *set* it (`setPersonAdmin`, via
   `AdminUpdateUserAttributes`) where today only `PostConfirmationCreatePersonHandler` (always to
