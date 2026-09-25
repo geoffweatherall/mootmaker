@@ -125,6 +125,24 @@ Resolved through discussion before drafting:
   alongside a rejection. `renamePerson` keeps the existing swallow-and-log precedent rather than
   gaining the same field "for consistency" where it wouldn't carry real meaning.
 
+  **UI handling of `cognitoSyncFailed: true`**: a small dialog on top of the (already-closed) Edit
+  Person dialog, mirroring `CancelMeetingDialog`'s "mounts alongside, not replacing, the triggering
+  content" pattern — the DynamoDB write already succeeded, so this isn't a rejection, it's a
+  follow-up prompt. Title poses it as a question, body names the consequence, actions are
+  **Cancel** (dismiss; the grant/revoke stands as already saved, just not yet reflected in the
+  person's token) and **Retry** (re-sends `setPersonAdmin` with the same `id`/`isAdmin` — idempotent,
+  same call either way). E.g.:
+
+  > **Sync to sign-in failed**
+  > {{name}}'s admin access was saved, but couldn't be synced to their sign-in account yet — they
+  > won't be able to use it until this succeeds.
+  > [Cancel] [Retry]
+
+  Deliberately no persistent "sync pending" indicator on the Person card if Cancel is chosen — that
+  would need new stored/queryable state this design doesn't otherwise need, and isn't what was
+  asked for. Re-opening Edit and saving again re-sends `setPersonAdmin` the same way Retry does, so
+  nothing is unrecoverable, just not proactively surfaced a second time.
+
 - **A Person with no linked Cognito account cannot be made admin.** `custom:class` lives on the
   Cognito account, not the `Person` record — a guest Person (the "Not signed up yet" case in the
   prototype) has nothing for `setPersonAdmin` to actually flip; setting DynamoDB's `isAdmin` alone
@@ -178,15 +196,10 @@ Resolved through discussion before drafting:
 
 ## Open questions
 
-**Blocking:** none remaining — the one blocking question this doc previously carried (whether a
-guest Person can be granted admin) is resolved: see "A Person with no linked Cognito account cannot
-be made admin" under Trade-offs and decisions.
-
-**Non-blocking:**
-
-- Exact wording/shape of the UI's handling of a partial `cognitoSyncFailed: true` result (retry
-  button? banner? silent re-attempt on next save?) — not designed yet, purely a backend contract so
-  far.
+**None remaining.** Blocking (whether a guest Person can be granted admin) and non-blocking (the
+`cognitoSyncFailed` UI shape) are both resolved — see "A Person with no linked Cognito account
+cannot be made admin" and "`setPersonAdmin` surfaces a Cognito-sync failure" under Trade-offs and
+decisions.
 
 ## Impacts on components
 
@@ -288,7 +301,10 @@ See [`data-model.md`](../docs/reference/data-model.md) for the current state. De
 shape — each needs an explicit case proving `dateFormat`/`timeFormat`/`cognitoSubs` survive a write
 that isn't touching them (the regression case for mootmaker-api#71). `Person`'s `isAdmin`
 attribute-mapping needs the same "absent attribute defaults" unit test `dateFormat`/`timeFormat`
-already have.
+already have. This is also the right (only practical) layer for `cognitoSyncFailed` itself: mock
+the Cognito client to throw from `SetPersonAdminHandler`'s `AdminUpdateUserAttributes` call, assert
+the DynamoDB write still happened, `cognitoSyncFailed: true`, `errors` empty — a real Cognito
+failure isn't something an acceptance run can reliably force (see below).
 
 **`/verify` acceptance IT (`mootmaker-api`):** this is the right layer for the authorization
 boundary itself — real AppSync, real Cognito tokens (both a real user's and the M2M client's),
@@ -304,7 +320,13 @@ add/edit/remove reflecting live in the mocked cache — same reasoning
 `attendee-response-status.spec.ts` already uses for this class of scenario: no real AWS needed,
 since what's under test is client-side wiring, not server behaviour. New spec file(s) for
 `RoomsPage`/`PersonsPage`, mirroring `settings-rooms.spec.ts`/`settings-people.spec.ts`'s existing
-shape but for the new pages rather than Settings' old inline sections.
+shape but for the new pages rather than Settings' old inline sections. Also the right layer for the
+retry/cancel prompt: mock `setPersonAdmin`'s response as `cognitoSyncFailed: true`, assert the
+prompt appears with the expected copy; clicking **Retry** re-sends `setPersonAdmin` with the same
+variables (assert a second matching request); clicking **Cancel** dismisses with no second call and
+the person's card still reflects the (already-successful) admin change. Same reasoning as the rest
+of this layer — this is entirely client-reaction-to-a-mocked-response, no real Cognito failure
+needed to prove the UI does the right thing with one.
 
 **Acceptance (`mootmaker-webapp/acceptance/`, real deployed environment):** existing sections
 **J** (`j-settings-rooms.md`, cases 77-83) and **K** (`k-settings-people.md`, cases 84-88) describe
@@ -318,7 +340,11 @@ meetings case), delete person (including the cascade), and grant/revoke admin. *
 cannot reach admin-only UI") currently asserts against Settings' old sections and needs re-pointing
 at the new pages/nav items; **L.91** ("self-rename works; renaming someone else does not") is
 written against `UpdatePersonHandler`'s specific check and mutation name — both change under this
-design, so its assertions need updating to match, not just its prose.
+design, so its assertions need updating to match, not just its prose. The grant/revoke-admin case
+in the new **Q** section covers only the `cognitoSyncFailed: false` happy path — deliberately not
+the retry/cancel prompt, which needs the Cognito call to actually fail and there's no reliable way
+to force that against a real environment on demand; that behaviour is fully covered at the Unit and
+Integration layers above instead.
 
 **`mootmaker-release`'s smoke suite:** not affected — it's deliberately minimal and doesn't cover
 admin-only Settings/Rooms/People flows today; nothing here changes what it should assert on.
