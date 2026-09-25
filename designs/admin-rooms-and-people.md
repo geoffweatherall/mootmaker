@@ -13,8 +13,8 @@ depends on this API yet).
 
 ## Status
 
-**Drafting** — 2026-09-25. UI fully prototyped (see Impacts on components); the GraphQL/API shape
-below was worked through in detail but has not been reviewed end-to-end as one document yet.
+**Building** — 2026-09-25. Approved by Geoff (every open question resolved); implementation started
+the same day.
 
 ## Scope / non-goals
 
@@ -392,7 +392,87 @@ proposed here).
 
 ## Implementation checklist
 
-Not filled in yet — per this folder's process, this happens once Status moves toward Ready.
+Legend: **[Geoff]** = manual/review step. **[Claude]** = implementation step. Ordered by
+dependency.
+
+Logistics: one `feature/admin-rooms-and-people` branch per repo touched (`mootmaker-api`,
+`mootmaker-webapp`, `mootmaker-demo-data` if step 12 needs it), cut fresh from `main`. Given
+approval to run unattended: fix bugs found along the way and keep going on anything reversible
+rather than stopping, recording each such call in this doc rather than pausing for it. One
+ephemeral environment, created once and reused throughout, left running at the end for review.
+
+**API (`mootmaker-api`):**
+1. [Claude] **Blast-radius sweep first, before any new logic** — per Risks, this is the step most
+   likely to be under-scoped if skipped. Confirm the full list of `PersonInput`/`updatePerson`
+   consumers found during design (nine `/verify` IT classes, `DemoData.java`,
+   `authorization-boundaries.spec.ts`) is still accurate against current `main`, and note anything
+   new.
+2. [Claude] Schema: `api/mootmaker.graphql` changes from Trade-offs and decisions / Impacts on
+   components — remove `updatePerson`/`UpdatePersonResult`/`PersonInput`; add `updateMyName`,
+   `renamePerson`, `setPersonAdmin` (with `cognitoSyncFailed`), `deleteRoom`, `deletePerson`, and
+   their result types; add `Person.isAdmin`; `createPerson(name: String!)`; new `RoomError`/
+   `PersonError` cases.
+3. [Claude] `Person.java` — add `isAdmin`, defaulting like `dateFormat`/`timeFormat` (absent
+   attribute → `false`); `toItem()`/`fromItem()` updated; unit test the default path.
+4. [Claude] Extract `DeleteMyAccountHandler`'s cascade (cancel-upcoming-organised,
+   remove-from-upcoming-attended) into something both it and the new `DeletePersonHandler` call,
+   rather than duplicating it.
+5. [Claude] New handlers — `UpdateMyNameHandler`, `RenamePersonHandler`, `SetPersonAdminHandler`,
+   `DeleteRoomHandler`, `DeletePersonHandler` — each per its own Trade-offs and decisions entry:
+   read-then-full-replace carrying every untouched field forward (closing #71's bug, not repeating
+   it), DynamoDB-then-Cognito write order, the guard errors (`CannotDeleteSelf`, `ReservedAccount`,
+   `NoLinkedAccount`, `CannotRevokeOwnAdminAccess`), `cognitoSyncFailed` on `SetPersonAdminHandler`
+   only. Retire `UpdatePersonHandler`; rewrite `CreatePersonHandler` for the new signature. Depends
+   on: 2, 3, 4.
+6. [Claude] Terraform: five new resolvers in `deploy/terraform/appsync.tf`, matching the existing
+   `create_room`/`update_room`/`create_person`/`update_person` blocks' shape. Depends on: 5.
+7. [Claude] Unit tests for every new/changed handler — the #71-regression case (untouched fields
+   survive), the guard-error cases, and `SetPersonAdminHandler`'s `cognitoSyncFailed` case (mocked
+   Cognito client throws) per Testing impacts. Depends on: 5.
+8. [Claude] Update the nine existing `/verify` IT classes and add new `*AcceptanceIT` classes per
+   new mutation (admin succeeds, non-admin rejected, M2M admin-scope token succeeds), mirroring
+   `CreateRoomAcceptanceIT`'s shape. Depends on: 1, 6.
+9. [Claude] `mvn -f impl/pom.xml test` green; deploy to the ephemeral environment; `/verify` green
+   against it. Depends on: 7, 8.
+
+**Tooling consumers (still `mootmaker-api`'s change, different repo):**
+10. [Claude] `mootmaker-demo-data`'s `DemoData.java` `createPerson` call, updated for the new
+    signature. Depends on: 9.
+11. [Claude] `mootmaker-webapp/acceptance/tests/authorization-boundaries.spec.ts`'s direct
+    `updatePerson` mutation, re-targeted at `renamePerson`/`updateMyName`, assertions re-checked
+    against whichever new handler now owns that rejection. Depends on: 9.
+
+**Webapp (`mootmaker-webapp`):**
+12. [Claude] `webapp/src/graphql/types.ts`'s hand-maintained schema mirror, updated to match step 2.
+    Depends on: 9.
+13. [Claude] `MenuContent.tsx` — new Admin section (Rooms, Persons) between the existing items and
+    Settings. Depends on: 12.
+14. [Claude] `SettingsPage.tsx` — remove `AdminSections()` entirely; cut to Your name, Date & time
+    format, Delete account, plus the "moved" banner. Depends on: 12.
+15. [Claude] New `RoomsPage.tsx` — card grid (matching `RoomAvailabilityPage`'s card pattern),
+    Add/Edit dialog with the colour-swatch picker, delete confirmation (including the
+    `RoomHasUpcomingMeetings`-rejected case's own messaging). Depends on: 12.
+16. [Claude] New `PersonsPage.tsx` — card grid with admin badge and linked-email chips, Add/Edit
+    dialog with the admin switch (Edit only), its two disabled states (no linked account; editing
+    self) and their inline copy, delete confirmation, and the `cognitoSyncFailed` retry/cancel
+    dialog. Depends on: 12.
+17. [Claude] Mobile layouts for both new pages (app bar + drawer, FAB), per the prototype. Depends
+    on: 15, 16.
+18. [Claude] Deploy webapp to the same ephemeral environment as step 9. Depends on: 13-17.
+
+**Testing (`mootmaker-webapp`):**
+19. [Claude] Integration coverage (`webapp/tests/`) for both new pages' client-side logic, including
+    the `cognitoSyncFailed` retry/cancel behaviour against a mocked response, per Testing impacts.
+    Depends on: 15, 16.
+20. [Claude] New acceptance sections **P** (`p-rooms.md` + spec) and **Q** (`q-persons.md` + spec),
+    case numbers from 122, superseding **J**/**K**'s Settings-scoped cases. Depends on: 18.
+21. [Claude] Update **L.89** and **L.91** for the new pages/nav and the new mutation names. Depends
+    on: 11, 18.
+22. [Claude] Full acceptance suite green on the deployed environment (this project's usual done
+    condition). Depends on: 19, 20, 21.
+
+**Review:**
+23. [Geoff] Sign off on the deployed behaviour before this moves to Shipped.
 
 ## Definition of done
 
