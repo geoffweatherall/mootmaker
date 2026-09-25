@@ -138,6 +138,17 @@ Resolved through discussion before drafting:
     signed in yet — admin access can only be granted once they've signed up."), rather than letting
     someone flip it and only then finding out it can't apply.
 
+- **No one can remove their own admin access, full stop — not just the demo account.**
+  `setPersonAdmin(id: <caller's own Person id>, isAdmin: false)` rejects with a new
+  `PersonError.CannotRevokeOwnAdminAccess`, regardless of which admin is calling it. This is a
+  stronger, simpler rule than the "just protect the reserved demo account" version floated earlier
+  in discussion (superseding that question rather than answering it as asked) — mirrors
+  `deletePerson`'s existing `CannotDeleteSelf` guard for the same underlying reason: an admin
+  shouldn't be able to lock themselves out via this path, whether that's a slip, a compromised
+  session, or (in the demo account's specific case) breaking the one admin every fresh environment
+  is guaranteed to have. Granting *someone else* admin, or granting/revoking your own on a person
+  *other* than yourself, is unaffected.
+
 - **No AppSync schema-level authorization directives.** `@aws_cognito_user_pools(cognito_groups:
   [...])` only checks Cognito User Pool *Group* membership — there's no `scopes:` parameter, and
   this project has no Cognito Group resource at all (admin is a custom attribute,
@@ -173,9 +184,6 @@ be made admin" under Trade-offs and decisions.
 
 **Non-blocking:**
 
-- Should `setPersonAdmin` also refuse to *revoke* the demo account's admin status? Unlike deleting
-  it outright, this is reversible, and there may be a real reason to toggle it for testing. Leaning
-  toward leaving it unguarded, but noted rather than assumed.
 - Exact wording/shape of the UI's handling of a partial `cognitoSyncFailed: true` result (retry
   button? banner? silent re-attempt on next save?) — not designed yet, purely a backend contract so
   far.
@@ -189,7 +197,7 @@ be made admin" under Trade-offs and decisions.
   `DeleteRoomResult`, `deletePerson`/`DeletePersonResult`; add `isAdmin: Boolean!` to `Person`;
   change `createPerson(person: PersonInput!)` to `createPerson(name: String!)`; add
   `RoomError.RoomHasUpcomingMeetings`, `PersonError.NoLinkedPerson`/`CannotDeleteSelf`/
-  `ReservedAccount`/`NoLinkedAccount` (the last for `setPersonAdmin` rejecting a guest Person).
+  `ReservedAccount`/`NoLinkedAccount`/`CannotRevokeOwnAdminAccess`.
 - New handlers: `UpdateMyNameHandler`, `RenamePersonHandler`, `SetPersonAdminHandler`,
   `DeleteRoomHandler`, `DeletePersonHandler`. `UpdatePersonHandler`/`CreatePersonHandler` retired or
   rewritten to match the new signatures.
@@ -225,10 +233,11 @@ covers desktop and mobile:
   Persons cards show the admin badge and linked-email chips; the admin toggle lives as a switch
   inside Edit Person only (not Add, not a separate card action) — this was reworked once during
   prototyping, see the prototype's own history. The switch is **disabled**, with inline explanatory
-  copy in place of the usual helper text, when the person being edited has no linked email (the
-  "Not signed up yet" card state) — see "A Person with no linked Cognito account cannot be made
-  admin" above. Not yet reflected in the published prototype; do this alongside the schema change so
-  the disabled state and the new `PersonError.NoLinkedAccount` server check land together.
+  copy in place of the usual helper text, in two cases: editing a person with no linked email (the
+  "Not signed up yet" card state — see "A Person with no linked Cognito account cannot be made
+  admin"), and editing the signed-in admin's own Person (see "No one can remove their own admin
+  access"). Neither is yet reflected in the published prototype; do both alongside the matching
+  schema changes so the disabled states and the new `PersonError` cases land together.
 - Both new pages need a mobile layout (top app bar + slide-in drawer replacing the sidebar, FAB
   replacing the header "Add" button) — already prototyped, not yet built against real MUI
   components.
