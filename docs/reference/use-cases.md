@@ -159,27 +159,23 @@ against — that catalog is expected to be re-checked against changes here, not 
 
 ## J. Settings — Rooms (admin only)
 
-77. <a id="uc-77"></a> **[All frontends]** Standard user does not see the Rooms section. *(webapp: [J.77](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/j-settings-rooms.md#tc-j77) · android: not yet automated)*
-78. <a id="uc-78"></a> **[All frontends]** Admin adds a new room with a valid name + capacity ≥ 2 → appears in the room list and is immediately selectable in Add Meeting / Room Availability. *(webapp: [J.78](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/j-settings-rooms.md#tc-j78) · android: not yet automated)*
-79. <a id="uc-79"></a> **[All frontends]** Add a room with a blank name → validation error. *(webapp: [J.79](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/j-settings-rooms.md#tc-j79) · android: not yet automated)*
-80. <a id="uc-80"></a> **[All frontends]** Add a room with capacity 1 (or 0/negative) → `CapacityTooLow` error. *(webapp: [J.80](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/j-settings-rooms.md#tc-j80) · android: not yet automated)*
-81. <a id="uc-81"></a> **[All frontends]** Edit an existing room's name/capacity → change reflected everywhere it's referenced (existing meetings, availability view) without a manual refresh. *(webapp: [J.81](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/j-settings-rooms.md#tc-j81) · android: not yet automated)*
-82. <a id="uc-82"></a> **[All frontends]** Reduce a room's capacity below a meeting already booked into it → allowed (not retroactively validated). *(webapp: [J.82](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/j-settings-rooms.md#tc-j82) · android: not yet automated)*
-83. <a id="uc-83"></a> **[All frontends]** A standard user attempting the `updateRoom`/`createRoom` operations directly (bypassing the UI) is rejected server-side regardless of what the UI would show. *(webapp: [J.83](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/j-settings-rooms.md#tc-j83) · android: not yet automated)*
+**Superseded by [§ P](#p-rooms-admin-only).** Rooms moved out of Settings to its own top-level page
+— see [designs/admin-rooms-and-people.md](../../designs/admin-rooms-and-people.md). Numbers 77–83
+are retired, not reused; see [webapp's j-settings-rooms.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/j-settings-rooms.md)
+for the old→new case mapping.
 
 ## K. Settings — People (admin only)
 
-84. <a id="uc-84"></a> **[All frontends]** Standard user does not see the People section. *(webapp: [K.84](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/k-settings-people.md#tc-k84) · android: not yet automated)*
-85. <a id="uc-85"></a> **[All frontends]** Admin adds a new person (e.g. a guest with no login) → appears in People, selectable as organiser/attendee/calendar subject. *(webapp: [K.85](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/k-settings-people.md#tc-k85) · android: not yet automated)*
-86. <a id="uc-86"></a> **[All frontends]** Add a person with a blank name → validation error. *(webapp: [K.86](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/k-settings-people.md#tc-k86) · android: not yet automated)*
-87. <a id="uc-87"></a> **[All frontends]** Admin edits another person's name → reflected in their calendar, past/future meetings, and (if linked to a Cognito account) that account's next sign-in / display name. *(webapp: [K.87](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/k-settings-people.md#tc-k87) · android: not yet automated)*
-88. <a id="uc-88"></a> **[All frontends]** Admin renaming a person NOT linked to a Cognito account (no auth-side propagation needed). *(webapp: [K.88](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/k-settings-people.md#tc-k88) · android: not yet automated)*
+**Superseded by [§ Q](#q-persons-admin-only).** People moved out of Settings to its own top-level
+page — see [designs/admin-rooms-and-people.md](../../designs/admin-rooms-and-people.md). Numbers
+84–88 are retired, not reused; see [webapp's k-settings-people.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/k-settings-people.md)
+for the old→new case mapping.
 
 ## L. Authorization boundaries
 
-89. <a id="uc-89"></a> **[All frontends]** Standard user cannot reach admin-only UI (Rooms/People sections hidden) — a presentation-only check. *(webapp: [L.89](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/l-authorization-boundaries.md#tc-l89) · android: not yet automated)*
+89. <a id="uc-89"></a> **[All frontends]** Standard user cannot reach admin-only UI (Rooms/Persons pages) — a presentation-only check. *(webapp: [L.89](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/l-authorization-boundaries.md#tc-l89) · android: not yet automated)*
 90. <a id="uc-90"></a> **[All frontends]** Standard user directly invoking an admin mutation is rejected (belongs more in API-level testing, but worth a UI-adjacent smoke test). *(webapp: [L.90](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/l-authorization-boundaries.md#tc-l90) · android: not yet automated)*
-91. <a id="uc-91"></a> **[All frontends]** Self-rename works for a standard user; renaming someone else does not (UI shouldn't offer it, and server should reject if forced). *(webapp: [L.91](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/l-authorization-boundaries.md#tc-l91) · android: not yet automated)*
+91. <a id="uc-91"></a> **[All frontends]** Self-rename works for a standard user; there is no UI or mutation shape that can rename someone else. *(webapp: [L.91](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/l-authorization-boundaries.md#tc-l91) · android: not yet automated)*
 
 ## M. Cross-cutting / non-functional
 
@@ -226,6 +222,40 @@ own Testing impacts section). See that design for the full decisions behind thes
 121. <a id="uc-121"></a> **[All frontends]** Editing a meeting's date to a different day moves it there (it disappears from the original date's view and appears on the new one) without changing its identity. *(webapp: [O.121](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/o-edit-and-cancel-meetings.md#tc-o121) · android: not yet automated)*
 122. <a id="uc-122"></a> **[All frontends]** An edit made by another client is reflected on an already-open meeting detail view without a refresh. *(webapp: [M.112](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/m-cross-cutting.md#tc-m112) · android: not yet automated)*
 123. <a id="uc-123"></a> **[All frontends]** A cancellation made by another client is reflected on an already-open meeting detail view (a clear "this meeting was cancelled" state, not stale content or an error) without a refresh. *(webapp: [M.113](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/m-cross-cutting.md#tc-m113) · android: not yet automated)*
+
+## P. Rooms (admin only)
+
+Supersedes § J — see [designs/admin-rooms-and-people.md](../../designs/admin-rooms-and-people.md).
+Cases 124–129 carry over J's functional ground against the new top-level `/rooms` page; 130–131 are
+genuinely new (`deleteRoom` didn't exist before this design).
+
+124. <a id="uc-124"></a> **[All frontends]** Standard user does not see the Rooms page. *(webapp: [P.124](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/p-rooms.md#tc-p124) · android: not yet automated)*
+125. <a id="uc-125"></a> **[All frontends]** Admin adds a new room with a valid name + capacity ≥ 2 → appears in the room list and is immediately selectable in Add Meeting / Room Availability. *(webapp: [P.125](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/p-rooms.md#tc-p125) · android: not yet automated)*
+126. <a id="uc-126"></a> **[All frontends]** Add a room with a blank name → validation error. *(webapp: [P.126](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/p-rooms.md#tc-p126) · android: not yet automated)*
+127. <a id="uc-127"></a> **[All frontends]** Add a room with capacity 1 (or 0/negative) → `CapacityTooLow` error. *(webapp: [P.127](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/p-rooms.md#tc-p127) · android: not yet automated)*
+128. <a id="uc-128"></a> **[All frontends]** Edit an existing room's name/capacity → change reflected everywhere it's referenced (existing meetings, availability view) without a manual refresh. *(webapp: [P.128](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/p-rooms.md#tc-p128) · android: not yet automated)*
+129. <a id="uc-129"></a> **[All frontends]** Reduce a room's capacity below a meeting already booked into it → allowed (not retroactively validated). *(webapp: [P.129](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/p-rooms.md#tc-p129) · android: not yet automated)*
+130. <a id="uc-130"></a> **[All frontends]** Admin deletes a room with no meeting from today onward → removed from the Rooms list and no longer offered anywhere. *(webapp: [P.130](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/p-rooms.md#tc-p130) · android: not yet automated)*
+131. <a id="uc-131"></a> **[All frontends]** Admin attempts to delete a room with a meeting from today onward → rejected with a clear explanation, room not deleted. *(webapp: [P.131](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/p-rooms.md#tc-p131) · android: not yet automated)*
+
+## Q. Persons (admin only)
+
+Supersedes § K — see [designs/admin-rooms-and-people.md](../../designs/admin-rooms-and-people.md).
+Cases 132–136 carry over K's functional ground against the new top-level `/persons` page; 137–142
+are genuinely new (admin badge/linked-email display, grant/revoke admin, and `deletePerson` with
+its cascade and self/reserved-account guards didn't exist before this design).
+
+132. <a id="uc-132"></a> **[All frontends]** Standard user does not see the Persons page. *(webapp: [Q.132](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q132) · android: not yet automated)*
+133. <a id="uc-133"></a> **[All frontends]** Admin adds a new person (e.g. a guest with no login) → appears in Persons, selectable as organiser/attendee/calendar subject. *(webapp: [Q.133](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q133) · android: not yet automated)*
+134. <a id="uc-134"></a> **[All frontends]** Add a person with a blank name → validation error. *(webapp: [Q.134](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q134) · android: not yet automated)*
+135. <a id="uc-135"></a> **[All frontends]** Admin edits a Cognito-linked person's name → reflected in that account's own sidebar on next sign-in. *(webapp: [Q.135](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q135) · android: not yet automated)*
+136. <a id="uc-136"></a> **[All frontends]** Admin renaming a person NOT linked to a Cognito account (no auth-side propagation needed). *(webapp: [Q.136](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q136) · android: not yet automated)*
+137. <a id="uc-137"></a> **[All frontends]** Persons with a linked Cognito account show its email address(es); an admin shows an Admin badge; a guest shows a "not signed up" indicator. *(webapp: [Q.137](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q137) · android: not yet automated)*
+138. <a id="uc-138"></a> **[All frontends]** Admin flips the Admin switch for a Cognito-linked person → they gain admin access, provably (their own next sign-in shows the admin nav). *(webapp: [Q.138](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q138) · android: not yet automated)*
+139. <a id="uc-139"></a> **[All frontends]** Editing a guest Person's admin switch is disabled with inline copy explaining why, rather than allowing a flip that silently can't apply. *(webapp: [Q.139](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q139) · android: not yet automated)*
+140. <a id="uc-140"></a> **[All frontends]** An admin editing their own Person sees the admin switch disabled, rather than being able to attempt (and have rejected) revoking their own access. *(webapp: [Q.140](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q140) · android: not yet automated)*
+141. <a id="uc-141"></a> **[All frontends]** Admin deletes a Person → every upcoming meeting they organise is cancelled, they're removed from every upcoming meeting they only attend, past meetings are untouched. *(webapp: [Q.141](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q141) · android: not yet automated)*
+142. <a id="uc-142"></a> **[All frontends]** An admin attempting to delete their own Person via the admin Persons page is rejected, with a pointer to Delete account in Settings instead. *(webapp: [Q.142](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q142) · android: not yet automated)*
 
 ## Notes
 
