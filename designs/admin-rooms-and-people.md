@@ -449,18 +449,33 @@ ephemeral environment, created once and reused throughout, left running at the e
 7. [Claude] ✅ Unit tests written for all five, plus `PersonTest` extended and `CreatePersonHandlerTest`
    fixed for the new argument shape. **286/286 tests green**, `spotless:apply` and `checkstyle:check`
    both clean.
-8. [Claude] **Not started.** Existing `/verify` IT classes still reference the old shapes; no new
-   `*AcceptanceIT` classes written yet.
-9. [Claude] **Partially done** - unit suite is green (see 7); not yet deployed to an ephemeral
-   environment, so `/verify` hasn't run against real infrastructure yet. Depends on: 7 (done), 8
-   (not done).
+8. [Claude] ✅ All nine existing `/verify` IT classes updated (the actual list, confirmed by grep,
+   was nine, not the drafted count - also `SelectionAwareMeetingsAcceptanceIT`,
+   `SuggestRoomAcceptanceIT`, `DaysInvalidatedAcceptanceIT`). `UpdatePersonAcceptanceIT` replaced by
+   `RenamePersonAcceptanceIT`; three genuinely new classes added -
+   `DeleteRoomAcceptanceIT`/`DeletePersonAcceptanceIT`/`SetPersonAdminAcceptanceIT`, each scoped
+   (and documented, in its own class comment) to what an M2M-only client can actually prove against
+   a real environment - a successful `setPersonAdmin` grant and the self-guards can't be exercised
+   from this suite at all (no linked/reserved Cognito account this client can reach), so those stay
+   unit-test-only. `verify`'s own black-box `RoomError`/`PersonError` mirrors updated to match. Module
+   compiles clean; not yet run against a real deployment (that's still step 9).
+9. [Claude] **Partially done** - unit suite is green (see 7), `/verify` compiles clean (see 8); not
+   yet deployed to an ephemeral environment, so `/verify` hasn't actually run against real
+   infrastructure yet. Depends on: 7 (done), 8 (done at compile level, not yet run for real).
 
 **Tooling consumers (still `mootmaker-api`'s change, different repo):**
-10. [Claude] `mootmaker-demo-data`'s `DemoData.java` `createPerson` call, updated for the new
-    signature. Depends on: 9.
-11. [Claude] `mootmaker-webapp/acceptance/tests/authorization-boundaries.spec.ts`'s direct
-    `updatePerson` mutation, re-targeted at `renamePerson`/`updateMyName`, assertions re-checked
-    against whichever new handler now owns that rejection. Depends on: 9.
+10. [Claude] ✅ `mootmaker-demo-data`'s `DemoData.java` `createPerson` call updated. Also caught and
+    fixed a test-only bug this broke silently rather than at compile time: `FakeGraphQlClient`
+    mirrored the old nested `{person:{name}}` variables shape, so the break only surfaced as a
+    `NullPointerException` in `DemoDataTopUpTest`, not a compile error. 66/66 tests green,
+    `mootmaker-demo-data` draft PR #43.
+11. [Claude] ✅ `authorization-boundaries.spec.ts`'s raw mutations updated - `createPerson`'s new
+    bare-name argument (L.90's probe), and `updatePerson` → `renamePerson` (L.91's probe), with the
+    old "isAdmin-OR-self fails both ways" reasoning replaced: `renamePerson` is unconditionally
+    admin-only now, so this is the same rejection shape L.90 already establishes, not a separately
+    reasoned one. Also fixed a pre-existing, unrelated bug in the same L.90 probe while touching that
+    line: it selected fields `CreatePersonResult` has never actually had. `npm run typecheck` clean,
+    `mootmaker-webapp` draft PR #124.
 
 **Webapp (`mootmaker-webapp`):**
 12. [Claude] `webapp/src/graphql/types.ts`'s hand-maintained schema mirror, updated to match step 2.
