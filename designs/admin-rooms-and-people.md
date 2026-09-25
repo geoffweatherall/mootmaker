@@ -125,6 +125,19 @@ Resolved through discussion before drafting:
   alongside a rejection. `renamePerson` keeps the existing swallow-and-log precedent rather than
   gaining the same field "for consistency" where it wouldn't carry real meaning.
 
+- **A Person with no linked Cognito account cannot be made admin.** `custom:class` lives on the
+  Cognito account, not the `Person` record — a guest Person (the "Not signed up yet" case in the
+  prototype) has nothing for `setPersonAdmin` to actually flip; setting DynamoDB's `isAdmin` alone
+  would show an "Admin" badge that grants nothing until they eventually sign up, which is worse than
+  just rejecting it. **Enforced in both places, not just one:**
+  - **Backend**: `setPersonAdmin(isAdmin: true)` rejects with a new `PersonError.NoLinkedAccount`
+    when the target's `cognitoSubs` is empty. This is the actual guarantee — the webapp check below
+    is a courtesy, not the enforcement.
+  - **Webapp**: explained *upfront*, not just surfaced as an error after the fact — the Edit Person
+    dialog's admin switch is disabled with inline copy for a guest Person (e.g. "This person hasn't
+    signed in yet — admin access can only be granted once they've signed up."), rather than letting
+    someone flip it and only then finding out it can't apply.
+
 - **No AppSync schema-level authorization directives.** `@aws_cognito_user_pools(cognito_groups:
   [...])` only checks Cognito User Pool *Group* membership — there's no `scopes:` parameter, and
   this project has no Cognito Group resource at all (admin is a custom attribute,
@@ -154,16 +167,9 @@ Resolved through discussion before drafting:
 
 ## Open questions
 
-**Blocking** (must be answered before Status can become Ready):
-
-- **Can a guest Person (no linked Cognito account at all — the "Not signed up yet" case in the
-  prototype) be granted admin?** `custom:class` lives on a *Cognito account*, not the `Person`
-  record, so `setPersonAdmin(isAdmin: true)` on a Person with zero `cognitoSubs` has nothing to
-  actually flip on the Cognito side — only the DynamoDB `isAdmin` flag would change, doing nothing
-  until they eventually sign up. Options: reject it (new `PersonError.NoLinkedAccount`) and require
-  linking first; or allow it as a real "pre-authorise the next person who signs up under this name"
-  feature, applied at sign-up time (which would also touch #70's territory). Raised earlier in
-  discussion, never explicitly settled either way.
+**Blocking:** none remaining — the one blocking question this doc previously carried (whether a
+guest Person can be granted admin) is resolved: see "A Person with no linked Cognito account cannot
+be made admin" under Trade-offs and decisions.
 
 **Non-blocking:**
 
@@ -183,7 +189,7 @@ Resolved through discussion before drafting:
   `DeleteRoomResult`, `deletePerson`/`DeletePersonResult`; add `isAdmin: Boolean!` to `Person`;
   change `createPerson(person: PersonInput!)` to `createPerson(name: String!)`; add
   `RoomError.RoomHasUpcomingMeetings`, `PersonError.NoLinkedPerson`/`CannotDeleteSelf`/
-  `ReservedAccount` (and `NoLinkedAccount` depending on the blocking open question above).
+  `ReservedAccount`/`NoLinkedAccount` (the last for `setPersonAdmin` rejecting a guest Person).
 - New handlers: `UpdateMyNameHandler`, `RenamePersonHandler`, `SetPersonAdminHandler`,
   `DeleteRoomHandler`, `DeletePersonHandler`. `UpdatePersonHandler`/`CreatePersonHandler` retired or
   rewritten to match the new signatures.
@@ -218,7 +224,11 @@ covers desktop and mobile:
   `Dialog`/`ErrorBanner`/`SubmitButton` pattern `RoomDialog`/`PersonDialog` already established.
   Persons cards show the admin badge and linked-email chips; the admin toggle lives as a switch
   inside Edit Person only (not Add, not a separate card action) — this was reworked once during
-  prototyping, see the prototype's own history.
+  prototyping, see the prototype's own history. The switch is **disabled**, with inline explanatory
+  copy in place of the usual helper text, when the person being edited has no linked email (the
+  "Not signed up yet" card state) — see "A Person with no linked Cognito account cannot be made
+  admin" above. Not yet reflected in the published prototype; do this alongside the schema change so
+  the disabled state and the new `PersonError.NoLinkedAccount` server check land together.
 - Both new pages need a mobile layout (top app bar + slide-in drawer replacing the sidebar, FAB
   replacing the header "Add" button) — already prototyped, not yet built against real MUI
   components.
