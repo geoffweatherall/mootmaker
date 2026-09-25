@@ -1,0 +1,363 @@
+# Admin management of rooms and people
+
+## Summary
+
+Gives admins full CRUD over Rooms and People from two new dedicated pages (Rooms, Persons), moved
+out of Settings, plus the ability to grant or revoke admin access on another person. Settings is
+cut down to purely self-service content (name, date/time format, delete account). This is a
+backend-heavy feature: creation already existed and was already admin-only, but **deletion of a
+Room or a Person, and granting/revoking admin status, do not exist as API operations at all
+today** — this design adds them, deliberately reshaping the existing `Person` mutations around them
+rather than bolting them on, since backward compatibility carries no weight here (nothing external
+depends on this API yet).
+
+## Status
+
+**Drafting** — 2026-09-25. UI fully prototyped (see Impacts on components); the GraphQL/API shape
+below was worked through in detail but has not been reviewed end-to-end as one document yet.
+
+## Scope / non-goals
+
+In scope: `deleteRoom`, `deletePerson`, `setPersonAdmin`, splitting `updatePerson` into
+`updateMyName` (self-only) + `renamePerson` (admin-only), and the UI already prototyped (nav
+changes, cut-down Settings, Rooms page, Persons page, all with a mobile layout).
+
+Out of scope, deliberately:
+- **The sign-up name-collision problem** (a sign-up with a name matching an existing Person creates
+  a duplicate rather than linking) — tracked separately as
+  [mootmaker-api#70](https://github.com/geoffweatherall/mootmaker-api/issues/70). Not blocking:
+  nothing in this design assumes it's fixed.
+- **AppSync schema-level authorization directives** (`@aws_cognito_user_pools(cognito_groups:
+  [...])`) — considered and rejected, see Trade-offs and decisions. Authorization stays exactly
+  where it is today: `Identity.requireAdmin`/`Identity.isAdmin`, re-checked inside each handler.
+- **A `mergePersons` operation** for resolving a name-collision duplicate once #70 is picked up —
+  that issue names it as an open question for whoever builds it, not decided here.
+- **Android** — `mootmaker-android` holds no app code yet, so this covers webapp + API only.
+- **`mootmaker-demo-data` gaining `deletePerson`/`deleteRoom` calls of its own** — noted as a real
+  future need (see Impacts on components) but not built now; it doesn't currently need to delete
+  anything it creates.
+
+## Trade-offs and decisions
+
+Resolved through discussion before drafting:
+
+- **Duplicate `isAdmin`: a real DynamoDB attribute on `Person`, kept in sync with Cognito's
+  `custom:class`, rather than resolving it live from Cognito on read.** The alternative — querying
+  Cognito per linked account whenever `Person.isAdmin` is selected — avoids any duplication but
+  costs a live `AdminGetUser`-shaped call per person just to render the Persons list, with no batch
+  API for it. `custom:class` stays the actual authorization source every request checks
+  (`Identity.isAdmin`); `Person.isAdmin` is a read-optimised copy, written at the same time.
+
+- **`deleteRoom` rejects outright if the room has any meeting from today onward** (new
+  `RoomError.RoomHasUpcomingMeetings`), rather than cascading. A room's upcoming meetings can belong
+  to many unrelated organisers — one admin deleting a room shouldn't silently cancel other people's
+  meetings across the whole organisation. Forces a deliberate "move these first" step instead.
+  `deletePerson` (below) cascades instead, because there the blast radius is naturally scoped to
+  just that one person's own meetings.
+
+  This *is* safe to build as a genuine hard delete once past meetings are the only thing that can
+  reference a gone room, because `MeetingResponse.resolveRoom`
+  ([`impl/src/main/java/com/mootmaker/handler/MeetingResponse.java`](https://github.com/geoffweatherall/mootmaker-api/blob/main/impl/src/main/java/com/mootmaker/handler/MeetingResponse.java))
+  already has exactly this fallback in place, unused until now:
+
+  > "Rooms cannot be deleted today, but the same reasoning applies if that ever changes." — falls
+  > back to `Room(roomId, "Deleted room", 0)` for an id it can't resolve.
+
+- **`deletePerson` cascades exactly like `deleteMyAccount` already does to the caller's own
+  account** — cancel every upcoming meeting they organise, remove them from every upcoming meeting
+  they only attend, leave the past untouched — just admin-invoked against someone else. Same
+  reasoning `DeleteMyAccountHandler` already documents for the ordering (Cognito user deleted
+  first, then DynamoDB cleanup, so a partial failure fails toward "still works" rather than
+  "silently broken"), and `MeetingResponse.resolvePerson`'s "Deleted user" placeholder already
+  covers what a past meeting sees afterward — this path is proven, not new.
+
+- **`updatePerson` is retired and split by caller, not merged with the new admin fields.** Today one
+  mutation serves two different authorization shapes (self-rename, or admin renaming anyone) under
+  a name that reveals neither. Replaced by:
+  - `updateMyName(name: String!)` — self-only, joining the existing `updateMy*` family
+    (`updateMyPreferences`, `deleteMyAccount`): same shape, no id argument, no admin override.
+  - `renamePerson(id: ID!, name: String!)` — admin-only.
+
+  `PersonInput` is retired with it. It only ever wrapped one field (`name`); `RoomInput`/
+  `MeetingInput` earn their wrapper by grouping several. `createPerson` moves to a bare
+  `name: String!` argument for the same reason.
+
+- **`setPersonAdmin(id: ID!, isAdmin: Boolean!)` stays a separate mutation from `renamePerson`, not
+  merged into one `editPerson`.** A single merged mutation would give one `PutItem` instead of two —
+  looks more "atomic" — but the real risk was never mutation count, it's a handler forgetting a
+  field it doesn't own on a full-item `PutItem`. See the very next decision: that risk is exactly
+  what already happened.
+
+  Keeping them separate also keeps the name itself meaningful: something that can grant admin
+  access should be findable by grepping for exactly that, not buried as an argument on a
+  general-purpose "edit" mutation. The Edit Person dialog's single Save click sends both as one
+  GraphQL document (`mutation { renamePerson(...) { ... } setPersonAdmin(...) { ... } }`) — one HTTP
+  round trip, GraphQL executes mutation root fields serially, no UX cost to keeping them separate
+  server-side.
+
+- **Both new/changed Person-writing handlers must explicitly carry forward every field they don't
+  own.** Investigating this surfaced a live bug —
+  [mootmaker-api#71](https://github.com/geoffweatherall/mootmaker-api/issues/71): today's
+  `UpdatePersonHandler` carries `cognitoSubs` forward explicitly but passes `null` for
+  `dateFormat`/`timeFormat`, which `Person`'s constructor then normalises to the *defaults* rather
+  than leaving unset — so any successful rename today silently resets the target's date/time
+  preferences. Filed and fixed independently of this design, but it's the concrete reason
+  `renamePerson` and `setPersonAdmin` are specified below as read-then-full-replace, carrying
+  `cognitoSubs`, `dateFormat`, `timeFormat`, and whichever of `name`/`isAdmin` they don't own,
+  forward from the record they just read — not reconstructed from a partial set of arguments.
+
+- **Write order: DynamoDB first, Cognito second, on both new mutations** — matching
+  `UpdatePersonHandler`'s existing order for name propagation, but here the direction is also the
+  *secure* one, not just consistent. If the Cognito call fails after the DynamoDB write succeeds,
+  the failure mode is "the Persons screen shows them as admin but their token doesn't grant it yet"
+  — fail-closed. The reverse order risks a token silently carrying real admin access the DynamoDB
+  record (and therefore the admin UI) doesn't yet reflect — fail-open, invisible privilege
+  escalation. Same principle either mutation, opposite consequence if got wrong for `setPersonAdmin`
+  specifically.
+
+- **`setPersonAdmin` surfaces a Cognito-sync failure; `renamePerson` doesn't.** Both do the same
+  two-system write, but the stakes differ: `updatePerson`'s existing swallow-and-log behaviour for a
+  name-sync failure is justified by its own comment — Cognito's `name` is "only a display
+  convenience for the brief window before `AuthProvider`'s `myPerson` lookup resolves." A stuck
+  `custom:class` sync is not cosmetic; it means the person still can't actually do admin things
+  despite what the UI now shows. `SetPersonAdminResult` gets a `cognitoSyncFailed: Boolean!` field
+  for this — true only alongside a successful DynamoDB write and an empty `errors` list, never
+  alongside a rejection. `renamePerson` keeps the existing swallow-and-log precedent rather than
+  gaining the same field "for consistency" where it wouldn't carry real meaning.
+
+- **No AppSync schema-level authorization directives.** `@aws_cognito_user_pools(cognito_groups:
+  [...])` only checks Cognito User Pool *Group* membership — there's no `scopes:` parameter, and
+  this project has no Cognito Group resource at all (admin is a custom attribute,
+  `custom:class`). Worse: Cognito Groups are inherently a *user* concept, and the M2M
+  `client_credentials` clients (`acceptance_tests`, `demo_data`) that call `createRoom`/
+  `createPerson`/etc. today have no user behind them at all — they can never have group membership,
+  no matter what Terraform changes are made. Adding a `cognito_groups` directive to any mutation
+  those clients need to keep calling would reject them outright at the AppSync layer. So this stays
+  Lambda-side `Identity.requireAdmin`/`Identity.isAdmin`, exactly as today, for every mutation this
+  design adds.
+
+## Choices you had me make
+
+- **`deletePerson` refuses to delete the caller's own Person** (new `PersonError.CannotDeleteSelf`)
+  — an admin deleting themselves through the admin path would skip `deleteMyAccount`'s own
+  ordering guarantees (Cognito-first, reserved-account check) entirely. Point them at
+  `deleteMyAccount` instead.
+- **`deletePerson` refuses to delete a reserved system account's Person** (new
+  `PersonError.ReservedAccount`) — reusing the same `RESERVED_ACCOUNT_EMAILS` mechanism
+  `DeleteMyAccountHandler` already uses. Concretely protects the demo user's Person
+  (`aws_dynamodb_table_item.demo_person`), which is Terraform-managed and not something an app
+  mutation should be able to remove out from under a running `production` environment.
+- **`renamePerson`/`setPersonAdmin`/`deletePerson` reuse the existing `PersonError` enum** rather
+  than each getting their own, matching this project's stated convention (one error enum per
+  *entity*, shared across its mutations) — confirmed against `mootmaker-api/CLAUDE.md` rather than
+  assumed.
+
+## Open questions
+
+**Blocking** (must be answered before Status can become Ready):
+
+- **Can a guest Person (no linked Cognito account at all — the "Not signed up yet" case in the
+  prototype) be granted admin?** `custom:class` lives on a *Cognito account*, not the `Person`
+  record, so `setPersonAdmin(isAdmin: true)` on a Person with zero `cognitoSubs` has nothing to
+  actually flip on the Cognito side — only the DynamoDB `isAdmin` flag would change, doing nothing
+  until they eventually sign up. Options: reject it (new `PersonError.NoLinkedAccount`) and require
+  linking first; or allow it as a real "pre-authorise the next person who signs up under this name"
+  feature, applied at sign-up time (which would also touch #70's territory). Raised earlier in
+  discussion, never explicitly settled either way.
+
+**Non-blocking:**
+
+- Should `setPersonAdmin` also refuse to *revoke* the demo account's admin status? Unlike deleting
+  it outright, this is reversible, and there may be a real reason to toggle it for testing. Leaning
+  toward leaving it unguarded, but noted rather than assumed.
+- Exact wording/shape of the UI's handling of a partial `cognitoSyncFailed: true` result (retry
+  button? banner? silent re-attempt on next save?) — not designed yet, purely a backend contract so
+  far.
+
+## Impacts on components
+
+**`mootmaker-api`:**
+- `api/mootmaker.graphql` — remove `updatePerson`, `UpdatePersonResult`, `PersonInput`; add
+  `updateMyName`/`UpdateMyNameResult`, `renamePerson`/`RenamePersonResult`,
+  `setPersonAdmin`/`SetPersonAdminResult` (with `cognitoSyncFailed`), `deleteRoom`/
+  `DeleteRoomResult`, `deletePerson`/`DeletePersonResult`; add `isAdmin: Boolean!` to `Person`;
+  change `createPerson(person: PersonInput!)` to `createPerson(name: String!)`; add
+  `RoomError.RoomHasUpcomingMeetings`, `PersonError.NoLinkedPerson`/`CannotDeleteSelf`/
+  `ReservedAccount` (and `NoLinkedAccount` depending on the blocking open question above).
+- New handlers: `UpdateMyNameHandler`, `RenamePersonHandler`, `SetPersonAdminHandler`,
+  `DeleteRoomHandler`, `DeletePersonHandler`. `UpdatePersonHandler`/`CreatePersonHandler` retired or
+  rewritten to match the new signatures.
+- `Person.java` — add `isAdmin` (mirroring how `dateFormat`/`timeFormat` are already optional
+  DynamoDB attributes defaulting on read), `toItem()`/`fromItem()` updated.
+- `deploy/terraform/appsync.tf` — five new resolvers, matching the existing `create_room`/
+  `update_room`/`create_person`/`update_person` resolver blocks' shape.
+- **Every consumer of the retired `PersonInput`/`updatePerson` shape needs updating** — found by
+  grepping the actual call sites, not assumed minimal:
+  - `mootmaker-api/verify`: `CreatePersonAcceptanceIT`, `CreateMeetingAcceptanceIT`,
+    `CreateMeetingValidationAcceptanceIT`, `CreateRoomAcceptanceIT`, `HistoryRetentionAcceptanceIT`,
+    `UpdatePersonAcceptanceIT`, `AuthenticationAcceptanceIT` (its "no Authorization header" fixture
+    mutation), `DemoAndE2eUserRolesAcceptanceIT` — plus five new `*AcceptanceIT` classes for the new
+    mutations, mirroring `CreateRoomAcceptanceIT`'s shape.
+  - `mootmaker-demo-data`: `DemoData.java`'s `createPerson` call (`impl/src/main/java/com/mootmaker/demodata/DemoData.java:213-215`).
+  - `mootmaker-webapp/acceptance/tests/authorization-boundaries.spec.ts`: constructs a raw
+    `updatePerson` mutation directly against the M2M-fetched token to test the authorization
+    boundary — needs to target `renamePerson`/`updateMyName` instead, and its assertions on
+    `UpdatePersonHandler`'s specific rejection message need re-checking against whichever new
+    handler now owns that check.
+
+**`mootmaker-webapp`:** UI fully prototyped —
+[interactive click-through prototype](https://claude.ai/artifact/YQiWH12MsrXquj6grm3MCw), private,
+covers desktop and mobile:
+- `components/MenuContent.tsx` — Home/Calendar/Room availability unchanged; new "Admin" section
+  (Rooms, Persons) between them and Settings; Settings stays last.
+- `pages/SettingsPage.tsx` — `AdminSections()` (Rooms/People inline lists + `RoomDialog`/
+  `PersonDialog`) removed entirely; page cut to Your name, Date & time format, Delete account, plus
+  a banner pointing at the new pages.
+- New `pages/RoomsPage.tsx`, `pages/PersonsPage.tsx` — card-grid layout matching
+  `RoomAvailabilityPage`'s existing card pattern, Add/Edit/Delete dialogs reusing the existing
+  `Dialog`/`ErrorBanner`/`SubmitButton` pattern `RoomDialog`/`PersonDialog` already established.
+  Persons cards show the admin badge and linked-email chips; the admin toggle lives as a switch
+  inside Edit Person only (not Add, not a separate card action) — this was reworked once during
+  prototyping, see the prototype's own history.
+- Both new pages need a mobile layout (top app bar + slide-in drawer replacing the sidebar, FAB
+  replacing the header "Add" button) — already prototyped, not yet built against real MUI
+  components.
+
+**`mootmaker-demo-data`:** no code change needed now (see Scope/non-goals), but worth naming: it
+gains no way to clean up what it creates via the API until it adopts `deletePerson`/`deleteRoom`
+itself — currently relies entirely on the separate `database-reset` Lambda for that.
+
+## Changes to the domain data model and data storage models
+
+See [`data-model.md`](../docs/reference/data-model.md) for the current state. Deltas:
+
+- **DynamoDB, People table**: new `isAdmin` attribute (Boolean, optional — absent means `false`,
+  same "optional attribute, non-null GraphQL field with a default" pattern `dateFormat`/
+  `timeFormat` already use). Read-optimised copy of admin status; `custom:class` on the linked
+  Cognito account(s) stays the actual authorization source.
+- **Cognito**: no new attribute — `custom:class` already exists and already takes `"admin"`/
+  `"standard"`. What's new is a client-invocable path to *set* it (`setPersonAdmin`, via
+  `AdminUpdateUserAttributes`) where today only `PostConfirmationCreatePersonHandler` (always to
+  `"standard"`) and manual Terraform/console action can.
+- **No new table, no new GSI.** Deletion of a Room/Person is a plain `DeleteItem` on an existing
+  table; nothing needs to look them up by anything the primary key doesn't already give.
+
+## Technical considerations
+
+- `Person`'s compact constructor normalises a `null` `dateFormat`/`timeFormat` to the *defaults*,
+  not "leave unset" — see mootmaker-api#71. Any new full-item-replace write must pass the current
+  record's actual values, not `null`, for every field it isn't changing.
+- `MeetingResponse.resolveRoom`/`resolvePerson` already provide the "Deleted room"/"Deleted user"
+  placeholder fallback a hard delete needs — confirmed by reading the code, not assumed. No new
+  resolver-layer work required for existing meetings to keep rendering after their room or organiser
+  is deleted.
+- `DeleteMyAccountHandler`'s Cognito-then-DynamoDB ordering (and its reasoning: a transient Cognito
+  failure should leave the account "still works" rather than "silently broken") is the direct model
+  for `deletePerson`'s own ordering, just admin-invoked. Worth extracting the cascade logic
+  (cancel-upcoming-organised, remove-from-upcoming-attended) into something both handlers call,
+  rather than duplicating it.
+- The M2M `admin` OAuth scope (`Identity.hasAdminScope`) is checked; the sibling `execute` scope is
+  granted alongside it on every existing M2M client but not actually inspected by any handler today
+  (`Identity.requireAuthenticated` only checks that an identity exists) — noted while investigating
+  this design, not something this design changes.
+
+## Testing impacts
+
+**Unit (`mootmaker-api`, `mvn -f impl/pom.xml test`):** new handler tests for
+`UpdateMyNameHandler`/`RenamePersonHandler`/`SetPersonAdminHandler`/`DeleteRoomHandler`/
+`DeletePersonHandler`, mirroring the existing `UpdatePersonHandlerTest`/`CreateRoomHandlerTest`
+shape — each needs an explicit case proving `dateFormat`/`timeFormat`/`cognitoSubs` survive a write
+that isn't touching them (the regression case for mootmaker-api#71). `Person`'s `isAdmin`
+attribute-mapping needs the same "absent attribute defaults" unit test `dateFormat`/`timeFormat`
+already have.
+
+**`/verify` acceptance IT (`mootmaker-api`):** this is the right layer for the authorization
+boundary itself — real AppSync, real Cognito tokens (both a real user's and the M2M client's),
+which a mocked layer can't exercise. New `*AcceptanceIT` classes per new mutation, each proving:
+admin succeeds, non-admin is rejected, the M2M admin-scope token succeeds (since `demo_data`/
+`acceptance_tests` both need continued access to whichever of these they call). Every existing
+`*AcceptanceIT` class listed under Impacts on components needs its `PersonInput`/`updatePerson`
+usage updated to compile at all, not just to keep passing.
+
+**Integration (`mootmaker-webapp/webapp/tests/`, mocked API/auth):** the right layer for the new
+pages' own UI logic — dialogs opening/closing, the admin switch, form validation, card
+add/edit/remove reflecting live in the mocked cache — same reasoning
+`attendee-response-status.spec.ts` already uses for this class of scenario: no real AWS needed,
+since what's under test is client-side wiring, not server behaviour. New spec file(s) for
+`RoomsPage`/`PersonsPage`, mirroring `settings-rooms.spec.ts`/`settings-people.spec.ts`'s existing
+shape but for the new pages rather than Settings' old inline sections.
+
+**Acceptance (`mootmaker-webapp/acceptance/`, real deployed environment):** existing sections
+**J** (`j-settings-rooms.md`, cases 77-83) and **K** (`k-settings-people.md`, cases 84-88) describe
+the Rooms/People sections *inside Settings* — both now describe a page structure this design
+removes. They get superseded by two new lettered sections (next available: **P**, starting case
+122) — `p-rooms.md` and `q-persons.md` — covering the same functional ground (admin can
+create/edit rooms and people, standard user can't reach any of it) against the new top-level pages,
+plus the genuinely new cases this design adds: delete room (including the blocked-with-upcoming-
+meetings case), delete person (including the cascade), and grant/revoke admin. **L**
+(`l-authorization-boundaries.md`) needs two updates, not just new cases: **L.89** ("standard user
+cannot reach admin-only UI") currently asserts against Settings' old sections and needs re-pointing
+at the new pages/nav items; **L.91** ("self-rename works; renaming someone else does not") is
+written against `UpdatePersonHandler`'s specific check and mutation name — both change under this
+design, so its assertions need updating to match, not just its prose.
+
+**`mootmaker-release`'s smoke suite:** not affected — it's deliberately minimal and doesn't cover
+admin-only Settings/Rooms/People flows today; nothing here changes what it should assert on.
+
+## Documentation impacts
+
+- [`docs/reference/data-model.md`](../docs/reference/data-model.md) — update once shipped, per this
+  folder's process (new `isAdmin` attribute, retired `cognitoSub-index`-adjacent notes if any
+  reference the old mutation shape).
+- [`docs/reference/use-cases.md`](../docs/reference/use-cases.md) — retire/rewrite the Settings §J/K
+  use cases to describe the new pages; add cases for delete-room, delete-person, grant/revoke admin.
+- `mootmaker-api/README.md` — replace the `updatePerson`/`createPerson`(`PersonInput`) description
+  with the new mutation set.
+- `mootmaker-webapp/README.md` — Settings page section list, new Rooms/Persons pages.
+- [mootmaker-api#70](https://github.com/geoffweatherall/mootmaker-api/issues/70) — worth a comment
+  once this ships, since the new Persons admin screen is what makes a sign-up-name collision visible
+  and mergeable for the first time; doesn't need to be *fixed* by this design, but the issue's own
+  context should note this landed.
+
+## Rollout & migration
+
+Additive on the data side — `isAdmin` absent on every existing `Person` record defaults to `false`
+on read, same pattern `dateFormat`/`timeFormat` already prove safe. No backfill needed. The schema
+break (`updatePerson`/`PersonInput` removed) is not additive, but nothing external depends on this
+API today, which is the whole premise of this design — no deployed client exists that isn't part of
+this same rollout (webapp, `/verify`, `demo-data`, all updated together, same reasoning
+`graphql-schema-and-caching.md` already documents for why this project can make this kind of change
+freely pre-1.0). Deploy order: `mootmaker-api` before `mootmaker-webapp` (webapp reads the API's
+Terraform outputs), same as every other cross-repo feature.
+
+## Risks
+
+**Moderate** — the largest risk is the blast radius under Impacts on components: this touches every
+existing `/verify` test that creates a Room or Person, `mootmaker-demo-data`'s seeding, and the
+webapp's own authorization-boundary test, all at once, because `PersonInput` is being removed
+rather than deprecated. Missing one of those breaks a build, not silently — acceptable, but worth
+doing that sweep first as its own checklist step before any new mutation logic, the same lesson
+`date-time-format-settings.md` recorded about under-scoping a file list built by grep.
+
+Reversibility: nothing here is hard to undo before it ships (additive DynamoDB attribute, no
+migration). Once shipped, `deletePerson`/`deleteRoom` are genuinely irreversible for the caller in
+the normal sense a delete always is — mitigated by `deleteRoom`'s upcoming-meetings block and
+`deletePerson`'s reserved-account/self-delete guards, not by any soft-delete/undo mechanism (none
+proposed here).
+
+## Implementation checklist
+
+Not filled in yet — per this folder's process, this happens once Status moves toward Ready.
+
+## Definition of done
+
+- New/changed acceptance-test coverage (sections **P**, **Q**, and the updated **L** cases) is
+  green.
+- The full existing acceptance suite is still green on a real deployed environment, including every
+  updated `*AcceptanceIT`/`DemoData.java`/`authorization-boundaries.spec.ts` call site.
+- An admin can create, edit, and delete a Room and a Person, and grant/revoke admin status, all from
+  the new pages; a standard user can reach none of it.
+- `deleteRoom` correctly refuses when the room has an upcoming meeting; `deletePerson` correctly
+  cascades and correctly refuses for self/reserved accounts.
+- A past meeting whose Room or organiser has since been deleted still renders (placeholder name).
+- Documentation impacts above are actually done, not just planned.
