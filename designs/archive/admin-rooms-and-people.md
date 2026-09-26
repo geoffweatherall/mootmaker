@@ -13,8 +13,9 @@ depends on this API yet).
 
 ## Status
 
-**Building** — 2026-09-25. Approved by Geoff (every open question resolved); implementation started
-the same day.
+**Shipped** — 2026-09-26. Deployed and verified against `test` and `production`; Geoff signed off on
+the deployed behaviour. Documentation impacts (data-model.md, use-cases.md, both READMEs) applied as
+part of the same change.
 
 ## Scope / non-goals
 
@@ -279,7 +280,7 @@ itself — currently relies entirely on the separate `database-reset` Lambda for
 
 ## Changes to the domain data model and data storage models
 
-See [`data-model.md`](../docs/reference/data-model.md) for the current state. Deltas:
+See [`data-model.md`](../../docs/reference/data-model.md) for the current state. Deltas:
 
 - **DynamoDB, People table**: new `isAdmin` attribute (Boolean, optional — absent means `false`,
   same "optional attribute, non-null GraphQL field with a default" pattern `dateFormat`/
@@ -370,10 +371,10 @@ admin-only Settings/Rooms/People flows today; nothing here changes what it shoul
 
 ## Documentation impacts
 
-- [`docs/reference/data-model.md`](../docs/reference/data-model.md) — update once shipped, per this
+- [`docs/reference/data-model.md`](../../docs/reference/data-model.md) — update once shipped, per this
   folder's process (new `isAdmin` attribute, retired `cognitoSub-index`-adjacent notes if any
   reference the old mutation shape).
-- [`docs/reference/use-cases.md`](../docs/reference/use-cases.md) — retire/rewrite the Settings §J/K
+- [`docs/reference/use-cases.md`](../../docs/reference/use-cases.md) — retire/rewrite the Settings §J/K
   use cases to describe the new pages; add cases for delete-room, delete-person, grant/revoke admin.
 - `mootmaker-api/README.md` — replace the `updatePerson`/`createPerson`(`PersonInput`) description
   with the new mutation set.
@@ -529,7 +530,7 @@ ephemeral environment, created once and reused throughout, left running at the e
       in the webapp.
 
 **Review:**
-23. [Geoff] Sign off on the deployed behaviour before this moves to Shipped.
+23. [Geoff] ✅ Signed off on the deployed behaviour.
 
 ## Definition of done
 
