@@ -5,7 +5,7 @@ Cognito (identity/auth) and DynamoDB (application data) — the two together, si
 that touch persisted state touch more than "the obvious database." Individual design docs describe
 *deltas* against this file under their own "Changes to the domain data model" section and link
 back here rather than duplicating it; this file gets updated once a design ships (see
-[README.md](../../designs/README.md)'s process). Last verified 2026-08-28, against `mootmaker-api`.
+[README.md](../../designs/README.md)'s process). Last verified 2026-09-26, against `mootmaker-api`.
 
 ## Cognito
 
@@ -55,6 +55,14 @@ in `cognitoSubs`, idempotently, (b) writes that Person's id back onto the user a
 the caller by primary key instead of through an index. Both steps swallow and log their own
 failures rather than failing the sign-up itself.
 
+**Lambda trigger**: `pre_sign_up` → `PreSignUpNameCollisionHandler`. Fires on `PreSignUp_SignUp`,
+before any Cognito user exists — the one point in the flow where throwing actually blocks account
+creation, unlike `post_confirmation` above (the account already exists by then, so a thrown
+exception there is logged and swallowed, not surfaced). Rejects outright when the submitted `name`
+collides (case/whitespace-insensitively) with an existing Person's `name` — the same rule
+`createPerson` enforces for admin-created guests. Read-only: a full `People` table scan via
+`PersonRepository#findByNameIgnoringCaseAndWhitespace`, no write.
+
 **Seeded accounts** (both created directly by Terraform via `aws_cognito_user`, bypassing sign-up
 and therefore bypassing the `post_confirmation` trigger entirely):
 
@@ -84,8 +92,11 @@ Primary key: `id` (S), no sort key. Primary source of truth.
 | `id` | S | Primary key. An 8-character opaque token (`com.mootmaker.dynamo.IdAllocator`, base62 alphabet), not a UUID — see [designs/archive/dynamodb-storage-compaction.md](../../designs/archive/dynamodb-storage-compaction.md). Collision-safe via a conditional `PutItem` (`attribute_not_exists(id)`) with a small bounded retry in `RoomRepository#create`; negligible risk given ids are drawn from a ~2.18x10^14-value space. |
 | `name` | S | Room name. |
 | `capacity` | N | Room capacity. |
+| `color` | S, optional | One of a fixed 8-hue palette (`RoomColor` enum), chosen by an admin when creating/editing. Absent means no explicit choice — the webapp falls back to its existing by-position computed assignment, same "optional attribute, non-null-ish GraphQL default" shape as `Person`'s `dateFormat`/`timeFormat` below. |
 
-No GSIs/LSIs. Referenced by `MeetingRecord.roomId`.
+No GSIs/LSIs. Referenced by `MeetingRecord.roomId`. `deleteRoom` is a plain `DeleteItem` — rejected
+outright if the room has any meeting from today onward (`RoomError.RoomHasUpcomingMeetings`), never
+a cascade.
 
 ### People — `${resource_prefix}-people`
 
@@ -96,7 +107,9 @@ Primary key: `id` (S), no sort key. Primary source of truth.
 | `id` | S | Primary key. Same 8-character opaque token scheme as Rooms' `id` above. Two write paths: `PersonRepository#createWithNewId` allocates a fresh id with the same collision-retry as Rooms, for guest Persons with no Cognito account; `PersonRepository#create` writes an id that is already fixed (already written to a Cognito `custom:personId` claim, or already the id a repair is recreating), failing loudly rather than retrying with a different one on collision, so it can never silently strand a claim. |
 | `name` | S | Display name — the real source of truth (Cognito's `name` attribute is a one-way synced copy). |
 | `cognitoSubs` | List\<S\> | Every Cognito account linked to this person — **empty** for guest Persons created directly by an admin (no Cognito account at all); never exposed over GraphQL. |
-| `dateFormat`, `timeFormat` | S, optional | The caller's own display preferences, set by `updateMyPreferences`. Presentational only. |
+| `cognitoEmails` | List\<S\>, optional | The email address of every linked Cognito account, parallel to `cognitoSubs` (same index correspondence, defaults to empty) — written only by `PostConfirmationCreatePersonHandler` at sign-up (the trigger event already carries `email`), never touched by any later mutation. Exposed over GraphQL as `Person.linkedEmails`. |
+| `isAdmin` | Bool, optional | Read-optimised copy of Cognito's `custom:class == "admin"`, kept in sync by `setPersonAdmin` (DynamoDB write, then a best-effort `AdminUpdateUserAttributes` — see `SetPersonAdminResult.cognitoSyncFailed`). Absent means `false`. `custom:class` on the linked Cognito account stays the actual authorization source every request checks; this attribute only drives what the Persons admin page displays. |
+| `dateFormat`, `timeFormat`, `weekStart` | S, optional | The caller's own display preferences, set by `updateMyPreferences`. Presentational only — `weekStart` (`Monday`/`Sunday`, default `Monday`) only affects the generic `DatePicker` calendar grid's first-day-of-week, not `PersonCalendarPage`'s fixed Mon-Fri weekly agenda. |
 
 **No GSIs.** There was a `cognitoSub-index` (hash `cognitoSub`, projection `ALL`), used to resolve
 the signed-in caller's Person from their JWT `sub`. It is gone: the caller's person id now travels
@@ -106,7 +119,11 @@ the signed-in caller's Person from their JWT `sub`. It is gone: the caller's per
 `CreateMissingPersonsRepair`.
 
 Relates to Cognito via `cognitoSubs`; relates to Meetings via `MeetingRecord.organiserId`/
-`attendeeIds` inside the day item.
+`attendeeIds` inside the day item. `deletePerson` cascades: cancels every upcoming meeting the
+target organises, removes them from every upcoming meeting they only attend, leaves the past
+untouched (mirroring `deleteMyAccount`'s own cascade, admin-invoked against someone else) — refuses
+outright for the caller's own Person (`PersonError.CannotDeleteSelf`) or a reserved account
+(`PersonError.ReservedAccount`).
 
 ### Meetings — `${resource_prefix}-meetings`
 
@@ -154,15 +171,18 @@ it. **Nothing in this model is stored twice any more.**
 
 ## Cross-references between Cognito and DynamoDB
 
-- **The link is one attribute**: `Person.cognitoSub` = the Cognito user's `sub`. Populated at
-  Person-creation time — by `PostConfirmationCreatePersonHandler` (reads `sub` from the trigger
-  event) for a real sign-up, or directly by Terraform for the seeded accounts. Guest Persons
-  (created via the admin-only `createPerson` mutation) have an empty `cognitoSubs` — no Cognito
-  account at all.
+- **The link is a list, `Person.cognitoSubs`** (a person can have more than one linked account),
+  each entry the linked Cognito user's `sub`. Populated at Person-creation time — by
+  `PostConfirmationCreatePersonHandler` (reads `sub` from the trigger event) for a real sign-up, or
+  directly by Terraform for the seeded accounts. Guest Persons (created via the admin-only
+  `createPerson` mutation) have an empty `cognitoSubs` — no Cognito account at all, until whoever it
+  represents eventually signs up and links one.
 - **Read side**: the link is followed **forward**, off the token. `custom:personId` names the
-  caller's Person, so `workspace { me }` is a primary-key read; `UpdatePersonHandler` compares that
-  claim to authorize a self-rename (unless the caller is admin), and `DeleteMyAccountHandler` uses
-  it too, plus calls Cognito's `AdminDeleteUser` directly using `sub`. The old direction — JWT
+  caller's Person, so `workspace { me }` is a primary-key read; `updateMyName`/`renamePerson`
+  (`UpdatePersonHandler`'s replacements — see [designs/admin-rooms-and-people.md](../../designs/archive/admin-rooms-and-people.md),
+  archived once shipped) split what used to be one mutation by *caller* instead of branching
+  internally on that same claim, and `DeleteMyAccountHandler` uses it too, plus calls Cognito's
+  `AdminDeleteUser` directly using `sub`. The old direction — JWT
   `sub` → `cognitoSub-index` GSI → Person — is gone along with the index and
   `MyPersonHandler` itself.
 - **An account with no linked Person is a real state**, not a defect: `custom:personId` is absent,
@@ -170,18 +190,28 @@ it. **Nothing in this model is stored twice any more.**
   than hidden, the agenda replaced by an explanation). Every non-production environment carries
   `no-person-tests@example.com` to keep that path covered.
 - **`Person.name` → Cognito `name` is a one-way sync**, not a shared field: Cognito sets it once at
-  sign-up; only `UpdatePersonHandler` updates it thereafter (to mirror a Person rename), via
-  `AdminUpdateUserAttributes` using `cognitoSub` as the username (this works because
+  sign-up; only `updateMyName`/`renamePerson` update it thereafter (to mirror a Person rename), via
+  `AdminUpdateUserAttributes` using each linked `cognitoSub` as the username (this works because
   username == `sub` in this pool). Best-effort — a failure there doesn't fail the rename mutation
-  itself, since `Person.name` (DynamoDB) is the actual source of truth.
+  itself, since `Person.name` (DynamoDB) is the actual source of truth. `renamePerson` keeps this
+  swallow-and-log behaviour; `setPersonAdmin` (below) does not, since a stuck `custom:class` sync
+  isn't cosmetic the way a stale display name is.
+- **`setPersonAdmin` is the only mutation-driven path that sets `custom:class`** — `AdminUpdateUserAttributes`,
+  DynamoDB (`isAdmin`) written first, Cognito second, the fail-closed order: a failure leaves the
+  Persons page showing admin access that the caller's token doesn't actually grant yet, never the
+  reverse. Surfaces the failure as `SetPersonAdminResult.cognitoSyncFailed: true` rather than
+  swallowing it, and refuses outright (`PersonError.NoLinkedAccount`) for a guest Person with no
+  linked Cognito account at all, and (`PersonError.CannotRevokeOwnAdminAccess`) for an admin trying
+  to revoke their own access through this path, whoever is calling.
 - **Stray `Person` records with a dangling `cognitoSub`** (the Cognito user was deleted or recreated
   independently) are closed going forward, in every environment except `production`: `database-reset`
   determines which People survive from Cognito's *actual current* user list (`ListUsers`, matched
-  against the two Terraform-managed reserved accounts), not from whether a `Person`'s `cognitoSub`
-  attribute happens to be present — so a Person whose Cognito account is gone no longer survives just
-  because the attribute wasn't cleared. In `production`, where the Cognito wipe is refused outright,
-  the original narrower rule still applies (any non-null `cognitoSub` survives), so a stray Person
-  there is unaffected by reset and still has to be deleted directly via DynamoDB. `database-repair`
+  against the two Terraform-managed reserved accounts), not from whether a `Person`'s `cognitoSubs`
+  attribute happens to still list it — so a Person whose Cognito account is gone no longer survives
+  just because the attribute wasn't cleared. In `production`, where the Cognito wipe is refused
+  outright, the original narrower rule still applies (any non-empty `cognitoSubs` survives), so a
+  stray Person there is unaffected by reset and still has to be deleted directly via DynamoDB, or via
+  the admin-only `deletePerson` mutation. `database-repair`
   has no repair for this case either way — see
   [mootmaker-api's README](https://github.com/geoffweatherall/mootmaker-api#reset-and-real-user-accounts)
   and [designs/admin-tools-into-api.md](../../designs/archive/admin-tools-into-api.md) (archived once shipped).

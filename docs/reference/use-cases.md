@@ -160,14 +160,14 @@ against — that catalog is expected to be re-checked against changes here, not 
 ## J. Settings — Rooms (admin only)
 
 **Superseded by [§ P](#p-rooms-admin-only).** Rooms moved out of Settings to its own top-level page
-— see [designs/admin-rooms-and-people.md](../../designs/admin-rooms-and-people.md). Numbers 77–83
+— see [designs/admin-rooms-and-people.md](../../designs/archive/admin-rooms-and-people.md). Numbers 77–83
 are retired, not reused; see [webapp's j-settings-rooms.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/j-settings-rooms.md)
 for the old→new case mapping.
 
 ## K. Settings — People (admin only)
 
 **Superseded by [§ Q](#q-persons-admin-only).** People moved out of Settings to its own top-level
-page — see [designs/admin-rooms-and-people.md](../../designs/admin-rooms-and-people.md). Numbers
+page — see [designs/admin-rooms-and-people.md](../../designs/archive/admin-rooms-and-people.md). Numbers
 84–88 are retired, not reused; see [webapp's k-settings-people.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/k-settings-people.md)
 for the old→new case mapping.
 
@@ -225,7 +225,7 @@ own Testing impacts section). See that design for the full decisions behind thes
 
 ## P. Rooms (admin only)
 
-Supersedes § J — see [designs/admin-rooms-and-people.md](../../designs/admin-rooms-and-people.md).
+Supersedes § J — see [designs/admin-rooms-and-people.md](../../designs/archive/admin-rooms-and-people.md).
 Cases 124–129 carry over J's functional ground against the new top-level `/rooms` page; 130–131 are
 genuinely new (`deleteRoom` didn't exist before this design).
 
@@ -240,7 +240,7 @@ genuinely new (`deleteRoom` didn't exist before this design).
 
 ## Q. Persons (admin only)
 
-Supersedes § K — see [designs/admin-rooms-and-people.md](../../designs/admin-rooms-and-people.md).
+Supersedes § K — see [designs/admin-rooms-and-people.md](../../designs/archive/admin-rooms-and-people.md).
 Cases 132–136 carry over K's functional ground against the new top-level `/persons` page; 137–142
 are genuinely new (admin badge/linked-email display, grant/revoke admin, and `deletePerson` with
 its cascade and self/reserved-account guards didn't exist before this design).
