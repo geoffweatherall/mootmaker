@@ -1,0 +1,2123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--
+  A code tour of mootmaker's day-keyed rewrite, shipped as v2.0.0 on 2026-09-11.
+  Open this file in a browser; it is self-contained apart from Google Fonts.
+  Also published as a private artifact - see docs/showcase/README or the project README.
+-->
+<style>:root{color-scheme:light dark}body{margin:0;padding:0}img{max-width:100%}</style>
+</head>
+<body>
+<title>The Day-Keyed Rewrite</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+  /* ── Tokens ────────────────────────────────────────────────────────────────
+     Palette and typefaces are mootmaker's own, from docs/showcase/branding.
+     Light values live on bare :root so the un-stamped "system" state resolves.  */
+  :root {
+    --bg:            #FAF9F6;
+    --surface:       #FFFFFF;
+    --code-bg:       #F4F1EA;
+    --ink:           #1E1B2E;
+    --ink-soft:      #58527A;
+    --border:        #E7E3F6;
+    --rule:          #DCD7EE;
+    --primary:       #4338CA;
+    --secondary:     #0E8F82;
+    --accent:        #B45309;
+    --accent-mark:   #F59E0B;
+    --accent-wash:   #FDF6E7;
+    --shadow:        0 1px 2px rgba(30, 27, 46, .05), 0 8px 24px -12px rgba(67, 56, 202, .18);
+
+    --font-heading: 'Outfit', 'Segoe UI', system-ui, sans-serif;
+    --font-body:    'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono:    'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+    --measure: 68ch;
+    --step-0: 1.0625rem;
+    --step-1: 1.25rem;
+    --step-2: 1.5rem;
+    --step-3: 2rem;
+    --step-4: 2.75rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:          #17152A;
+      --surface:     #201D38;
+      --code-bg:     #1B1930;
+      --ink:         #F1EFFA;
+      --ink-soft:    #B6B0D8;
+      --border:      #34305A;
+      --rule:        #2C2850;
+      --primary:     #8B85F0;
+      --secondary:   #2DD4BF;
+      --accent:      #FBBF24;
+      --accent-mark: #FBBF24;
+      --accent-wash: #2A2338;
+      --shadow:      0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -12px rgba(0, 0, 0, .6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg:          #17152A;
+    --surface:     #201D38;
+    --code-bg:     #1B1930;
+    --ink:         #F1EFFA;
+    --ink-soft:    #B6B0D8;
+    --border:      #34305A;
+    --rule:        #2C2850;
+    --primary:     #8B85F0;
+    --secondary:   #2DD4BF;
+    --accent:      #FBBF24;
+    --accent-mark: #FBBF24;
+    --accent-wash: #2A2338;
+    --shadow:      0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px -12px rgba(0, 0, 0, .6);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: var(--step-0);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 78ch;
+    margin-inline: auto;
+    padding-inline: 24px;
+    padding-block: 56px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  /* ── Masthead ───────────────────────────────────────────────────────────── */
+  .masthead { display: flex; flex-direction: column; gap: 20px; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: .74rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--secondary);
+    font-weight: 500;
+  }
+
+  h1 {
+    font-family: var(--font-heading);
+    font-size: var(--step-4);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: var(--step-1);
+    line-height: 1.55;
+    color: var(--ink-soft);
+    max-width: var(--measure);
+    margin: 0;
+  }
+
+  .byline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    color: var(--ink-soft);
+    padding-top: 12px;
+    border-top: 1px solid var(--rule);
+  }
+  .byline span { white-space: nowrap; }
+  .byline b { color: var(--ink); font-weight: 500; }
+
+  /* ── Contents ───────────────────────────────────────────────────────────── */
+  .contents {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px 28px;
+    box-shadow: var(--shadow);
+  }
+  .contents h2 {
+    font-family: var(--font-mono);
+    font-size: .74rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    font-weight: 500;
+    margin: 0 0 16px;
+  }
+  .contents ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 10px;
+    counter-reset: toc;
+  }
+  .contents li { counter-increment: toc; display: flex; gap: 14px; align-items: baseline; }
+  .contents li::before {
+    content: counter(toc, decimal-leading-zero);
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    color: var(--primary);
+    font-weight: 500;
+    flex: none;
+  }
+  .contents a { color: var(--ink); text-decoration: none; border-bottom: 1px solid transparent; }
+  .contents a:hover, .contents a:focus-visible { border-bottom-color: var(--primary); color: var(--primary); }
+  .contents em { color: var(--ink-soft); font-style: normal; font-size: .92em; }
+
+  /* ── Sections ───────────────────────────────────────────────────────────── */
+  section { display: flex; flex-direction: column; gap: 20px; }
+  section > * { max-width: var(--measure); }
+  section > .wide, section > figure, section > .table-wrap { max-width: none; }
+
+  .slice-head { display: flex; flex-direction: column; gap: 6px; max-width: var(--measure); }
+  .slice-num {
+    font-family: var(--font-mono);
+    font-size: .74rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--secondary);
+    font-weight: 500;
+  }
+
+  h2 {
+    font-family: var(--font-heading);
+    font-size: var(--step-3);
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--font-heading);
+    font-size: var(--step-2);
+    line-height: 1.25;
+    font-weight: 600;
+    margin: 20px 0 0;
+    text-wrap: balance;
+  }
+
+  h4 {
+    font-family: var(--font-body);
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 12px 0 0;
+    color: var(--ink);
+  }
+
+  p { margin: 0; }
+  section p + p { margin-top: -4px; }
+
+  a { color: var(--primary); }
+
+  strong { font-weight: 600; color: var(--ink); }
+
+  ul, ol.prose { margin: 0; padding-left: 1.3em; display: grid; gap: 8px; }
+  li { padding-left: 2px; }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: .86em;
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: .12em .38em;
+  }
+
+  pre {
+    margin: 0;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: .82rem;
+    line-height: 1.6;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .c-com { color: var(--ink-soft); }
+  .c-key { color: var(--primary); font-weight: 500; }
+  .c-str { color: var(--secondary); }
+  .c-bad { color: var(--accent); font-weight: 500; }
+
+  /* ── The silent marker ──────────────────────────────────────────────────────
+     Amber is spent on exactly one idea in this document: something that passed,
+     compiled or deployed while being wrong. Used nowhere else.                  */
+  .silent {
+    border-left: 3px solid var(--accent-mark);
+    background: var(--accent-wash);
+    border-radius: 0 8px 8px 0;
+    padding: 16px 20px;
+    display: grid;
+    gap: 8px;
+  }
+  .silent .tag {
+    font-family: var(--font-mono);
+    font-size: .68rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .silent p { font-size: .97rem; }
+
+  /* ── Tables ─────────────────────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: .92rem;
+    font-variant-numeric: tabular-nums;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px 10px 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  td code { font-size: .84em; white-space: nowrap; }
+
+  /* ── Handshake figure ───────────────────────────────────────────────────── */
+  figure { margin: 0; display: grid; gap: 12px; }
+  figcaption { font-size: .88rem; color: var(--ink-soft); max-width: var(--measure); }
+
+  .handshake {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: .78rem;
+  }
+  .frame {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 10px 12px;
+    display: grid;
+    gap: 3px;
+    flex: 1 1 130px;
+  }
+  .frame .dir { font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+  .frame .name { color: var(--ink); font-weight: 500; }
+  .frame.out { border-left: 3px solid var(--primary); }
+  .frame.in  { border-left: 3px solid var(--secondary); }
+
+  /* ── Measured-cap figure ────────────────────────────────────────────────── */
+  .cap { display: grid; gap: 10px; }
+  .cap-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .cap-label {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-family: var(--font-mono);
+    font-size: .76rem;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .cap-label b { color: var(--ink); font-weight: 500; }
+  .cap-track {
+    position: relative;
+    height: 26px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .cap-fill { position: absolute; inset-block: 0; left: 0; }
+  .cap-fill.ok   { background: color-mix(in srgb, var(--secondary) 34%, transparent); }
+  .cap-fill.over { background: color-mix(in srgb, var(--accent-mark) 34%, transparent); }
+  .cap-threshold {
+    position: absolute;
+    inset-block: 0;
+    width: 2px;
+    background: var(--primary);
+  }
+  .cap-key {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    color: var(--ink-soft);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+  }
+
+  /* ── Pull quote ─────────────────────────────────────────────────────────── */
+  .pull {
+    font-family: var(--font-heading);
+    font-size: var(--step-2);
+    line-height: 1.35;
+    font-weight: 500;
+    color: var(--primary);
+    border-top: 2px solid var(--rule);
+    border-bottom: 2px solid var(--rule);
+    padding-block: 24px;
+    margin: 8px 0;
+    text-wrap: balance;
+  }
+
+  /* A quotation FROM the design document, as opposed to .pull, which is this tour's own emphasis.
+     Deliberately quiet: it is evidence being cited, not a point being made.                       */
+  blockquote {
+    margin: 0;
+    padding-left: 18px;
+    border-left: 2px solid var(--rule);
+    color: var(--ink-soft);
+  }
+
+  .verdict {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    display: grid;
+    gap: 8px;
+    box-shadow: var(--shadow);
+  }
+  .verdict h4 { margin: 0; }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 24px;
+    font-size: .88rem;
+    color: var(--ink-soft);
+    display: grid;
+    gap: 8px;
+    max-width: var(--measure);
+  }
+
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+
+  @media (max-width: 640px) {
+    :root { --step-3: 1.6rem; --step-4: 2.1rem; --step-2: 1.35rem; }
+    .page { padding-block: 40px 64px; gap: 44px; }
+    .byline { gap: 4px 14px; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">mootmaker · code tour</div>
+    <h1>The Day-Keyed Rewrite</h1>
+    <p class="standfirst">
+      Meetings used to be rows. Now a whole calendar day is one item — one DynamoDB write, one cache
+      entity, one unit of retention, one thing to broadcast. This is a tour of that change for people
+      who know the old codebase, with the testing weighted exactly as heavily as the implementation.
+    </p>
+    <div class="byline">
+      <span><b>5</b> slices</span>
+      <span><b>326</b> unit tests</span>
+      <span><b>178</b> against a deployed environment</span>
+      <span><b>3</b> components</span>
+      <span><b>14</b> silent failures</span>
+      <span><b>2</b> releases</span>
+    </div>
+  </header>
+
+  <nav class="contents" aria-label="Contents">
+    <h2>What this covers</h2>
+    <ol>
+      <li><a href="#orientation">Orientation</a> — <em>what moved, and what was deleted rather than adapted</em></li>
+      <li><a href="#selection">Selection-aware resolvers</a> — <em>and the alias trap that silently nulls a field</em></li>
+      <li><a href="#storage">One item per day</a> — <em>optimistic locking arrives in a codebase that never needed it</em></li>
+      <li><a href="#composite">One query, one cache</a> — <em>Apollo policies that fail quietly when wrong</em></li>
+      <li><a href="#retention">Retention</a> — <em>a deletion that could not be observed</em></li>
+      <li><a href="#realtime">Real-time</a> — <em>finding out what AWS will not tell you</em></li>
+      <li><a href="#discipline">Verification discipline</a> — <em>a green check is only as good as knowing what it checked</em></li>
+      <li><a href="#shipping">Shipping it</a> — <em>what the design only claimed until it was run</em></li>
+      <li><a href="#index">The silent-failure index</a> — <em>every one of them, counted</em></li>
+    </ol>
+  </nav>
+
+  <!-- ══ 1 ═══════════════════════════════════════════════════════════════════ -->
+  <section id="orientation">
+    <div class="slice-head">
+      <div class="slice-num">01 · Orientation</div>
+      <h2>What actually moved</h2>
+    </div>
+
+    <p>
+      The old model stored one item per meeting and reached them through secondary indexes. The new
+      model stores one item per calendar day and reaches everything by primary key. That single change
+      is what unlocks the rest: a primary-key read can be a <code>ConsistentRead</code>, which removes
+      the read-after-write bug class outright.
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Was</th><th>Is</th><th>Why it matters</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>One item per meeting</td>
+            <td>One item per day, <code>DAY#2026-09-14</code></td>
+            <td>Buys <code>ConsistentRead</code>; costs write amplification and contention</td>
+          </tr>
+          <tr>
+            <td>Four root fields, four Lambda invocations</td>
+            <td><code>workspace(dates:)</code> — one</td>
+            <td>One request, one invocation, one SnapStart restore per page load</td>
+          </tr>
+          <tr>
+            <td>Two meetings GSIs, <code>meeting-participants</code>, <code>cognitoSub-index</code></td>
+            <td>All deleted</td>
+            <td>Nothing is stored twice anywhere after this</td>
+          </tr>
+          <tr>
+            <td><code>myPerson</code> then <code>meetings</code> — a waterfall</td>
+            <td>A <code>custom:personId</code> claim on the token</td>
+            <td>Zero lookups to know who you are</td>
+          </tr>
+          <tr>
+            <td>Unbounded growth</td>
+            <td>217 day items, hard cap</td>
+            <td>180-day horizon plus ~37 days retention — a row count, not a growth rate</td>
+          </tr>
+          <tr>
+            <td>Refetch on navigation</td>
+            <td>Broadcast invalidations over a WebSocket</td>
+            <td>Another user's booking appears without a refresh</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Four workarounds were deleted, not fixed</h3>
+    <p>
+      Worth dwelling on, because it is the most transferable idea here. Each of these existed to paper
+      over a race that the old shape made possible:
+    </p>
+    <ul>
+      <li>
+        A router-state handoff carrying a freshly created meeting between two pages, plus its paired
+        merge on arrival. It existed because reads went through a GSI, and DynamoDB refuses
+        <code>ConsistentRead</code> on an index.
+      </li>
+      <li>
+        Two <code>cache.updateQuery</code> merges, because a read could lose a race with the write that
+        preceded it.
+      </li>
+      <li>
+        Three pages firing two independent queries that settled at different times, so the screen
+        assembled itself in visible stages.
+      </li>
+    </ul>
+    <p class="pull">
+      The best fix for a workaround is a shape that cannot have the problem.
+    </p>
+  </section>
+
+  <!-- ══ 2 ═══════════════════════════════════════════════════════════════════ -->
+  <section id="selection">
+    <div class="slice-head">
+      <div class="slice-num">02 · Slice one</div>
+      <h2>Resolvers that fetch only what was asked for</h2>
+    </div>
+
+    <p>
+      AppSync tells a direct-Lambda resolver which fields the client selected, as
+      <code>info.selectionSetList</code> — a flat list of <code>/</code>-separated paths. So
+      <code>attendees { id }</code> can do no Person lookup at all, while <code>attendees { id name }</code>
+      does exactly one.
+    </p>
+
+    <p>
+      The first surprise cost an afternoon and is not in the AWS documentation:
+      <strong><code>selectionSetList</code> is not serialised by <code>$util.toJson($ctx)</code>.</strong>
+      The request template has to name it explicitly, which is why it went from a pass-through one-liner
+      to a written-out heredoc.
+    </p>
+
+<pre><code>{
+  <span class="c-str">"version"</span>: <span class="c-str">"2018-05-29"</span>,
+  <span class="c-str">"operation"</span>: <span class="c-str">"Invoke"</span>,
+  <span class="c-str">"payload"</span>: {
+    <span class="c-str">"info"</span>: {
+      <span class="c-str">"fieldName"</span>: $util.toJson($ctx.info.fieldName),
+      <span class="c-str">"parentTypeName"</span>: $util.toJson($ctx.info.parentTypeName),
+      <span class="c-str">"selectionSetList"</span>: $util.toJson($ctx.info.selectionSetList)  <span class="c-com">// ← or it is absent</span>
+    },
+    <span class="c-str">"arguments"</span>: $util.toJson($ctx.arguments)
+  }
+}</code></pre>
+
+    <h3>The alias trap</h3>
+    <p>
+      An aliased field appears in the selection set <em>only</em> under its alias. Ask for
+      <code>roomName: name</code> and you get <code>room/roomName</code>, never <code>room/name</code>.
+    </p>
+
+    <div class="silent">
+      <div class="tag">Silent · 1</div>
+      <p>
+        Enumerate the fields you consider expensive, miss an alias, and you return a stub. GraphQL then
+        nulls a non-null field, and the null cascades up through the list to the whole meeting. Not a
+        degraded response — <strong>missing data, with a 200</strong>.
+      </p>
+    </div>
+
+    <p>
+      So the test is inverted. Rather than asking "does the client want anything expensive?", the code
+      asks "is <em>everything</em> selected known to be free?" — and anything unrecognised means fetch.
+      Failure lands on the side of doing unnecessary work instead of losing data.
+    </p>
+
+<pre><code><span class="c-key">private static final</span> Set&lt;String&gt; FREE_FIELDS = Set.of(<span class="c-str">"id"</span>, <span class="c-str">"__typename"</span>);
+
+<span class="c-key">boolean</span> needsLookup(<span class="c-key">final</span> String prefix) {
+    <span class="c-key">if</span> (paths.isEmpty()) <span class="c-key">return true</span>;          <span class="c-com">// no information → assume the worst</span>
+    <span class="c-key">final</span> String nested = prefix + <span class="c-str">"/"</span>;
+    <span class="c-key">for</span> (<span class="c-key">final</span> String path : paths) {
+        <span class="c-key">if</span> (path.startsWith(nested)
+                &amp;&amp; !FREE_FIELDS.contains(path.substring(nested.length()))) <span class="c-key">return true</span>;
+    }
+    <span class="c-key">return false</span>;
+}</code></pre>
+
+    <p>
+      <code>__typename</code> has to be in the free set. Apollo adds it to every selection automatically,
+      so without it the optimisation never fires for a single real client.
+    </p>
+
+    <h3>Why this needs two test layers</h3>
+    <p>
+      <code>SelectionSetTest</code> is driven by recorded payload shapes rather than end-to-end queries,
+      because the cases that matter — an alias, a fragment, a missing key — are the ones an end-to-end
+      test is least likely to hit by luck. But the alias case <em>also</em> has a deployed acceptance
+      test, because its failure mode is GraphQL's non-null enforcement, which only exists inside a real
+      executor. The unit test proves the logic; the acceptance test proves the consequence.
+    </p>
+  </section>
+
+  <!-- ══ 3 ═══════════════════════════════════════════════════════════════════ -->
+  <section id="storage">
+    <div class="slice-head">
+      <div class="slice-num">03 · Slice two</div>
+      <h2>One item per day, and the locking that follows</h2>
+    </div>
+
+    <p>
+      The old model was lock-free by construction: independent per-meeting writes could not collide.
+      The new model rewrites the whole day item to add one meeting, so two people booking the same date
+      genuinely contend. Optimistic locking is new to this codebase.
+    </p>
+
+    <p>
+      The shape of the repository method is the design, not a style preference:
+    </p>
+
+<pre><code><span class="c-key">public</span> Day mutate(<span class="c-key">final</span> String date, <span class="c-key">final</span> UnaryOperator&lt;Day&gt; change)</code></pre>
+
+    <p>
+      It takes a <em>function</em>, so on a version conflict the change is re-applied against freshly
+      read state. That is what makes a retry mean anything: "is this day full?" gets answered about the
+      day as it is <em>now</em>, not as it was when the request arrived.
+    </p>
+
+    <h4>The first write is a different condition</h4>
+    <p>
+      Version 0 means "no item yet", so the condition is <code>attribute_not_exists(pk)</code> rather
+      than <code>version = 0</code>. Two racing first-writes would both pass a comparison against an
+      attribute neither of them can see.
+    </p>
+
+    <h3>Validation splits in two, and where each half runs is the point</h3>
+    <ul>
+      <li><strong>Rules about the request</strong> — times, existence, capacity, lengths, the booking window — are checked once, up front.</li>
+      <li><strong>Rules about the state of the day</strong> — is the room still free, is the day now full — are checked <em>inside</em> the read-modify-write.</li>
+    </ul>
+    <p>
+      This is what avoids the classic overbooking bug: two requests read a day holding 319 meetings,
+      both conclude there is room, both write. The conditional write makes one of them retry — and
+      re-running the day-state rules is what makes that retry correct rather than merely late.
+    </p>
+    <p>
+      One consequence rippled outward pleasingly. <code>RoomAvailability</code> had to stop touching
+      DynamoDB, because a check that issues its own query cannot sit inside a retry loop. It became a
+      pure function over a list — which is also what allowed the <code>roomId-startTime</code> GSI to be
+      deleted. One change, three benefits.
+    </p>
+
+    <h3>A test double that can fail the way production fails</h3>
+    <div class="silent">
+      <div class="tag">Silent · 2</div>
+      <p>
+        <code>FakeDynamoDbClient</code> keyed on <code>id</code> and ignored condition expressions
+        entirely. Every optimistic-locking test written against it would have passed
+        <strong>vacuously</strong> — green tests over completely broken retry logic.
+      </p>
+    </div>
+    <p>
+      The fix went <em>into</em> that fake rather than beside it, which matters more than it sounds. A
+      second, day-specific double would have left the original still lying to every other test that uses
+      it. Instead it now keys on whichever partition key an item actually carries —
+      <code>pk</code> for the meetings table, <code>id</code> for the others:
+    </p>
+<pre><code><span class="c-key">final</span> String keyName = item.containsKey(<span class="c-str">"pk"</span>) ? <span class="c-str">"pk"</span> : <span class="c-str">"id"</span>;</code></pre>
+    <p>
+      and it honours the two conditions <code>DayRepository</code> actually issues
+      (<code>attribute_not_exists(pk)</code> for a first write, <code>version = :expected</code> for
+      every later one), throwing on anything else:
+    </p>
+<pre><code><span class="c-key">throw new</span> UnsupportedOperationException(
+    <span class="c-str">"FakeDynamoDbClient does not model the condition: "</span> + condition);</code></pre>
+    <p>
+      That last line is the part worth copying. A fake that silently accepts an unmodelled condition
+      goes back to passing vacuously the moment someone adds a third one; a fake that throws makes the
+      next unmodelled condition a failing test rather than a quiet lie. It also checks every condition
+      before applying any write, mirroring real transaction semantics: checking as it goes would let a
+      later failure leave earlier writes applied, which is exactly the behaviour these tests exist to
+      disprove.
+    </p>
+
+    <h3>An assertion that fails the deploy, not a booking</h3>
+    <p>
+      SnapStart executes a function's <code>init</code> when a version is published. So an invariant
+      asserted in a constructor that runs at init is checked <em>at deploy time</em>. Raise a limit
+      without redoing the arithmetic and the deploy fails — rather than a user's booking failing six
+      weeks later.
+    </p>
+    <p>
+      This is also the tour's one piece of genuinely new Java. <code>ResolverDispatchHandler</code> runs
+      the assertion <em>before</em> delegating to another constructor, which was a compile error before
+      Java 22 and is finalised in Java 25 (JEP 513):
+    </p>
+
+<pre><code><span class="c-key">public</span> ResolverDispatchHandler() {
+    Limits.assertConsistent();       <span class="c-com">// ← a statement BEFORE this(...)</span>
+
+    <span class="c-key">this</span>(Map.ofEntries(
+            Map.entry(<span class="c-str">"Query.workspace"</span>, <span class="c-key">new</span> WorkspaceHandler()),
+            Map.entry(<span class="c-str">"Query.meeting"</span>,   <span class="c-key">new</span> MeetingByIdHandler()),
+            <span class="c-com">// ... every field, constructed eagerly so INIT exercises them all</span>
+            Map.entry(<span class="c-str">"Mutation.deleteMyAccount"</span>, <span class="c-key">new</span> DeleteMyAccountHandler())));
+}</code></pre>
+
+    <p class="pull">
+      Where you put an assertion changes what it protects.
+    </p>
+
+    <h4>Testing that an assertion fires, not merely that it passes</h4>
+    <p>
+      A check that has only ever passed cannot tell you it would catch a bad change. <code>Limits</code>
+      exposes a package-private overload taking the limits as a record, so tests can exercise
+      hypothetical sets and prove the assertion rejects them. Those tests pin the design's stated
+      ceiling exactly — 332 meetings per day passes, 333 fails — and that caught a real contradiction:
+      an early draft applied a blanket 2% safety margin, which would have quietly made the design's own
+      published figure false.
+    </p>
+
+    <h4>The safety margin is asymmetric, on purpose</h4>
+    <p>
+      The item bound uses the raw 400 KB cap with no margin, because layer three measures the real
+      serialised item before <code>PutItem</code> — the guarantee rests on measurement, so an optimistic
+      model can only cause a premature "day is full", never an oversized item. The response bound
+      carries a 2% margin, because nothing measures the real response at run time; there the model
+      <em>is</em> the guarantee. A safety margin is not a ritual: ask what actually enforces the bound.
+    </p>
+  </section>
+
+  <!-- ══ 4 ═══════════════════════════════════════════════════════════════════ -->
+  <section id="composite">
+    <div class="slice-head">
+      <div class="slice-num">04 · Slice three</div>
+      <h2>One query, and a cache that lies quietly</h2>
+    </div>
+
+    <p>
+      Four root fields collapsed into <code>workspace(dates:)</code>. A page load is now one request,
+      one invocation and one SnapStart restore instead of four of each, and the
+      <code>myPerson → meetings</code> waterfall is gone entirely because the caller's identity arrives
+      on the token.
+    </p>
+
+    <p>
+      The client side is three Apollo policies. None of them fails loudly when wrong, which is why each
+      one carries its reasoning in the source:
+    </p>
+
+<pre><code><span class="c-key">export const</span> cache = <span class="c-key">new</span> InMemoryCache({
+  typePolicies: {
+    <span class="c-com">// Day has no id. Keyed by date, so "empty day" and "unfetched day"</span>
+    <span class="c-com">// stay distinguishable — entity present with an empty list vs absent.</span>
+    Day: { keyFields: [<span class="c-str">'date'</span>] },
+
+    Workspace: {
+      keyFields: <span class="c-key">false</span>,                <span class="c-com">// a singleton, stored inline</span>
+      fields: { days: { merge: <span class="c-key">false</span> } }  <span class="c-com">// replace, never accumulate</span>
+    },
+
+    <span class="c-com">// ONE workspace slot, not one per dates array.</span>
+    Query: { fields: { workspace: { keyArgs: <span class="c-key">false</span> } } },
+  },
+})</code></pre>
+
+    <div class="silent">
+      <div class="tag">Silent · 3</div>
+      <p>
+        Omit <code>keyArgs: false</code> and every distinct <code>dates</code> array gets its own
+        <code>ROOT_QUERY</code> entry, with the same rooms and people cached again under each. It
+        typechecks perfectly and no test notices. The only symptom is an app that refetches everything
+        whenever the user changes week.
+      </p>
+    </div>
+
+    <h3>Three design claims that did not survive contact</h3>
+    <p>
+      All three were about the Apollo cache. That is worth naming as a pattern rather than three
+      separate embarrassments:
+    </p>
+    <p class="pull">
+      Cache behaviour is the part of a design most likely to be wrong, because it is the part you
+      cannot check by reading.
+    </p>
+
+    <h4>1. The <code>days</code> read policy was not implementable</h4>
+    <p>
+      The design specified a <code>read</code> policy mapping <code>args.dates</code> onto constructed
+      <code>Day</code> references. But <code>dates</code> is an argument of <code>workspace</code>, not
+      of <code>days</code> — a field policy on <code>days</code> receives no arguments at all. Reported
+      rather than fudged; <code>merge: false</code> achieves what it was chosen for.
+    </p>
+
+    <h4>2. Returning a collection does not add to a cached list</h4>
+    <p>
+      The schema says returning the whole <code>rooms</code> collection "makes the mutation
+      self-sufficient". It does not. Apollo normalises <code>Room</code> by id, so a created room is
+      stored — but <code>CreateRoomResult.rooms</code> and <code>Workspace.rooms</code> are
+      <strong>different cache fields</strong>, and nothing tells Apollo they are the same list.
+    </p>
+    <div class="silent">
+      <div class="tag">Silent · 4</div>
+      <p>
+        Settings showed the new room, because it renders straight from the mutation result. Add
+        Meeting's cache-first dropdown did not, because it served the list it loaded with. No error
+        anywhere. Caught by two acceptance tests that create something and then try to pick it.
+      </p>
+    </div>
+
+    <h4>3. Eviction does not leave a gap to fetch</h4>
+    <p>
+      Covered in full under real-time below, because that is where it bit — but it belongs to this
+      list. Measured, not reasoned about.
+    </p>
+
+    <h3>TypeScript enforced the projection</h3>
+    <p>
+      Day-embedded meetings carry <code>room { id }</code> only; meeting details carries names. The
+      compiler refusing <code>Property 'name' does not exist on type '{ id: string; }'</code> is the
+      id-only projection being <em>checked</em> rather than merely intended.
+    </p>
+    <p>
+      The mocking approach had to match: fixtures hold the full shape, like stored data, and each mocked
+      query projects what it selected. Storing the narrow shape left the mock unable to answer the wide
+      query at all.
+    </p>
+
+    <h3>The race that only became reachable because the cache got faster</h3>
+    <p>
+      The captured DOM from a failed acceptance run showed both of these at once:
+    </p>
+    <pre><code>- alert: "Please select an organiser."
+- combobox "Organiser": Demo Strater</code></pre>
+    <p>
+      The banner says the organiser is missing; the field shows it. Not a contradiction &mdash; a
+      sequence. The form was submitted while <code>organiserId</code> was still <code>''</code>, the
+      <em>server</em> rejected it with <code>OrganiserRequired</code>, and the field filled in a moment
+      later.
+    </p>
+    <div class="silent">
+      <div class="tag">Silent &middot; 8</div>
+      <p>
+        Add Meeting gated rendering on the reference-data query. But the Organiser default comes from
+        the signed-in user's own Person, which arrives from a <em>different</em> query
+        (<code>SESSION</code>, in AuthProvider). Two independent loads, one gate &mdash; so the form
+        was interactive, and submittable, while Organiser was still blank.
+      </p>
+    </div>
+    <p>
+      The part worth carrying to your own work: <strong>this was latent for as long as reference data
+      was slow.</strong> Every visit used to pay a round trip for rooms and people, reliably slower
+      than <code>SESSION</code>, so the person always won the race and the gap never opened. Serving
+      reference data from the cache &mdash; the entire point of this design &mdash; makes a second
+      visit render instantly and reverses the order.
+    </p>
+    <p>
+      A caching change does not just make things faster. <strong>It re-orders every race the old
+      latency was accidentally serialising.</strong> None of those races are new; they were simply
+      unreachable before.
+    </p>
+    <p>
+      It also explains failures that never mentioned it. When <code>personId</code> lands,
+      <code>setOrganiserId</code> fires, <code>filterAttendeeOptions(people, organiserId)</code>
+      returns a new array, and MUI rebuilds the open listbox &mdash; which is exactly
+      <code>element was detached from the DOM, retrying</code>. A test clicking an option at that
+      instant loses it. Two failures that never mentioned an organiser, plus the one that did &mdash;
+      one cause. Both of the silent two pass in isolation, which is why they had gone unattributed:
+      the race needs reference data to be already cached, and an isolated run starts empty.
+    </p>
+    <p>
+      Found by reading the failure's captured page state, not its assertion message. The assertion
+      said <code>expected URL /rooms/&hellip;/availability</code>. Nothing in it mentioned an organiser.
+    </p>
+  </section>
+
+  <!-- ══ 5 ═══════════════════════════════════════════════════════════════════ -->
+  <section id="retention">
+    <div class="slice-head">
+      <div class="slice-num">05 · Slice four</div>
+      <h2>Retention, and a deletion nobody could observe</h2>
+    </div>
+
+    <p>
+      A weekly job advances a stored Monday-aligned boundary and deletes the days behind it. The order
+      of those two steps is the whole design, and it holds <em>even if the job dies between them</em>:
+    </p>
+    <ul>
+      <li><strong>Delete first</strong> and there is a window where the boundary promises data that is already gone. Clients render empty days indistinguishable from "nothing was booked" — a silent lie.</li>
+      <li><strong>Advance first</strong> and the opposite window opens: data exists but is not advertised. Harmless.</li>
+    </ul>
+    <p>
+      Any order works when everything succeeds. That is exactly why the failure case is what picks one.
+    </p>
+    <p>
+      Catch-up is free rather than special-cased, because the target is computed from today
+      (<code>Monday(today − 30)</code>) rather than from the stored value — a job that missed three weeks
+      lands in the right place on its next run. And <code>deleteDaysBefore</code> is <em>strictly</em>
+      before: the boundary is the earliest date kept, not the first one removed. That off-by-one is the
+      difference between honouring the retention promise and breaking it by a day.
+    </p>
+
+    <h3>The bug that needed two correct decisions to appear</h3>
+    <p>
+      The acceptance test could not observe a deletion at all, and neither decision responsible for that
+      is wrong on its own:
+    </p>
+    <ul>
+      <li><strong>Writes are bounded at the boundary</strong> (slice two), so a test cannot seed a day behind it.</li>
+      <li><strong>The boundary is <code>Monday(today − 30)</code></strong>, so it only moves when the calendar does.</li>
+    </ul>
+    <p>
+      Together, a deletion is unobservable from outside. On the day this was written the target boundary
+      equalled the stored one exactly — a real run was correctly a no-op, and the test was correctly red.
+      The design's own suggested approach assumed each run advances a week. It does not.
+    </p>
+
+    <div class="verdict">
+      <h4>The lesson is which seam, not whether to have one</h4>
+      <p>
+        Overriding the <em>boundary</em> would have been trivial — and would have bypassed the boundary
+        computation, the single piece of logic most likely to be wrong. Overriding <em>today</em> leaves
+        the job computing its own boundary from the supplied date, so the logic under test still runs and
+        only the calendar is pinned. Absent, it uses the real clock, so the weekly schedule cannot be
+        steered by an unexpected payload — which is why EventBridge sends <code>{}</code> explicitly.
+      </p>
+    </div>
+
+    <p>
+      A test seam in production code is a visible, argued decision recorded as an issue, rather than
+      something a future reader finds and deletes as debug scaffolding.
+    </p>
+
+    <h3>Two ways this slice nearly created what it exists to remove</h3>
+    <p>
+      The retention job's whole purpose is to stop data accumulating forever. It came close to shipping
+      two unbounded things of its own, in the infrastructure rather than the code.
+    </p>
+    <h4>A boundary that walks backwards, silently</h4>
+    <p>
+      The stored boundary is seeded by Terraform. Using <code>timestamp()</code> re-evaluates it on
+      every plan, so the item drifts and every apply rewrites it; <code>time_static</code> captures it
+      once at creation and keeps it in state. But <code>ignore_changes</code> is still
+      <em>required</em>, and for a different reason than tidiness &mdash; the cleanup job advances that
+      boundary at runtime, so without it the next apply resets it to the seed and walks the boundary
+      <strong>backwards</strong>, re-advertising history that has already been deleted. Only on
+      whichever apply happens to follow a cleanup run, and with nothing in the plan output to suggest
+      anything is wrong.
+    </p>
+    <p>
+      Monday alignment had to be done in HCL, which has no weekday function. 1970-01-01 was a Thursday,
+      so <code>(days_since_epoch + 3) % 7 == 0</code> lands exactly on Mondays &mdash; checked against
+      Python before deploying, because getting it wrong is silent too.
+    </p>
+    <h4>A log group with no expiry</h4>
+    <p>
+      <code>logs.tf</code> enumerates its functions explicitly. Miss an entry and Lambda auto-creates
+      the group on first invocation with <strong>never-expire</strong> retention &mdash; the retention
+      slice shipping precisely the unbounded artefact it was written to eliminate.
+    </p>
+    <p>
+      Both share a shape worth naming: <strong>the thing that accumulates is not always the thing you
+      are thinking about.</strong> The design reasoned carefully about day items and said nothing about
+      log groups, because log groups are not data.
+    </p>
+
+    <h3>Tests assert what survives</h3>
+    <p>
+      A job that deletes too much passes a test that only checks the old data is gone. So the assertions
+      cover the days that must remain as carefully as the day that must go.
+    </p>
+    <p>
+      History is seeded <strong>through the API</strong>, not written into DynamoDB directly, so seeded
+      days go through the real write path — the version-conditional write, the byte measurement, the
+      pointer transaction. There is exactly one implementation of the day-item format and the test
+      proves it rather than duplicating it. The cost is recorded in the test's own javadoc: past bookings
+      must stay permanently legal, and a future rule rejecting them would break this test three files
+      from the symptom.
+    </p>
+
+    <h4>Duplication that is deliberate</h4>
+    <p>
+      <code>verify/</code> has no dependency on <code>impl/</code>, so <code>RETENTION_DAYS = 30</code> is
+      restated in the test rather than imported from <code>Limits</code>. That is the point: a shared
+      constant would let the promise and the check drift together silently. Restated, a disagreement
+      fails the acceptance run — which is the entire job of that suite.
+    </p>
+  </section>
+
+  <!-- ══ 6 ═══════════════════════════════════════════════════════════════════ -->
+  <section id="realtime">
+    <div class="slice-head">
+      <div class="slice-num">06 · Slice five</div>
+      <h2>Real-time, and finding out what AWS will not tell you</h2>
+    </div>
+
+    <p>
+      Before writing any subscription code, this slice stood up a <strong>throwaway AppSync API</strong>
+      with the same auth pairing as production and interrogated it. Cost: about an hour, deleted
+      afterwards. Six documented behaviours instead of six assumptions.
+    </p>
+    <p>
+      The probe had no install step at all — Node 24's built-in <code>WebSocket</code> global (no
+      <code>ws</code> package) and SigV4 hand-rolled over <code>node:crypto</code> (no AWS SDK), about
+      sixty lines. The precedent was <code>selectionSetList</code>, which was found missing by accident;
+      this time the same instinct was applied on purpose.
+    </p>
+
+    <h3>The transport is AWS's own, not the one every library speaks</h3>
+    <p>
+      AppSync refuses the <code>graphql-transport-ws</code> subprotocol outright, which rules out
+      Apollo's <code>GraphQLWsLink</code> and everything built on it. Its protocol is <em>negotiated</em>
+      as <code>graphql-ws</code> but is a different message format entirely — <code>ka</code> not
+      <code>ping</code>, <code>start</code>/<code>data</code> not <code>subscribe</code>/<code>next</code>:
+    </p>
+
+    <figure>
+      <div class="handshake">
+        <div class="frame out"><span class="dir">client →</span><span class="name">connection_init</span></div>
+        <div class="frame in"><span class="dir">← server</span><span class="name">connection_ack</span></div>
+        <div class="frame out"><span class="dir">client →</span><span class="name">start</span></div>
+        <div class="frame in"><span class="dir">← server</span><span class="name">start_ack</span></div>
+        <div class="frame in"><span class="dir">← server</span><span class="name">data</span></div>
+      </div>
+      <figcaption>
+        Auth travels in a base64 query parameter, not a header. The query itself travels as a JSON
+        <em>string</em> nested inside <code>payload.data</code> — a string inside JSON, not an object.
+        <code>connection_ack</code> reports <code>connectionTimeoutMs: 300000</code>.
+      </figcaption>
+    </figure>
+
+    <p>
+      One diagnostic line is the whole finding when probing: after the socket opens,
+      <code>ws.protocol</code> tells you what the server actually negotiated. An empty string means it
+      refused your subprotocol.
+    </p>
+
+    <h3>Almost every subscription failure is silent</h3>
+    <p>
+      Four of the six probed behaviours are cases where the publisher receives a clean success and the
+      subscriber simply never receives anything. Exactly one failure is loud — and it is the one the
+      design was most worried would be silent:
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Behaviour</th><th>What actually happens</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Subscription type ≠ mutation return type</td>
+            <td><strong>Loud, at deploy.</strong> <code>The subscription has an invalid output type.</code></td>
+          </tr>
+          <tr>
+            <td>Missing type-level auth directives</td>
+            <td>Subscribe returns <code>start_ack</code>, then delivers nothing forever</td>
+          </tr>
+          <tr>
+            <td>Payload over the 240 KB cap</td>
+            <td>Publish returns success; delivery does not happen</td>
+          </tr>
+          <tr>
+            <td>Unsupported filter field or operator</td>
+            <td>Matches everything, or nothing — never an error</td>
+          </tr>
+          <tr>
+            <td>A rejected mutation</td>
+            <td>Broadcasts exactly like a successful one</td>
+          </tr>
+          <tr>
+            <td><code>default_action = DENY</code> with extra auth providers</td>
+            <td>Refused outright — <code>ALLOW</code> is the only legal value</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="silent">
+      <div class="tag">Silent · 5</div>
+      <p>
+        The missing-directive case is the nastiest of these. The only symptom is
+        <code>Not Authorized to access dates on type Invalidation</code> on the <em>publisher's</em>
+        response — which in production is a Lambda nobody is watching. That is why the publisher inspects
+        a <code>200</code> body for <code>errors</code> rather than trusting the status code.
+      </p>
+    </div>
+
+    <h3>Filters mislead rather than fail</h3>
+    <p>
+      The best teaching example of the whole exercise. Same publish, same API, four filters:
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Filter</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><code>ok eq true</code> — top-level scalar</td><td>Correct</td></tr>
+          <tr><td><code>meeting.id eq "m-1"</code> — nested path</td><td>Correct; nested paths do work</td></tr>
+          <tr><td><code>meeting.id beginsWith "m-"</code></td><td>Matched <strong>nothing</strong> — dropped the success too</td></tr>
+          <tr><td><code>errors notContains "…"</code> — list field</td><td>Matched <strong>everything</strong> — delivered the reject</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The same path with <code>eq</code> and with <code>beginsWith</code> gave opposite results, so it is
+      the operator, not the path. Two unsupported combinations failed in <em>opposite directions</em>, and
+      neither raised an error.
+    </p>
+    <p class="pull">
+      A test that only asserts "the message I wanted arrived" passes against a filter that matches
+      everything. Assert both arrival and exclusion — one-sided assertions are how silent configuration
+      bugs survive a green suite.
+    </p>
+
+    <h3>How the payload cap got answered properly</h3>
+    <p>
+      Not "is 217 days comfortably under 240 KB?" — obviously yes — but bracketing the real boundary,
+      which is what establishes that the cap is size-based rather than count-based and that the published
+      figure is accurate:
+    </p>
+
+    <figure>
+      <div class="cap">
+        <div class="cap-row">
+          <div class="cap-label"><span>18,800 dates</span><b>244,440 B · delivered</b></div>
+          <div class="cap-track">
+            <div class="cap-fill ok" style="width: 93.9%"></div>
+            <div class="cap-threshold" style="left: 94.4%"></div>
+          </div>
+        </div>
+        <div class="cap-row">
+          <div class="cap-label"><span>19,000 dates</span><b>247,040 B · not delivered</b></div>
+          <div class="cap-track">
+            <div class="cap-fill over" style="width: 94.9%"></div>
+            <div class="cap-threshold" style="left: 94.4%"></div>
+          </div>
+        </div>
+        <div class="cap-row">
+          <div class="cap-label"><span>217 days — the real ceiling</span><b>2,861 B · 1.2%</b></div>
+          <div class="cap-track">
+            <div class="cap-fill ok" style="width: 1.1%"></div>
+            <div class="cap-threshold" style="left: 94.4%"></div>
+          </div>
+        </div>
+      </div>
+      <div class="cap-key">
+        <span>│ violet rule = the documented 240 KiB cap (245,760 B)</span>
+        <span>tracks scaled to 260,000 B</span>
+      </div>
+      <figcaption>
+        The cap sits precisely between the two measurements. Only then does the reassuring number mean
+        something: the largest broadcast this system can ever produce is about 1.2% of the limit.
+      </figcaption>
+    </figure>
+
+    <h3>A question that dissolved instead of being answered</h3>
+    <p>
+      "Does AppSync enforce a 24-hour maximum connection lifetime?" is untestable inside a working
+      session. But a subscription cannot outlive its connection, and there is no replay — a publish made
+      while nobody was connected was lost outright. So the client must resubscribe <em>and</em> refetch on
+      reconnect regardless of what the maximum turns out to be. The answer stopped mattering.
+    </p>
+    <p>
+      Worth adopting as a habit: before working hard on a question, check whether any answer changes the
+      design.
+    </p>
+
+    <h3>Why the broadcast is a separate mutation</h3>
+    <p>
+      AppSync has no server-side publish API — a broadcast <em>is</em> a mutation call. So after a write
+      commits, the resolver Lambda calls the API's own <code>publishDaysInvalidated</code> over
+      IAM-signed HTTP. It exists as its own field because subscribing to <code>createMeeting</code>
+      directly would broadcast rejected bookings, which return successfully with a typed
+      <code>errors</code> array.
+    </p>
+    <p>
+      Two details make the permission a boundary rather than a label. The field is
+      <code>@aws_iam</code>-only, so AppSync refuses a signed-in user's call before any resolver runs. And
+      the Lambda's <code>appsync:GraphQL</code> grant names <em>that single field</em> rather than the
+      API — <code>apis/&lt;id&gt;/*</code> would let it call every mutation as an IAM principal, bypassing
+      the admin checks other resolvers perform.
+    </p>
+    <p>
+      A failed broadcast is logged and swallowed. The write has already committed and been reported to
+      the caller, so failing the mutation would turn a missed optimisation into a lost booking — at the
+      exact moment AppSync is unhealthy.
+    </p>
+
+    <h3>The client is not an Apollo link</h3>
+    <p>
+      <code>GraphQLWsLink</code> was ruled out by the subprotocol, but the deeper reason is worth stating
+      to anyone who reaches for the framework abstraction by reflex: the broadcast carries dates, nothing
+      renders it, and no component calls <code>useSubscription</code>. Routing it through Apollo's
+      subscription machinery would buy link ordering and a lifecycle to manage in exchange for nothing.
+      A small module that owns a socket and calls <code>cache.evict</code> is the right size.
+    </p>
+    <p>
+      One detail that looks pedantic and is not: eviction goes through <code>cache.identify</code> rather
+      than a hand-built <code>Day:{"date":…}</code> string. Hardcoding the key format would turn a future
+      cache-key change into an eviction that quietly stops matching. Nothing would throw; the app would
+      just go stale.
+    </p>
+
+    <h3>Three hazards that are invisible until named</h3>
+    <p>
+      None of these would be found by writing the obvious code. They are the clearest argument in this
+      body of work for designing before building:
+    </p>
+    <ol class="prose">
+      <li>
+        <strong>The booking tab is also a subscriber.</strong> Its own broadcast evicts the
+        <code>Day</code> its own mutation response authoritatively wrote, so it re-renders empty while
+        refetching — the person who made the booking watches their own screen flicker, on every create.
+        The fix records the dates this client wrote and ignores invalidations for them briefly. The cost
+        is written down rather than hidden: someone else's change to the same date inside that window is
+        ignored too.
+      </li>
+      <li>
+        <strong>An in-flight fetch can race an invalidation.</strong> A writes at t0; B's fetch was issued
+        at t−1 and lands at t+1 carrying pre-write data, <em>after</em> B evicted at t0. B then holds
+        stale data with nothing left to trigger another refetch — stale indefinitely, on one machine, with
+        no error anywhere. A per-date "last invalidated at" marker, compared against the response's issue
+        time, closes it.
+      </li>
+      <li>
+        <strong>A gap in the connection is a gap in knowledge.</strong> There is no replay, so a reconnect
+        or a return to the foreground evicts everything held rather than working out what was missed.
+        Note this deliberately ignores the guard from hazard one: while the socket was down, a date this
+        client wrote may <em>also</em> have been changed by someone else.
+      </li>
+    </ol>
+
+    <h3>The one that only an acceptance test could catch</h3>
+    <p>
+      The design says the client "evicts <code>Day:&lt;date&gt;</code> and its ordinary gap fetch refills
+      it". It does not. Measured, immediately after evicting a watched day:
+    </p>
+
+<pre><code>cache.diff(...) → <span class="c-bad">complete: true</span>, result: { workspace: { days: [] } }</code></pre>
+
+    <p>
+      <code>workspace.days</code> still holds a reference to the evicted <code>Day</code>, and Apollo
+      filters dangling references out of a list on read. So the query reads back <strong>complete with one
+      fewer day</strong>, not incomplete — there is no gap, nothing refetches, and the screen shows "no
+      meetings" indefinitely.
+    </p>
+
+    <div class="silent">
+      <div class="tag">Silent · 6</div>
+      <p>
+        <strong>Every unit test passed.</strong> They asserted that the eviction happened — and it did.
+        The defect lived in what eviction <em>means</em> to a watching query, which only a real browser
+        watching a real screen could see.
+      </p>
+    </div>
+
+    <p>
+      The fix refetches active queries after an eviction that actually removed something. The test that
+      pins the Apollo behaviour says so explicitly: if a future version makes that read incomplete, the
+      test fails and the refetch should be deleted — which turns belt-and-braces into a dated claim
+      rather than folklore.
+    </p>
+  </section>
+
+  <!-- ══ 7 ═══════════════════════════════════════════════════════════════════ -->
+  <!-- ══ 7 ═══════════════════════════════════════════════════════════════════ -->
+  <section id="shipping">
+    <div class="slice-head">
+      <div class="slice-num">07 · Shipping it</div>
+      <h2>What the design only claimed until it was run</h2>
+    </div>
+
+    <p>
+      Everything above was written while the work was still on branches. It shipped as
+      <strong>v2.0.0</strong> on 11 September 2026, and the shipping turned out to have its own lessons
+      — including two more entries for the index below, both in code written <em>to fix</em> what the
+      release exposed.
+    </p>
+
+    <h3>The rebuild worked first time</h3>
+    <p>
+      This design chose <strong>destroy and rebuild both environments</strong> over any migration: every
+      table, every Cognito user pool, every user. The Rollout section called that "a rehearsed operation,
+      not a novel one", which was true but weaker than it sounded — the precedent had rebuilt
+      environments <em>the pipeline itself created</em>. This time both were torn down by hand first, so
+      the rebuild started from genuinely empty state files.
+    </p>
+    <p>
+      One run, no manual intervention, no retry. That settles a claim the design had been asserting
+      rather than demonstrating: <code>test</code> and <code>production</code> are reproducible from the
+      pipeline alone.
+    </p>
+    <p>
+      The predicted failure did not fire. A Cognito user pool domain is globally unique and released
+      asynchronously, so recreating one immediately can fail; roughly four hours had passed and it was
+      free. <strong>That does not bound the risk.</strong> One run showing four hours was enough says
+      nothing about whether one hour would be, so the entry stayed in the Risks table rather than being
+      quietly retired — writing "it was fine" would have converted a real risk into a false reassurance.
+    </p>
+
+    <h3>The deployment was green and the demo was empty</h3>
+    <p>
+      The release pipeline declines to seed production, and the comment explaining why is a good piece
+      of reasoning:
+    </p>
+    <blockquote>
+      <p>
+        demo-data already runs there daily on its own EventBridge schedule, and its concerns are
+        idempotent — so a release does not need to force a run, and forcing one would be a write to
+        production that the release does not need to make.
+      </p>
+    </blockquote>
+    <p>
+      That holds for a normal release and fails for a rebuild, because <strong>after a destroy there is
+      nothing for idempotence to be idempotent over</strong>. Production came up with 10 rooms' worth of
+      schema and zero rooms of content, and stayed that way for about three hours until the 06:00 UTC
+      schedule fired.
+    </p>
+
+    <div class="silent">
+      <div class="tag">Silent · 11</div>
+      <p>
+        The release reported complete success over an empty production. Nothing in the pipeline
+        distinguishes a correctly rebuilt environment from an empty one — because the smoke suite
+        asserts that headings render, and a heading renders perfectly well above an empty list.
+      </p>
+    </div>
+
+    <h3>A test that could not fail for the reason it existed</h3>
+    <p>
+      Looking at why the smoke passed produced the purest example in this entire document. The
+      production test named <code>meeting data reads back from the database and displays</code>, in
+      full:
+    </p>
+
+<pre><code><span class="c-key">test</span>(<span class="c-str">'meeting data reads back from the database and displays'</span>, <span class="c-key">async</span> ({ page }) =&gt; {
+  <span class="c-key">await</span> signIn(page)
+
+  <span class="c-com">// Demo data is always deployed to production and refreshed daily, so production genuinely</span>
+  <span class="c-com">// has meetings to read. An empty page here means either the read path is broken or</span>
+  <span class="c-com">// demo-data has stopped running - both worth failing a release for.</span>
+  <span class="c-key">await</span> page.getByRole(<span class="c-str">'link'</span>, { name: <span class="c-str">'Calendar'</span>, exact: <span class="c-key">true</span> }).click()
+})</code></pre>
+
+    <div class="silent">
+      <div class="tag">Silent · 12</div>
+      <p>
+        There is no assertion. The comment describes the failure it exists to catch, at length, and then
+        nothing checks for it — the test passes if a nav link exists. It gates the automatic production
+        rollback, so <strong>the rollback could not fire for the case the test was written for</strong>.
+      </p>
+    </div>
+
+    <p>
+      The fix was not the obvious one. Asserting that a <em>meeting</em> is visible would have been
+      wrong: that page filters to a single person, and the seeder guaranteed a meeting on every weekday
+      without guaranteeing the demo user was on any of them. The assertion would have failed for a data
+      reason while looking like a broken read — and triggered a rollback that cannot repair a data
+      problem. Making it deterministic had to come first.
+    </p>
+
+    <h3>v2.1.0, and being wrong in writing</h3>
+    <p>
+      So the seeder gained a fourth concern: a configured list of people who must have at least one
+      meeting on every work day. The issue justifying it claimed the demo account got meetings at
+      "roughly 1-in-40 odds per slot".
+    </p>
+    <p>
+      Measured on a real environment, natural coverage was <strong>34 of 35 work days</strong>. Meetings
+      carry many attendees, so a person lands on nearly every day by chance — the risk was real but far
+      rarer than the justification said, and the smoke assertion would have been reliable without the
+      feature at all. The issue was amended rather than left standing, because the next reader inherits
+      the reasoning, not just the code.
+    </p>
+    <p>
+      The feature still earns its place on a narrower argument: a production gate should not depend on
+      chance. But that is a different sentence from the one that opened the issue.
+    </p>
+
+    <div class="silent">
+      <div class="tag">Silent · 13</div>
+      <p>
+        The seeder's summary record gained a field and the Lambda's response did not, because the
+        handler hand-builds its reply as an explicit map rather than serialising the record. It
+        compiled, and 56 unit tests passed, with the new field invisible to every caller.
+      </p>
+    </div>
+
+    <div class="silent">
+      <div class="tag">Silent · 14</div>
+      <p>
+        Placing each guaranteed meeting checked that the <em>room</em> was free and never that the
+        <em>people</em> were, double-booking whoever it invited. A local acceptance run passed with the
+        defect present — it creates only three meetings, so whether any collides is luck. CI seeded
+        differently and caught it.
+      </p>
+    </div>
+
+    <p class="pull">
+      One green acceptance run is not proof when the failure is probabilistic.
+    </p>
+
+    <h3>The path ephemeral environments cannot test</h3>
+    <p>
+      Shipping v2.1.0 did something the whole build had never done. Every environment until then —
+      every ephemeral one, and both standing ones after the rebuild — was <strong>created</strong>.
+      v2.1.0 modified two live environments instead:
+    </p>
+
+<pre><code>Plan: 1 to add, 8 to change, 0 to destroy
+  # aws_ssm_parameter.demo_data_guaranteed_person_ids  will be created
+  # aws_lambda_function.resolvers                      will be updated in-place
+  <span class="c-com">// ... seven more, in place</span>
+
+Apply complete! Resources: 1 added, 7 changed, 0 destroyed</code></pre>
+
+    <p>
+      Ephemeral environments structurally cannot catch a permission needed only to <em>modify</em> an
+      existing resource, or a state migration, or an in-place replacement — they only ever create. This
+      was the first genuine exercise of that path, and nothing was replaced, so the Cognito attributes
+      that <code>ignore_changes</code> protects were never touched.
+    </p>
+  </section>
+
+  <section id="discipline">
+    <div class="slice-head">
+      <div class="slice-num">07 · Throughout</div>
+      <h2>Verification discipline</h2>
+    </div>
+
+    <p>
+      This is the part with the widest transfer outside mootmaker, and it is all one idea.
+    </p>
+    <p class="pull">
+      A green check is only as good as knowing what it checked.
+    </p>
+
+    <p>
+      Concretely, this is what the discipline was worth on the acceptance suite alone. Every number
+      below came from a full run against a real deployed environment, with retries switched off:
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Passed</th><th>Failed</th><th>What the fix turned out to be</th></tr></thead>
+        <tbody>
+          <tr><td>97</td><td>13</td><td>starting point</td></tr>
+          <tr><td>101</td><td>9</td><td>five calls to root fields the composite query deleted &mdash; one of which had been <em>passing</em> while asserting nothing</td></tr>
+          <tr><td>104</td><td>6</td><td>a form submittable before its data loaded, and an assertion that waited on a condition already true</td></tr>
+          <tr><td><strong>110</strong></td><td><strong>0</strong></td><td>a fixture that had existed only by accident, restored deliberately</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      Not one of those four was what its failure message said it was. That is the whole section in a
+      sentence: the failures that cost the most were the ones whose <em>symptom</em> pointed somewhere
+      else entirely, and the only way through each one was to stop reading the assertion and start
+      reading what the system actually did.
+    </p>
+
+    <h3>Real catches, in order of how ordinary they look</h3>
+    <ul>
+      <li>
+        <strong>Incremental compilation masked a missing field.</strong> <code>mvn compile</code>
+        reported <code>BUILD SUCCESS</code> while a handler referenced a field that did not exist.
+        <code>mvn clean compile</code> failed immediately. For a refactor, incremental is not evidence.
+      </li>
+      <li>
+        <strong>Reordering same-typed positional parameters is invisible.</strong> Changing
+        <code>(client, rooms, people, meetings)</code> to <code>(client, meetings, rooms, people)</code>
+        compiled perfectly. Eighteen tests failed with <code>No CONFIG#retention item in Rooms</code> —
+        and only because the error message happened to name the table.
+      </li>
+      <li>
+        <strong>An exit code is not a result.</strong> Read the surefire/failsafe XML per class, and
+        check the report timestamps: it is entirely possible to read a green report from the night
+        before while today's run never happened.
+      </li>
+      <li>
+        <strong>Do not pipe a run you intend to audit.</strong> <code>./verify.sh … | tail -40</code>
+        makes the shell report <code>tail</code>'s exit code, not the suite's — and truncates the very
+        evidence you were about to read.
+      </li>
+      <li>
+        <strong>A least-privilege role is a test.</strong> Adding a write to a component that was only
+        ever meant to delete failed with <code>AccessDenied</code> on <code>dynamodb:PutItem</code>. A
+        role granting <code>dynamodb:*</code> would have accepted it silently.
+      </li>
+    </ul>
+
+    <h3>The test that was green and asserting nothing</h3>
+    <p>
+      Found last, and only by grepping for <em>siblings</em> of a bug already fixed rather than
+      fixing what the error messages named. An authorization test — it exists to prove a standard
+      user cannot create a room — spot-checked its work like this:
+    </p>
+
+<pre><code><span class="c-key">const</span> roomNames = (afterBody.data?.rooms ?? []).map((r) =&gt; r.name)
+expect(roomNames).not.toContain(<span class="c-str">`L90 Room ${runId}`</span>)</code></pre>
+
+    <div class="silent">
+      <div class="tag">Silent · 7</div>
+      <p>
+        <code>Query.rooms</code> had been deleted, so <code>data</code> came back <code>null</code>,
+        <code>roomNames</code> was <code>[]</code>, and "does not contain the room that should not have
+        been created" was <strong>trivially true</strong>. The defensive <code>?? []</code> turned a
+        hard failure into a green tick. It never appeared in any failure list, because a vacuous pass
+        is indistinguishable from a pass.
+      </p>
+    </div>
+
+    <p>
+      This is the same shape as the fake that ignored condition expressions, and it is worth putting
+      next to it: <strong>a nullish-coalescing default on a value you are about to assert about will
+      convert a broken query into a passing test.</strong> The fix is to fail loudly when the query
+      itself does not resolve, which is the assertion the test always meant to make.
+    </p>
+
+    <h3>Fixture realism is part of the assertion</h3>
+    <p>
+      A day-limit test failed at 458,610 bytes against a 409,600 cap, which looked exactly like a wrong
+      byte model. The model was right — the test's meeting ids were 41–45 characters instead of
+      36-character UUIDs. Exactly 200 extra bytes × 320 meetings accounted for the entire gap. A test
+      that measures a system nobody runs will fail against limits that are correct.
+    </p>
+
+    <h3>Three failures that were all "when does this test run?"</h3>
+    <p>
+      Each blamed something else on the surface, and the last looked exactly like a real-time defect:
+    </p>
+    <ul>
+      <li>A unit test dated <code>2027-11-23</code> — beyond the 180-day booking horizon, correctly rejected.</li>
+      <li>Acceptance dates hardcoded behind a retention boundary that had since moved.</li>
+      <li>A test that booked 20:00–21:00 because it ran at 19:50. The meeting was created successfully; the availability grid renders only 08:00–17:00, so it fell off the visible screen.</li>
+    </ul>
+    <p>
+      <strong>A date in a test is a claim about when the test runs.</strong> Either pin the clock or
+      derive the date from <code>now()</code> — and watch for "now" leaking in implicitly through a form
+      default, which is how the third one happened.
+    </p>
+    <p>
+      That advice was eventually taken across the whole suite, and taking it broke something. See
+      <em>The same shape, from the other direction</em> below.
+    </p>
+
+    <h3>Diffing two test runs, when a test's name contains its line number</h3>
+    <p>
+      Before the fixes: 13 failed, 97 passed. After: 9 failed, 101 passed. Diffing the two failure
+      lists to find out <em>which</em> four changed produced this:
+    </p>
+    <pre><code>=== FIXED ===  add-meeting.spec.ts:507 &rsaquo; blank organiser &hellip;
+=== NEW ===    add-meeting.spec.ts:512 &rsaquo; blank organiser &hellip;</code></pre>
+    <p>
+      The same test. Playwright identifies a test as <code>file:line:col &rsaquo; title</code>, and the
+      fixes added five lines above it. Three of the &ldquo;new&rdquo; failures were three old ones with
+      shifted line numbers &mdash; and three genuinely new failures were hiding behind them, in a list
+      that read plausibly either way. The corrected tally was 7 fixed, 6 still blocked on one missing
+      fixture, 3 new.
+    </p>
+    <p>
+      <strong>Diff by title, not by the identifier the runner prints.</strong> This failure mode is
+      silent and self-consistent: a mis-paired diff produces a clean-looking answer, and both halves of
+      the mistake corroborate each other.
+    </p>
+
+    <h3>Three new failures with one shape</h3>
+    <p>
+      Two Autocomplete option clicks timing out, and a scroll-position assertion reading two equal
+      numbers:
+    </p>
+    <pre><code>waiting for getByRole('option', { name: 'F53 Attendee 1 &hellip;' })
+  - locator resolved to &lt;li role="option" &hellip;&gt;
+  - attempting click action
+  - element was detached from the DOM, retrying
+
+expect(leftFadeBox.x).toBeLessThan(rightFadeBox.x)
+Expected: &lt; 335    Received: 335</code></pre>
+    <p>
+      Three different assertions, one cause: the page re-rendered underneath the test.
+      <code>scrollLeft</code> only resets to zero if the scroll container <em>remounts</em> &mdash; which
+      is the detail that ties the third failure to the other two, and the reason to read three
+      unrelated-looking failures together rather than one at a time.
+    </p>
+    <p>
+      All three pass in isolation against a freshly reset environment. The tempting conclusion is
+      &ldquo;flaky, ignore&rdquo;. The honest one is narrower: <strong>the cause is something the
+      isolated run does not have.</strong> Here, two candidates that both scale with how far into the
+      suite you are &mdash; accumulated fixture data (the failing click was on
+      <code>data-option-index="16"</code>) and elapsed time on a live subscription that refetches every
+      active query when it reconnects. An isolated pass narrows the search; it does not close it.
+    </p>
+
+    <h3>An auto-retrying assertion that is already true waits for nothing</h3>
+    <p>
+      E.36 scrolls the availability grid to its right-hand end and checks that the scroll-fade hint has
+      moved from the right edge to the left. It guarded the measurement like this:
+    </p>
+    <pre><code>await gridPaper(page).evaluate((el) =&gt; { el.scrollLeft = el.scrollWidth })
+await expect(fadeHint).toHaveCount(1)     <span class="c-com">// intended as "wait for the re-render"</span>
+const leftFadeBox = await fadeHint.boundingBox()
+expect(leftFadeBox.x).toBeLessThan(rightFadeBox.x)
+
+Expected: &lt; 335    Received: 335</code></pre>
+    <p>
+      The guard <em>is</em> the bug. Exactly one hint is mounted whichever edge is faded, so
+      <code>toHaveCount(1)</code> is already satisfied by the stale right-edge hint and returns
+      immediately. The test then measures that hint and compares its x against itself.
+    </p>
+    <p>
+      Setting <code>scrollLeft</code> fires onScroll &rarr; setState &rarr; re-render, all
+      asynchronous. The trace of a real failure shows <strong>10ms</strong> between the scroll and the
+      measurement. Usually the re-render wins, which is why it passed for months.
+    </p>
+    <p>
+      <strong>Playwright's auto-retrying assertions only wait while they are false.</strong> Picking
+      one whose condition does not change across the transition you care about buys nothing &mdash; and
+      it <em>reads</em> like a wait, which is worse than having no wait at all. The fix polls the
+      hint's own position, the only form that waits for the thing under test; a genuine regression
+      still fails, now by timeout rather than by comparing a number to itself.
+    </p>
+    <p>
+      The trace, not the error message, identified this. The message named two numbers. The trace named
+      the 10ms.
+    </p>
+
+    <h3>The fixture that existed by accident</h3>
+    <p>
+      Six acceptance tests failed on &ldquo;an account with no linked Person&rdquo;. The obvious reading
+      is a fixture nobody had built yet. The truth was the opposite: it had existed for months
+      <em>by accident</em>, and had just been deliberately removed. From the API's own Terraform:
+    </p>
+    <pre><code><span class="c-com"># Created directly rather than through sign-up, so PostConfirmationCreatePersonHandler never
+# runs and neither the Person nor this claim would otherwise exist. Until now the e2e user had
+# no Person at all, which meant the identity the whole acceptance suite runs as exercised the
+# "no linked Person" path rather than the one every real user takes.</span>
+"custom:personId" = local.e2e_person_id</code></pre>
+    <p>
+      That change was right, and important &mdash; the entire suite had been running as a degraded
+      identity. But five of those six tests were the <em>only</em> coverage of the degraded path itself,
+      and they were silently depending on the accident. Fixing the fixture deleted the coverage.
+    </p>
+    <p>
+      The tests did not break. <strong>Their premise stopped being true</strong>, which is a different
+      thing, and which nothing in their names, their assertions or their failure messages could tell you.
+    </p>
+    <p>
+      Confirmed by reading the live user pool rather than the code &mdash; two minutes of
+      <code>aws cognito-idp list-users</code> in place of an afternoon of theory. The resolution was an
+      account that is personless <em>on purpose</em>, named so, and deliberately not created in
+      production, where a personless account is not a fixture but a real person's broken login.
+    </p>
+    <div class="verdict">
+      <h4>Why this one is worth the space</h4>
+      <p>
+        With the fixture restored, all six pass &mdash; first time, no drift. The behaviour had been
+        untested for weeks and was fine, which is exactly the case that teaches people the coverage never
+        mattered. It did. Six tests went red for a reason that had nothing to do with what they assert,
+        and every cheap fix for that red &mdash; delete them, rewrite them, mark them skipped &mdash;
+        also throws away the only checks on a real user-facing path, leaving no trace it existed.
+      </p>
+      <p>
+        <strong>A test failing for a reason unrelated to its subject is the most dangerous kind of
+        red.</strong> Ask what a test is for before deciding what to do about its failure.
+      </p>
+    </div>
+
+    <h3>I verified the precondition. Then the suite destroyed it.</h3>
+    <p>
+      Five acceptance tests cover what an account with <em>no linked Person</em> sees. Their fixture had
+      existed only by accident and was deliberately removed, so a replacement account was added, deployed,
+      and checked directly rather than trusted from <code>Apply complete!</code>:
+    </p>
+    <pre><code>no-person-tests@example.com   CONFIRMED   custom:class=standard   <span class="c-com">(no custom:personId)</span></code></pre>
+    <p>
+      Exactly right. The full run then failed all six tests that sign in as it:
+    </p>
+    <pre><code><span class="c-bad">Incorrect username or password.</span></code></pre>
+    <p>
+      <code>database-reset</code> deletes every Cognito user whose email is not in
+      <code>RESERVED_ACCOUNT_EMAILS</code>, and that list named the demo and e2e accounts literally. The
+      suite resets the environment before it runs. So Terraform created the account, it was verified, the
+      suite deleted it, and then signed in as it.
+    </p>
+    <p>
+      <strong>The verification was correct and worthless at the same time</strong>, which is a combination
+      worth being able to name. A precondition check only means something relative to what happens between
+      the check and the use — and here the pipeline itself was what invalidated it, seconds later, by design.
+    </p>
+    <p>
+      Two details make it harder than it sounds. The message named nothing useful: a deleted account and a
+      wrong password are indistinguishable from outside. And no test of the program could have caught it —
+      <code>wipeCognitoPool</code> takes the reserved set as a parameter and its unit tests pass one
+      explicitly, so the Java was never wrong. The defect lived entirely in deployment wiring.
+    </p>
+    <div class="verdict">
+      <h4>The habit</h4>
+      <p>
+        When you add a fixture, ask what else in the pipeline already has an opinion about it. A reset, a
+        cleanup job, a retention sweep and a seeding script will all act on your new object without ever
+        being told it exists.
+      </p>
+    </div>
+
+    <h3>The same shape, from the other direction</h3>
+    <p>
+      Fourteen tests pinned their clock to a hardcoded calendar date. That is a slow-burning bug: the
+      retention boundary advances every Monday, and once it passes a pinned date every booking that test
+      makes is rejected. Eight of them were due to break on a known Wednesday a fortnight out. Replacing
+      the literals with dates derived from <code>now()</code> fixed that, and broke one test:
+    </p>
+    <pre><code>G.63 - a day with three meetings lists them in ascending start-time order
+<span class="c-bad">Expected: 3    Received: 5</span></code></pre>
+    <p>
+      The literals had been scattered across five months. Not for any stated reason &mdash; each test
+      simply picked a date &mdash; but the effect was that no two tests ever booked the same user onto the
+      same day. Anchoring them to one week collapsed that spread, and G.63 is the only case in the suite
+      that counts <em>every</em> row in a day cell rather than looking for its own subjects. It picked up
+      two other tests' meetings.
+    </p>
+    <p>
+      Which is the personless account again, running the other way: <strong>a property nothing declared,
+      which something depended on.</strong> There, a fixture that existed by accident was removed. Here, a
+      separation that existed by accident was removed. Both broke a test that never mentioned the property.
+    </p>
+    <p>
+      So the fix is not &ldquo;move G.63 somewhere quiet&rdquo;. It is to write down that the isolation is
+      load-bearing, and why eight weeks specifically: clear of the current-week fixtures behind it, and
+      clear of the room-suggestion cases sixteen weeks ahead, since the calendar window is six weeks long
+      and reaches neither.
+    </p>
+    <div class="verdict">
+      <h4>What to expect from this kind of refactor</h4>
+      <p>
+        The change made the suite better <em>and</em> directly caused a failure. Both are true. Consolidating
+        scattered values surfaces every accidental separation among them at once &mdash; so expect it, and
+        read the failures as information about what the old scatter had been quietly providing.
+      </p>
+    </div>
+
+    <h3>The whole component nobody re-ran</h3>
+    <p>
+      Verifying the design's checklist against the code, rather than ticking it from memory, found that
+      <code>mootmaker-demo-data</code> &mdash; one of the three deployable components &mdash; had been
+      broken against the deployed schema for days. Not subtly, and not in one place:
+    </p>
+    <ul>
+      <li><code>Query.rooms</code>, <code>Query.people</code>, <code>Query.meetings</code> &mdash; all three deleted by the composite entry point.</li>
+      <li><code>createPerson</code> selecting <code>{ id name }</code> off a result type that has never had those fields.</li>
+      <li>Its own acceptance suite calling the same deleted <code>Query.meetings</code>.</li>
+      <li>That suite's window computed from the local clock rather than the server's.</li>
+    </ul>
+    <p>
+      Each one was hidden behind the one before it. Nobody had re-run the component because nothing
+      failed: its forty-five unit tests were green throughout, and stayed green through the first three
+      fixes.
+    </p>
+    <div class="silent">
+      <div class="tag">Silent &middot; 10</div>
+      <p>
+        <code>FakeGraphQlClient</code> returned <code>id</code> and <code>name</code> directly on
+        <code>createPerson</code>'s result &mdash; a shape the schema has never allowed. So the unit tests
+        asserted against an API that does not exist, and passed, for as long as anyone cared to run them.
+      </p>
+    </div>
+    <p>
+      That is this tour's own line &mdash; <em>a fake confirms your model of a dependency, not the
+      dependency</em> &mdash; arriving while writing new tests against that same fake. The fake also
+      <em>threw</em> on any meetings operation, which is the right default and still did not help: those
+      operations were never exercised at all, so nothing reached the guard.
+    </p>
+    <p>
+      One practical note from working through it: <strong>a run that gets further is progress, even while
+      it still fails.</strong> Seeding time going 19s &rarr; 34s was the clearest evidence the first fix
+      had landed, well before any test turned green.
+    </p>
+
+    <h3>The design's own rule, broken by the design's own test suite</h3>
+    <p>
+      demo-data's acceptance suite failed with a date and no explanation:
+    </p>
+    <pre><code><span class="c-bad">business days with no meetings: [2026-10-22]</span></code></pre>
+    <p>
+      It computes its window from <code>LocalDate.now()</code> and asserts every business day in it got
+      a meeting. The seeder runs in Lambda, in UTC. The suite runs on a workstation in New Zealand, up
+      to thirteen hours ahead. Measured at the moment of failure:
+    </p>
+    <pre><code>local: 2026-09-11 01:42 NZST   &rarr; wanted business days through 2026-10-22
+UTC:   2026-09-10 13:42        &rarr; seeder filled them through 2026-10-21</code></pre>
+    <p>
+      One day apart, so the test demanded a day nothing had been asked to fill. The design already says
+      this, about clients computing retention dates:
+    </p>
+    <blockquote>
+      Having the client work out "30 days before today" puts <strong>two authorities on one fact</strong>:
+      the deletion job uses the server's date, the browser uses the user's.
+    </blockquote>
+    <p>
+      Same trap, in a test rather than the app &mdash; and the design even predicted why it survives:
+      <em>"a test would not catch it because the test would encode the same assumption the code does."</em>
+    </p>
+    <p>
+      The shape is worth recognising on sight: <strong>it fails only for part of each day.</strong> In UTC
+      it never fails. In New Zealand small hours it always does. A bug with that shape is invisible to
+      whoever wrote it and unmissable to someone twelve hours away. And the message names a date, not a
+      clock, which is the expensive part.
+    </p>
+    <p>
+      The fix is the one the design prescribes: ask the authority that owns the fact. The API publishes
+      <code>latestBookableDate</code> as server-today plus the horizon, so subtracting the horizon
+      recovers the server's own date. No second opinion exists to disagree with.
+    </p>
+
+    <h3>A limit that reported itself as a null</h3>
+    <p>
+      Asking <code>workspace</code> for 51 dates, against a cap of 42, returned this and nothing else:
+    </p>
+    <pre><code><span class="c-bad">Cannot return null for non-nullable type: 'Workspace' within parent 'Query'</span></code></pre>
+    <p>
+      The handler throws <code>Too many dates requested: 51 exceeds the limit of 42.</code> &mdash; a
+      message naming both numbers. It never reached the client. The direct-Lambda response template was
+      <code>$util.toJson($ctx.result)</code> with no <code>$ctx.error</code> branch, so a thrown handler
+      produced a null result and AppSync's nullability complaint was the only error returned.
+    </p>
+    <div class="silent">
+      <div class="tag">Silent &middot; 9</div>
+      <p>
+        Every server-side limit, bad request and internal fault in the entire API arrived as that one
+        sentence, which names the schema rather than the problem. Ordinary validation was never affected
+        &mdash; <code>MeetingError</code> and friends are typed <code>errors</code> arrays returned
+        normally, not exceptions &mdash; so the common path looked fine while the diagnostic path was
+        mute. Exactly backwards from where you need detail.
+      </p>
+    </div>
+    <p>
+      No unit test could have caught it. The handler's own tests prove it throws the right message, and
+      they passed throughout. What was broken was the wiring between handler and client, which exists
+      only in a deployment.
+    </p>
+
+    <h3>Documentation that argues for the opposite of what is now true</h3>
+    <p>
+      Sweeping every markdown file in the workspace for the deleted root fields found four documents
+      wrong &mdash; and <em>how</em> they were wrong matters more than the fact of it. They had not gone
+      vague. They made confident, reasoned cases for the architecture that had just been removed.
+    </p>
+    <p>
+      The webapp README explained why the three pages <strong>cannot</strong> share a cache entry:
+    </p>
+    <blockquote>
+      Apollo's cache keys a list field by its exact arguments, so a narrower window (e.g. HomePage's 2
+      days) isn't served from a broader cached one (e.g. PersonCalendarPage's 6 weeks) even when it's a
+      subset.
+    </blockquote>
+    <p>
+      Entirely correct when written. Sharing that cache is the whole point of the change that landed
+      &mdash; days are entities keyed by date, so one <code>Day</code> serves every page that asks. The
+      document was still arguing for why that was impossible.
+    </p>
+    <p>
+      The API README described three id-keyed tables, four GSI access patterns and a join table, each
+      with its reasoning, and linked to <code>MyPersonHandler.java</code> &mdash; a file that no longer
+      exists. And <code>data-model.md</code>, titled <em>"Domain data model &mdash; current state"</em>,
+      described the previous one; the design had even enumerated the exact delta it needed, and nobody
+      had applied it.
+    </p>
+    <div class="verdict">
+      <h4>Why detail makes this worse, not better</h4>
+      <p>
+        A vague document gets checked against the code. A document that explains <em>why</em>, with
+        trade-offs and measured numbers, earns exactly the trust that stops you checking. These were the
+        good kind of documentation, which is what made them expensive: a reader arriving at this codebase
+        would have believed them over the source for at least an hour.
+      </p>
+    </div>
+
+    <h3>Not all old references are drift</h3>
+    <p>
+      Two documents kept their references to deleted fields, deliberately. A design record opens with
+      <em>"Status: implemented &hellip; kept as the design record for why and how, written at proposal
+      time"</em> &mdash; its field list is what the schema held when it was written. An incident table
+      records a Playwright timeout where two notices "rendered while <code>myPerson</code> was in
+      flight"; that is what happened, and renaming the query would falsify the record.
+    </p>
+    <p>
+      <strong>The distinction is whether the document claims to describe the present.</strong>
+      &ldquo;Current state&rdquo; in a title is a promise. &ldquo;Written at proposal time&rdquo; is a
+      date stamp. Only the first kind can rot &mdash; and a sweep that edits the second kind is
+      destroying evidence, not fixing drift.
+    </p>
+
+    <h3>Two of these had one cause, and it is structural</h3>
+    <p>
+      An authorization test that asserted nothing (7) and a component broken for days behind green unit
+      tests (10) look unrelated. They are the same hole: <strong>nothing validates hand-written GraphQL
+      that codegen never sees.</strong>
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Operations live in</th><th>Checked by</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>the webapp's <code>src/</code></td><td><code>codegen:check</code>, every PR, offline</td><td>Never broke</td></tr>
+          <tr><td>the webapp's <code>acceptance/</code></td><td>nothing</td><td>Six dead calls; one of them silent</td></tr>
+          <tr><td>demo-data</td><td>nothing (a hand-written fake)</td><td>Four breakages, green CI throughout</td></tr>
+          <tr><td>the API's <code>verify/</code></td><td>runs against a real deployment</td><td>Fails loudly, but only when run</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The guarded column is not more careful than the others. It is guarded &mdash; regenerate from the
+      published schema, fail if the output differs, no environment required. Every place without that
+      line in CI drifted, and the drift was invisible until something happened to exercise it.
+    </p>
+    <p>
+      Worth being precise about the failure mode, because "it would have broken" undersells it. An
+      unguarded operation does not merely stop working: <code>(body.data?.rooms ?? [])</code> turned a
+      deleted field into an empty list, and an assertion about what a standard user <em>must not</em> be
+      able to do became trivially true. <strong>The absence of a schema check converted a security test
+      into a no-op</strong>, and left it green.
+    </p>
+
+    <h3>A command that never ran looks exactly like one that failed</h3>
+    <p>
+      The final gate before handing this work over was the API's unit suite. It reported:
+    </p>
+    <pre><code>API TEST EXIT=<span class="c-bad">1</span></code></pre>
+    <p>
+      Which is a build failure, at the last possible moment &mdash; except the surefire reports told a
+      different story. All twenty-five of them were <strong>fifteen minutes stale</strong>. Nothing had
+      run. The command was a compound <code>cd &amp;&amp; mvn</code>, the working directory had been
+      moved by an earlier background task, the <code>cd</code> failed, and the chain short-circuited
+      before Maven was ever invoked.
+    </p>
+    <p>
+      The exit code was real. It just measured something other than what it appeared to.
+      <strong>A command that never ran and a command that failed are indistinguishable from an exit
+      code alone</strong> &mdash; and the second is far less alarming than the first, because a failure
+      you can read is a failure you can fix, while a run that did not happen leaves you believing you
+      tested something you did not.
+    </p>
+    <p>
+      This is the whole reason the discipline is <em>read the reports</em> <b>and</b> <em>check their
+      timestamps</em>, rather than either alone. Report contents would have said 202 passed, 0 failed
+      &mdash; from the previous run, perfectly reassuring and completely irrelevant. Only the mtime
+      distinguishes fresh evidence from a stale artifact that happens to say what you hoped.
+    </p>
+    <p>
+      Re-run with an absolute path: 202 tests, 0 failures, reports written seconds ago. The fix is
+      boring; noticing that it was needed is not.
+    </p>
+
+    <h3>Duplication that exists so two things can disagree</h3>
+    <p>
+      The acceptance suite restates the retention window as its own constant rather than importing
+      <code>Limits.RETENTION_DAYS_MINIMUM</code>. <code>verify/</code> deliberately has no dependency
+      on <code>impl/</code>, and the duplication is the point:
+    </p>
+    <p class="pull">
+      A shared constant would let the promise and the check drift together, silently.
+    </p>
+    <p>
+      Import the value and the test asks "does the code agree with itself?", which it always will.
+      Restate it, and the two can disagree &mdash; which is the only condition under which the
+      acceptance run has anything to say. If someone changes the retention minimum without meaning to,
+      the suite fails; that is its entire job.
+    </p>
+    <p>
+      Worth pairing with its opposite. <code>Limits.assertConsistent()</code> runs <em>inside</em> the
+      deployed artefact, at SnapStart init, and there the instinct inverts: everything is imported,
+      because the whole purpose is to check that one set of numbers is internally coherent before a
+      version is published. Same goal &mdash; make disagreement loud &mdash; opposite side of the
+      boundary, opposite technique.
+    </p>
+    <p>
+      The general rule this suggests: <strong>share a constant when you want two things to move
+      together; restate it when the point is to notice that they didn't.</strong> "Don't repeat
+      yourself" answers the first case and quietly sabotages the second.
+    </p>
+
+    <h3>Proving that something does not happen</h3>
+    <p>
+      Both suites needed a dedicated concept for it — <code>receivedNothingWithin(Duration)</code> in
+      Java, an explicit wait before <code>toHaveCount(0)</code> in Playwright. There is no event to poll
+      for, so the only honest approach is to wait and confirm nothing turned up. That wait always expires
+      in full, so it is a real cost paid on every run, which is why it is deliberately shorter than the
+      positive-path timeout.
+    </p>
+    <p>
+      Related, and easy to mistake for flakiness: <code>awaitReady()</code> before publishing is not
+      defensive padding. Publishing between <code>start</code> and <code>start_ack</code> genuinely loses
+      the broadcast, and without the wait the test fails intermittently for a reason that has nothing to
+      do with the code under test.
+    </p>
+  </section>
+
+  <!-- ══ 8 ═══════════════════════════════════════════════════════════════════ -->
+  <section id="index">
+    <div class="slice-head">
+      <div class="slice-num">08 · Closing</div>
+      <h2>The silent-failure index</h2>
+    </div>
+
+    <p>
+      Fourteen things in this tour are marked as silent. They are not fourteen unrelated bugs — they are
+      the same bug wearing different clothes, and collecting them is the most useful thing this document
+      does. The seventh was found only because the sixth prompted a search for its siblings. The eighth
+      was found by reading a failure's captured page state instead of its error message. Two were found
+      by a component nobody had re-run since the schema changed under it.
+    </p>
+    <p>
+      The last four arrived after shipping, and three of them are worse than the first ten in one
+      specific way: <strong>11 and 12 were found by looking at a release that had just reported
+      success</strong>, and <strong>13 and 14 are in code written to fix them</strong>. Nothing about
+      knowing this failure mode well made the next one easier to see.
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>What looked fine</th><th>What was actually true</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>A resolver returned a 200</td><td>An aliased field nulled a whole meeting</td></tr>
+          <tr><td>2</td><td>Optimistic-locking tests passed</td><td>The fake ignored condition expressions entirely</td></tr>
+          <tr><td>3</td><td>The cache config typechecked</td><td>Every navigation refetched everything</td></tr>
+          <tr><td>4</td><td>Settings showed the new room</td><td>Add Meeting's dropdown never gained it</td></tr>
+          <tr><td>5</td><td>The publisher saw success</td><td>No subscriber ever received anything</td></tr>
+          <tr><td>6</td><td>Every unit test passed</td><td>The screen showed "no meetings" forever</td></tr>
+          <tr><td>7</td><td>An authorization test was green</td><td>It had been asserting nothing for weeks</td></tr>
+          <tr><td>8</td><td>The form rendered, fields and all</td><td>Organiser was blank and submittable for one round trip</td></tr>
+          <tr><td>9</td><td>Every handler threw the right message</td><td>None of them reached a client, for the whole API</td></tr>
+          <tr><td>10</td><td>45 unit tests, green for days</td><td>The fake returned a shape the schema forbids</td></tr>
+          <tr><td>11</td><td>A release reported complete success</td><td>Production was serving an empty demo</td></tr>
+          <tr><td>12</td><td>A production smoke test passed</td><td>It contained no assertion at all</td></tr>
+          <tr><td>13</td><td>It compiled, and 56 unit tests passed</td><td>The new field reached no caller</td></tr>
+          <tr><td>14</td><td>A local acceptance run was green</td><td>The fix double-booked people, when unlucky</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The common shape: <strong>the check that ran was not the check that mattered.</strong> A compiler
+      confirms types, not intent. A fake confirms your model of a dependency, not the dependency. A unit
+      test confirms an action happened, not what that action means to everything watching. Each of these
+      needed a check at a different layer — and in three cases, the only layer that could see it was a
+      real deployment.
+    </p>
+
+    <div class="verdict">
+      <h4>If you take one habit from this</h4>
+      <p>
+        When something passes, ask what would have to be broken for it still to pass. If the answer is
+        "quite a lot", the check is doing less than it appears to. That question is what produced the
+        inverted selection test, the fake that throws on unmodelled conditions, the assertion tested by
+        making it fire, and every two-sided broadcast assertion in the real-time suite.
+      </p>
+      <p>
+        And when you find one, look for its siblings before moving on. Six of these were found by
+        something failing. The seventh was found by going looking — and it was the one that had been
+        quietly wrong the longest. The eighth came from a habit worth stating separately: when a test
+        fails, read the state it captured, not only the sentence it printed. That failure's message
+        named a URL. Its snapshot named the bug.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <p>
+      <strong>This document was audited against the code it describes.</strong> Every identifier it
+      names was grepped against the three repositories, every quoted snippet and blockquote diffed
+      against its source, and every figure recomputed &mdash; 400&nbsp;KB as 409,600, 240&nbsp;KiB as
+      245,760, the 217-day table bound as 180 + 36 + 1.
+    </p>
+    <p>
+      It found two errors, and where they were is the useful part. <em>Every measured number
+      survived.</em> Both errors were in prose recalling code structure: a test double named
+      <code>FakeDayTable</code>, which has never existed &mdash; the real change extended
+      <code>FakeDynamoDbClient</code> in place, which is the better story &mdash; and a method
+      signature given as <code>void</code> that returns <code>Day</code>. Measured claims held;
+      remembered ones did not. Both sat in the oldest sections, written first and re-read most, which
+      is exactly where familiarity stops you looking.
+    </p>
+    <p>
+      Written from the working notes of the schema-and-caching build. Everything measured here was
+      measured against a real deployed environment, not read from documentation — where a figure came
+      from AWS's own docs, the tour says so and then checks it.
+    </p>
+    <p>
+      <strong>Updated 12 September 2026</strong>, after the work shipped as <code>v2.0.0</code> and was
+      followed by <code>v2.1.0</code>. Section 07 and index entries 11–14 are new. The original eight
+      sections are unchanged: the audit above still describes them, and nothing the releases revealed
+      contradicted a measured claim in them.
+    </p>
+    <p>
+      Source: <code>mootmaker/designs/graphql-schema-and-caching.md</code> and the five slices that
+      implement it.
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>
