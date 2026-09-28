@@ -13,8 +13,10 @@ fixes the carry-forward problem underneath, by moving `PersonRepository` off who
 
 ## Status
 
-**Drafting** — 2026-09-29. Revised the same day: photos now get their own CloudFront distribution
-and subdomain rather than riding the webapp's, so mootmaker-api stays independently deployable.
+**Drafting** — 2026-09-29. Revised twice the same day: photos now get their own CloudFront
+distribution and subdomain rather than riding the webapp's, so mootmaker-api stays independently
+deployable; and the images ship in two phases, procedural CC0 avatars first with photorealistic
+generation to follow, which removed the only remaining blocker.
 
 ## Scope / non-goals
 
@@ -26,8 +28,9 @@ and subdomain rather than riding the webapp's, so mootmaker-api stays independen
 - Server-side validation and normalisation of uploaded images.
 - Content-addressed served keys, enabling immutable caching and letting demo-data tell which stock
   photos are already in use.
-- Moving the stock photo library out of mootmaker-webapp and into mootmaker-demo-data, grown to
+- Moving the avatar image library out of mootmaker-webapp and into mootmaker-demo-data, grown to
   cover a whole environment without repeats.
+- Phase 1's procedural CC0 avatar pool and the script that regenerates it.
 - Removing `photoUrl` as an argument to `createPerson`.
 - Replacing whole-record `PutItem` in `PersonRepository` with attribute-level `UpdateItem`.
 
@@ -42,6 +45,9 @@ and subdomain rather than riding the webapp's, so mootmaker-api stays independen
   is null or the image fails, unchanged.
 - **No avatar for real sign-ups.** `PostConfirmationCreatePersonHandler` still creates people
   without a photo; `me` still does not select `photoUrl`.
+- **Phase 2 is out of scope here.** Generating photorealistic images needs hardware this design does
+  not assume and changes nothing structural, so it is a follow-up piece of work with its own
+  checklist — not a half-finished item in this one.
 
 ## Trade-offs and decisions
 
@@ -91,9 +97,16 @@ and Apollo's normalised cache identity.
 
 ### `photoUrl` is stored as a path and resolved to an absolute URL on read
 
-DynamoDB stores `person-photos/v1/<sha256>.jpg`. The API prepends its own photo host — a Lambda
-environment variable set from its own Terraform — when building a response, so `Person.photoUrl`
-reaches the client as a fully-resolved `https://photos.<environment>.mootmaker.com/...`.
+DynamoDB stores **`v1/<sha256>`** — the non-boilerplate part and nothing else. The API prepends its
+own photo host and the `person-photos/` prefix, and appends the extension, when building a response,
+so `Person.photoUrl` reaches the client as a fully-resolved
+`https://photos.<environment>.mootmaker.com/person-photos/v1/<sha256>.jpg`.
+
+The `v1/` stays in the *stored* value rather than becoming configuration, and that distinction is
+load bearing: the processing version is per-photo state, not a global setting. If normalisation ever
+changes, records written under v1 must keep resolving to the v1 objects they actually wrote, while
+new uploads go to v2. A version held only in config would silently repoint every existing photo at
+an object that was never written.
 
 Neither end of that is arbitrary. Storing the absolute URL would bake an environment's hostname into
 the data, so a production snapshot restored into an ephemeral environment would serve production's
@@ -162,20 +175,48 @@ Switching to attribute-level `UpdateItem` expressions eliminates the entire clas
 every field added from here on, and is what makes the new mutation safe to write at all. This is
 the fix; the dedicated mutation is not a substitute for it.
 
-### Stock photos are synthetic faces, generated for this project, stored in mootmaker-demo-data
+### The avatar images ship in two phases: procedural first, photorealistic later
 
-Generated portraits depict no real person, so there is no personality or publicity right to
-consider. That is a separate exposure from copyright, and a permissive licence does not address it:
-using an identifiable real person's photograph to represent a fictional employee in a product demo
-is a different thing from reusing their photo. Synthetic faces also scale to any pool size and are
-easier to keep consistent in crop and framing.
+Whatever the images are, they are **never photographs of real people**. A permissive licence covers
+copyright but says nothing about personality and publicity rights, and using an identifiable real
+person's photograph to represent a fictional employee in a product demo is a different act from
+reusing their photo. They also live in mootmaker-demo-data rather than the webapp, because that is
+the only component that uses them — bundling them into the webapp is what created the cross-repo
+filename convention that broke.
 
-They live in mootmaker-demo-data because that is the only component that uses them. Bundling them
-into the webapp was what created the cross-repo filename convention that broke.
+**Phase 1 — procedural vector avatars.** [DiceBear](https://www.dicebear.com/licenses/) publishes
+nine **CC0** styles (Lorelei, Notionists, Open Peeps, Pixel Art, Thumbs among them): public domain,
+no attribution, nothing to reason about for a public repository. No GPU, no model, no generation
+run, no model licence.
 
-Decided 2026-09-29 that they are **generated here rather than sourced** from an existing dataset,
-which removes the redistribution-licence question entirely for the images themselves. It does not
-remove it for the *model*: see the blocking question below, because I cannot currently do this.
+**Phase 2 — photorealistic, generated on a GPU machine.** FLUX.2 [klein] 4B is Apache 2.0 — the
+cleanest licence available — needs roughly 10 GB of VRAM at FP16 or 6 GB quantised to FP8, and
+produces a batch this size in minutes rather than the hours a CPU would take. Either
+[ComfyUI](https://github.com/black-forest-labs/flux2) or Hugging Face `diffusers` drives it on
+Ubuntu; `diffusers` is preferable for a fixed reproducible batch, being a seedable script rather
+than a UI.
+
+**Why phasing is nearly free here.** The upload path, the bucket, the distribution and every handler
+are identical under both, because demo-data uploads through the same three API calls either way.
+Phase 2 is a different set of bytes going through unchanged machinery, followed by a reseed. There
+is no redesign and no migration, so phase 1 can land and be verified now instead of waiting on
+hardware.
+
+### The pool-and-read-back mechanism is kept in phase 1, not deferred
+
+Worth recording because the first instinct was wrong. Procedural avatars are deterministic from a
+seed, so seeding on a person's name — already unique by construction via `SampleData.personNames` —
+appears to make uniqueness free and delete the pool, the read-back and the exhaustion check outright.
+
+It does not, because generation cannot happen at seed time. DiceBear is a JavaScript library and
+mootmaker-demo-data is a Java Lambda; calling `api.dicebear.com` during a run would put a
+third-party service on the critical path of seeding an environment. So the images are pre-generated
+with the DiceBear CLI at authoring time and committed as classpath resources, which makes them a
+**pool** exactly like photographs would be.
+
+That is a good outcome rather than a concession: the uniqueness machinery phase 2 needs anyway gets
+built and proven in phase 1, so the later swap touches no structure. The pool is sized generously
+(see below) precisely because these images are free to regenerate.
 
 ### An avatar is never reused within an environment
 
@@ -198,62 +239,64 @@ Cheap to override — flagged because I picked them rather than asking.
    diverges from the established precedent of separate self and admin mutations
    (`updateMyName`/`renamePerson`). A split would double a three-call surface; say so if you'd
    rather keep the precedent.
-3. **JPEG-only output at 256×256.** Matches today's images and is comfortably above 2× the largest
-   rendered size. Transparency is lost, which does not matter under a circular mask.
+3. **JPEG-only output at 256×256.** Comfortably above 2× the largest rendered size. Transparency is
+   lost, which does not matter under a circular mask — but note it means phase 1's vector avatars
+   are rasterised and flattened onto a background rather than served as SVG, which is the price of
+   one canonical derivative for every image regardless of origin.
 4. **Accepted input types are JPEG and PNG only.** Both are handled by `javax.imageio` in the JDK.
    WebP would need a third-party decoder, and this codebase has previously declined a 2 MB
-   dependency for one method call.
+   dependency for one method call. DiceBear's CLI renders PNG, so phase 1 fits without SVG support.
 5. **2 MiB upload ceiling, minimum 64×64, maximum 4096×4096.**
-6. **A pool of 120 photos (60 male, 60 female)** against a default `TARGET_PEOPLE` of 100.
-7. **The subdomain is `photos.<environment>.mootmaker.com`**, matching `www.<environment>...`.
+6. **A pool of 200**, against a default `TARGET_PEOPLE` of 100. Larger than the 120 first proposed
+   because procedural images cost nothing to generate, so headroom is free; phase 2 can size to
+   whatever the generation run justifies.
+7. **A DiceBear CC0 style, not a CC-BY one.** The CC-BY styles (Adventurer, Big Smile, Micah,
+   Personas and others) are usable but require visible designer credit, which means a UI
+   attribution surface this feature does not otherwise need.
+8. **The subdomain is `photos.<environment>.mootmaker.com`**, matching `www.<environment>...`.
    `media.` or `assets.` would read as more general and invite non-photo content onto a
    distribution designed around immutable content-addressed objects.
-8. **`database-reset` also empties the photos bucket.**
+9. **`database-reset` also empties the photos bucket.**
+10. **The gender split survives phase 1.** `FEMALE_FIRST_NAMES` keeps choosing between two halves of
+    the pool even for procedural avatars, so the mechanism phase 2 depends on stays exercised rather
+    than being written once and never run. Whether a given DiceBear style reads as gendered at all
+    is a separate question — see non-blocking question 6.
 
 ## Open questions
 
 ### Blocking
 
-1. **How are the 120 faces actually generated?** The decision is "Claude generates them"; the
-   obstacle is that I currently cannot.
+1. **Does `Person.photoUrl` stay a bare `String`?** Now that only the API ever writes it, it stores
+   `v1/<sha256>` and it is resolved to an absolute URL on read, it could become a narrower type.
+   Keeping `String` is the smaller change and is probably right, but it is worth one sentence of
+   agreement rather than assumption.
 
-   **Capability, stated plainly:** I have no image-generation tool, and this workstation has no GPU
-   (no `nvidia-smi`), no `torch` or `diffusers`, and no hosted image-generation credentials. What it
-   does have is 16 cores, ~7 GB free RAM and 741 GB of disk — enough to run a small diffusion model
-   on CPU, but not something I will install unasked.
-
-   **Model licence is the real constraint**, because the outputs get committed to a public
-   repository. Stable Diffusion 1.5 (CreativeML OpenRAIL-M) and SDXL base 1.0 (OpenRAIL++-M) both
-   permit commercial use and place no restriction on redistributing outputs. **SDXL-Turbo and SD3
-   are non-commercial licences and must not be used here.** FLUX.1-schnell is Apache-2.0 and would
-   be the cleanest, but at 12B parameters it will not fit in 7 GB of RAM.
-
-   **Practical shape if approved:** SD 1.5 at 512×512, downscaled to 256×256. Face artifacts that
-   would be glaring at full size are invisible at a 32–40 px avatar, which makes the weakest part of
-   a small model irrelevant to this use. Expect roughly 1–2 minutes per image on 16 CPU cores, so
-   2–4 hours for 120 — well suited to an unattended run. Install cost is ~3 GB of Python packages
-   plus a ~2.5 GB checkpoint, which per the process rules belongs in
-   [`../tools/workstation/manifest.yaml`](../tools/workstation/manifest.yaml).
-
-   Needed: approval of the install and the model, or images supplied another way. This blocks the
-   demo-data half only; the API half can proceed without it.
-
-2. **Does `Person.photoUrl` stay a bare `String`?** Now that only the API ever writes it, and it is
-   resolved to an absolute URL on read, it could become a narrower type. Keeping `String` is the
-   smaller change and is probably right, but it is worth one sentence of agreement rather than
-   assumption.
+The image-sourcing question that previously blocked this is **resolved** by the phasing decision
+above: phase 1 needs no GPU, no model and no generation run, so nothing about the images gates the
+work any more.
 
 ### Non-blocking
 
-3. **Unreferenced served objects are never deleted.** Content-addressed objects are shared, so
+2. **Unreferenced served objects are never deleted.** Content-addressed objects are shared, so
    removing one person's photo cannot safely delete the object. For demo environments this is
-   bounded by the pool (~120 × ~15 KB). For real uploads it is unbounded, which conflicts with
+   bounded by the pool (~200 × ~15 KB). For real uploads it is unbounded, which conflicts with
    "nothing accumulates without a bound". A reaper comparing bucket contents against live
    `photoUrl`s is the obvious answer, and is not needed until real users can upload.
-4. **Should `removePersonPhoto` ship now** or wait for the upload UI that would use it?
-5. **Does the photos distribution need its own `default_root_object` or index behaviour?** Almost
+3. **Should `removePersonPhoto` ship now** or wait for the upload UI that would use it?
+4. **Does the photos distribution need its own `default_root_object` or index behaviour?** Almost
    certainly not — nothing should ever request its root — but an explicit 403 beats whatever the
    default turns out to be.
+5. **Which DiceBear CC0 style?** Nine qualify. This is an aesthetic call best made by looking at
+   them against the real UI rather than argued in a document, and it changes nothing structural.
+6. **Should phase 1 avatars read as gendered at all?** The existing `FEMALE_FIRST_NAMES` tagging
+   exists so a photo does not contradict a name. Several CC0 styles are deliberately neutral, in
+   which case the split still runs (choice 10) but selects between two arbitrary halves. Harmless,
+   and worth a look once a style is picked.
+7. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
+   of `java.awt` composing shapes from a name hash would remove the pool, the read-back, the
+   exhaustion check and the Node build-time dependency, and scale without limit. Rejected for now
+   as bespoke art with uncertain results, and because the pool machinery is needed for phase 2
+   regardless — but it is the cheaper design if phase 2 were ever abandoned.
 
 ## Impacts on components
 
@@ -295,22 +338,25 @@ at all**.
 
 ### mootmaker-demo-data
 
-- `impl/src/main/resources/avatars/` — new, 120 images (~1.8 MB into a 12 MB shaded jar).
+- `impl/src/main/resources/avatars/` — new, 200 PNGs (~3 MB into a 12 MB shaded jar).
 - `SampleData.java` — `FEMALE_AVATAR_PHOTOS`/`MALE_AVATAR_PHOTOS` become classpath resource names;
   `avatarPhotoFor` takes the set already in use and returns an unused resource or null.
 - `DemoData.java` — `topUpPeople` creates the person, then requests, PUTs and confirms.
 - `GraphQlClient.java` — needs a plain binary PUT alongside its GraphQL POST.
+- A committed generation script plus a short README note recording the DiceBear style, the seeds and
+  the CLI invocation used, so the pool is reproducible rather than a pile of mystery bytes. This is
+  authoring-time tooling; nothing at runtime depends on Node or on DiceBear.
 
 ## Changes to the domain data model and data storage models
 
 Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.md):
 
 - **DynamoDB `People` table** — no new attributes. `photoUrl` already exists and keeps its meaning
-  and nullability; only its *format* narrows, to the host-less path `person-photos/v1/<sha256>.jpg`,
-  and only the API may now write it. Note the stored value is deliberately **not** what the API
-  returns — the host is prepended on read, so stored data carries no environment hostname. Writes
-  change from full-item `PutItem` to attribute-level `UpdateItem`, which is a storage-access change
-  rather than a shape change — no migration.
+  and nullability; only its *format* narrows, to the bare `v1/<sha256>`, and only the API may now
+  write it. Note the stored value is deliberately **not** what the API returns — host, prefix and
+  extension are all added on read, so stored data carries no environment hostname and no boilerplate.
+  Writes change from full-item `PutItem` to attribute-level `UpdateItem`, which is a storage-access
+  change rather than a shape change — no migration.
 - **Cognito** — unaffected.
 - **New: S3.** One bucket per environment, `<env>-mootmaker-person-photos-<account>`, with two
   prefixes: `uploads/<personId>/<uploadId>` (private staging, expired after 1 day by lifecycle
@@ -344,6 +390,14 @@ Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.m
 - **Certificate validation is the slow part of a first deploy.** ACM DNS validation against the
   hosted zone typically takes a few minutes, and Terraform blocks on it. This lands on the critical
   path of creating an ephemeral environment.
+- **The DiceBear CLI needs Node and is authoring-time only.** It runs once to produce the pool,
+  whose output is committed; nothing in the build, the jar or the Lambda depends on it afterwards.
+  Per the process rules it still belongs in
+  [`../tools/workstation/manifest.yaml`](../tools/workstation/manifest.yaml) as a tool future work
+  will need.
+- **Phase 1 rasterises vector art.** DiceBear renders SVG; the pool is PNG, and the API then
+  normalises to JPEG at 256×256. Flattening happens twice, so the source PNGs should be generated at
+  256×256 or larger with an opaque background, not scaled up from something smaller.
 - **What this leaves behind:** staging uploads (bounded by the 1-day lifecycle rule); served photo
   objects (bounded per environment by the demo pool, unbounded once real uploads exist — open
   question 3); one Route53 record pair and one certificate per environment, both destroyed with the
@@ -444,10 +498,16 @@ revert also needs a reseed. Nothing is destroyed that is not demo data.
 - **Teardown must remove the certificate and DNS records**, or ephemeral environments leave litter
   in a hosted zone shared with production. `mootmaker-ephemeral-envs`' teardown script already has a
   known gap with split-out components; this adds something new for it to miss.
-- **Image licensing** remains awkward rather than merely expensive to reverse: once 120 images are
-  committed to a public repository, a licence problem means a history rewrite, not a deletion.
-  Generating rather than sourcing them narrows this to the model's own licence — see blocking
-  question 1.
+- **Image licensing** is the one risk that is awkward rather than merely expensive to reverse: once
+  images are committed to a public repository, a licence problem means a history rewrite, not a
+  deletion. Phase 1 reduces this close to zero by using CC0 styles, which are public domain — but
+  DiceBear licences are **per style**, not library-wide, so picking a CC-BY style by mistake would
+  reintroduce an attribution obligation. Verify the chosen style's licence at the point of
+  generation, not from memory. Phase 2 will reopen this against the model's licence.
+- **Phase 2 quietly not happening** is the realistic failure mode of a phased plan. If it stalls,
+  the product keeps cartoon avatars indefinitely, which is a legitimate outcome but should be a
+  decision rather than a drift. Non-blocking question 7 notes the cheaper design that would be
+  right in that case.
 - **Retiring the nested-route regression test** removes a guard that caught a real shipped bug. It
   is only safe because the rule it guarded ceases to exist; if absolute URLs are ever walked back,
   that test must come back with them.
@@ -456,11 +516,11 @@ revert also needs a reseed. Nothing is destroyed that is not demo data.
 
 Filled in properly once this reaches Ready; sparse while Drafting.
 
-1. `[Geoff]` Decide blocking questions 1 and 2 — in particular, approve the image-generation install
-   and model, or supply the images another way.
+1. `[Geoff]` Decide the one remaining blocking question (whether `photoUrl` stays a `String`), and
+   pick a DiceBear CC0 style when convenient — the latter blocks nothing until step 8.
 2. `[Claude]` mootmaker-api: `PersonRepository` `PutItem` → `UpdateItem`, and strip the four
    handlers' carry-forward. Own commit, own PR — independently valuable and independently
-   reviewable, and does not depend on anything else here.
+   reviewable, and does not depend on anything else here. **This can start immediately.**
 3. `[Claude]` mootmaker-api: photos bucket, distribution, certificate, DNS, IAM.
 4. `[Claude]` mootmaker-api: schema, three handlers, validation/normalisation, host resolution on
    read, version bump.
@@ -469,8 +529,9 @@ Filled in properly once this reaches Ready; sparse while Drafting.
    independence this design is built around, before anything downstream moves.
 7. `[Claude]` mootmaker-webapp: schema bump, codegen, delete `public/avatars/`, remove
    `originRelative()`, update fixtures, retire the nested-route case.
-8. `[Claude]` Generate the 120 images (blocked on step 1), then mootmaker-demo-data: bundle them,
-   rework `SampleData`/`DemoData`, add the binary PUT.
+8. `[Claude]` Generate the 200-image CC0 pool with the DiceBear CLI and commit it with its
+   regeneration script, then mootmaker-demo-data: bundle it, rework `SampleData`/`DemoData`, add the
+   binary PUT.
 9. `[Claude]` Acceptance coverage in both repos; allocate the use-case number.
 10. `[Claude]` Documentation updates listed above.
 11. `[Claude]` Deploy all three to one ephemeral environment, reset, reseed, full acceptance run,
@@ -483,7 +544,8 @@ Filled in properly once this reaches Ready; sparse while Drafting.
   the three-call round trip works and the returned URL serves a real image. This is the design's
   central claim and should be proven directly, not inferred.
 - A single ephemeral environment with all three components deployed, reset and reseeded, where
-  100 demo people hold **100 distinct** photos (90 with, 10 without) and no two share an image.
+  100 demo people hold **90 distinct** avatars and 10 none, with no image shared by two people —
+  checked by comparing the returned `photoUrl`s, not by trusting the assignment code.
 - The new acceptance case proves `naturalWidth > 0`, and the existing acceptance suite is still
   green on that environment.
 - A served photo responds with `Cache-Control: public, max-age=31536000, immutable` and a real
