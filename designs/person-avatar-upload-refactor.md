@@ -14,7 +14,10 @@ webapp upload feature will use. It also fixes the carry-forward problem undernea
 
 ## Status
 
-**Drafting** — 2026-09-29. Revised through the day: avatars get their own CloudFront distribution
+**Building** — 2026-09-29. Approved to **Ready** by Geoff on 2026-09-29 and moved straight to
+Building the same day, as implementation started immediately.
+
+Revised through the day before approval: avatars get their own CloudFront distribution
 and subdomain rather than riding the webapp's, so mootmaker-api stays independently deployable;
 photorealistic images were split out to
 [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md); `photoUrl` was renamed
