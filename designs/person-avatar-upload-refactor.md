@@ -14,10 +14,12 @@ webapp upload feature will use. It also fixes the carry-forward problem undernea
 
 ## Status
 
-**Drafting** — 2026-09-29. Revised twice the same day: photos now get their own CloudFront
-distribution and subdomain rather than riding the webapp's, so mootmaker-api stays independently
-deployable; and the images ship in two phases, procedural CC0 avatars first with photorealistic
-generation to follow, which removed the only remaining blocker.
+**Drafting** — 2026-09-29. Revised through the day: avatars get their own CloudFront distribution
+and subdomain rather than riding the webapp's, so mootmaker-api stays independently deployable;
+photorealistic images were split out to
+[photorealistic-demo-avatars.md](photorealistic-demo-avatars.md); `photoUrl` was renamed
+`avatarUrl`; and objects became per-person rather than globally content-addressed, so an avatar can
+be deleted with its person and a person can hold at most one.
 
 ## Scope / non-goals
 
@@ -31,7 +33,7 @@ generation to follow, which removed the only remaining blocker.
   photos are already in use.
 - Moving the avatar image library out of mootmaker-webapp and into mootmaker-demo-data, grown to
   cover a whole environment without repeats.
-- Phase 1's procedural CC0 avatar pool and the script that regenerates it.
+- The procedural CC0 avatar pool and the script that regenerates it.
 - Removing `avatarUrl` as an argument to `createPerson`.
 - Replacing whole-record `PutItem` in `PersonRepository` with attribute-level `UpdateItem`.
 
@@ -46,9 +48,9 @@ generation to follow, which removed the only remaining blocker.
   is null or the image fails, unchanged.
 - **No avatar for real sign-ups.** `PostConfirmationCreatePersonHandler` still creates people
   without a photo; `me` still does not select `avatarUrl`.
-- **Phase 2 is out of scope here.** Generating photorealistic images needs hardware this design does
-  not assume and changes nothing structural, so it is a follow-up piece of work with its own
-  checklist — not a half-finished item in this one.
+- **Photorealistic avatars.** Split out to
+  [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md): different hardware, no
+  structural overlap, and nothing here depends on it.
 
 ## Trade-offs and decisions
 
@@ -107,17 +109,23 @@ and Apollo's normalised cache identity.
 
 ### `avatarUrl` is stored as a path and resolved to an absolute URL on read
 
-DynamoDB stores **`v1/<sha256>`** — the non-boilerplate part and nothing else. The API prepends its
-own avatar host, and appends the extension, when building a response, so `Person.avatarUrl` reaches
-the client as a fully-resolved `https://avatars.<environment>.mootmaker.com/v1/<sha256>.jpg` —
-`https://avatars.mootmaker.com/v1/<sha256>.jpg` in production, which drops the environment segment
-the same way `api.mootmaker.com` and `www.mootmaker.com` already do.
+DynamoDB stores **`v1/<personId>/<sha256>`**. The API prepends its own avatar host and appends the
+extension when building a response, so `Person.avatarUrl` reaches the client as a fully-resolved
+`https://avatars.<environment>.mootmaker.com/v1/<personId>/<sha256>.jpg` —
+`https://avatars.mootmaker.com/v1/…` in production, which drops the environment segment the same way
+`api.mootmaker.com` and `www.mootmaker.com` already do.
 
 The `v1/` stays in the *stored* value rather than becoming configuration, and that distinction is
-load bearing: the processing version is per-photo state, not a global setting. If normalisation ever
-changes, records written under v1 must keep resolving to the v1 objects they actually wrote, while
-new uploads go to v2. A version held only in config would silently repoint every existing photo at
-an object that was never written.
+load bearing: the processing version is per-avatar state, not a global setting. If normalisation
+ever changes, records written under v1 must keep resolving to the v1 objects they actually wrote,
+while new uploads go to v2. A version held only in config would silently repoint every existing
+avatar at an object that was never written.
+
+The `<personId>` is deliberately redundant with the record it sits on — see the ownership section
+below for why the object is keyed per person at all. Carrying it in the stored value keeps
+read-resolution a pure prefix-and-suffix operation with no dependence on the surrounding context,
+which is less code and fewer ways to be wrong than reassembling it from whichever record is being
+read. It costs eight bytes.
 
 Neither end of that is arbitrary. Storing the absolute URL would bake an environment's hostname into
 the data, so a production snapshot restored into an ephemeral environment would serve production's
@@ -131,26 +139,62 @@ used exactly as the API gave it.
 Consequence for demo-data: its read-back must compare on the **path portion** of a returned
 `avatarUrl`, not the whole string, so the comparison stays environment-agnostic.
 
-### Served keys are content-addressed, on the hash of the *source* bytes
+### Every object belongs to exactly one person, and carries the hash of its *source* bytes
 
-The served object is `avatars/v1/<sha256-of-uploaded-bytes>.jpg` in the bucket, reachable at
-`/v1/<sha256>.jpg` on the distribution — see the note on `origin_path` below for why those differ.
+The served object is `avatars/v1/<personId>/<sha256-of-uploaded-bytes>.jpg` in the bucket, reachable
+at `/v1/<personId>/<sha256>.jpg` on the distribution — see the note on `origin_path` below for why
+those differ.
 
-This single choice does three jobs:
+**This reverses an earlier draft**, which keyed purely on the content hash so that two people with
+the same image shared one object. That was elegant and it is now wrong, because of two requirements
+added on 2026-09-29: deleting a person must delete their avatar, and a person may have at most one
+avatar. Neither is expressible over a shared object. Deleting the object behind person A's avatar
+would silently break person B's, and "at most one" is a statement about a person, not about a blob.
+Reference counting would fix it and is far more machinery than an avatar deserves.
 
-1. **`immutable` is honest.** A different image is a different key, so a cached URL can never go
-   stale. Replacing a person's photo needs no invalidation.
-2. **demo-data can read back what is in use.** It hashes its own bundled file and knows exactly
-   what `avatarUrl` that file would produce. It fetches every existing person's `avatarUrl` and
-   excludes the ones already taken. Crucially this depends only on the *source* bytes, which
-   demo-data holds — **not** on server-side processing being byte-for-byte reproducible, which
-   would have been brittle across an image-library upgrade.
-3. **Storage dedupes itself.** Two people with the same photo share one object.
+Scoping the key by person makes both requirements structural rather than enforced by care:
 
-The `v1/` segment is the **processing version**, and exists precisely because the key is the hash
+1. **Deletion is safe.** A person's avatar is theirs alone, so removing it is deleting a prefix
+   nothing else can reach.
+2. **"At most one" is enforceable.** The prefix is the invariant: after a successful set, exactly
+   one object exists under it.
+
+Keeping the content hash *inside* that key preserves everything the earlier design used it for:
+
+3. **`immutable` stays honest.** Different bytes mean a different key, so a cached URL can never go
+   stale, and replacing an avatar needs no invalidation.
+4. **demo-data can still read back what is in use.** It hashes its own bundled file and looks for
+   that hash among the returned `avatarUrl`s. It must now extract the **hash segment** rather than
+   compare whole paths, since the same image under two people yields two different URLs. This still
+   depends only on the *source* bytes, which demo-data holds — never on server-side processing being
+   byte-for-byte reproducible, which would have been brittle across a library upgrade.
+
+What is given up is deduplication: the same image under two people is now two objects. At ~15 KB
+each against a pool of 200, that is not worth a moment's thought — and it buys the disappearance of
+the "unreferenced objects accumulate forever" problem entirely, since every object now has exactly
+one owner and dies with them.
+
+The `v1/` segment is the **processing version**, and exists precisely because the key holds the hash
 of the input rather than the output. If normalisation ever changes (different dimensions, encoder,
 quality), bump to `v2/`: existing URLs keep serving the bytes they always served, and new uploads
 get new keys. Without it, `immutable` would be a lie the first time the resize changed.
+
+### An avatar is deleted with its person, and replaced atomically enough
+
+**On person deletion.** All three paths that remove a person — `deletePerson` (admin),
+`deleteMyAccount` (self) and `database-reset` — delete everything under `avatars/v1/<personId>/`.
+The first two are prefix deletes; `database-reset` already empties the whole bucket, so it is
+covered by construction.
+
+**On setting an avatar.** `confirmAvatarUpload` writes the new object, updates the record, then
+deletes every *other* object under the person's prefix. That order is deliberate: a crash midway
+leaves a harmless orphan that the next set will sweep up, whereas deleting first would leave a
+person with a record pointing at an object that no longer exists — a broken avatar rather than a
+wasted 15 KB. The sweep must exclude the key just written, since re-uploading the same image
+produces the same key and deleting it would erase the avatar that was just set.
+
+Note this makes `removeAvatar` cheap and obvious rather than a special case: it is the same prefix
+delete with the record set to null.
 
 ### Upload is a presigned PUT with a synchronous confirm
 
@@ -196,7 +240,7 @@ Today it would carry one real field and two constants.
 `confirmAvatarUpload` and `removeAvatar`.
 
 "Avatar" is the general concept — the thing shown next to a person's name, whatever it is made of.
-"Photo" is one possible kind, and deliberately not the kind phase 1 ships: calling a generated
+"Photo" is one possible kind, and deliberately not the kind this design ships: calling a generated
 vector cartoon a photo would be plainly wrong. Keeping the general name now leaves room for a
 genuine `photo` concept later without a second rename, which is the reasoning Geoff gave for the
 choice. Every other part of the project already says avatar — `PersonAvatar.tsx`,
@@ -238,25 +282,20 @@ reusing their photo. They also live in mootmaker-demo-data rather than the webap
 the only component that uses them — bundling them into the webapp is what created the cross-repo
 filename convention that broke.
 
-**Phase 1 — procedural vector avatars.** [DiceBear](https://www.dicebear.com/licenses/) publishes
-nine **CC0** styles (Lorelei, Notionists, Open Peeps, Pixel Art, Thumbs among them): public domain,
-no attribution, nothing to reason about for a public repository. No GPU, no model, no generation
-run, no model licence.
+**This design ships procedural vector avatars.**
+[DiceBear](https://www.dicebear.com/licenses/) publishes nine **CC0** styles (Lorelei, Notionists,
+Open Peeps, Pixel Art, Thumbs among them): public domain, no attribution, nothing to reason about
+for a public repository. No GPU, no model, no generation run, no model licence.
 
-**Phase 2 — photorealistic, generated on a GPU machine.** FLUX.2 [klein] 4B is Apache 2.0 — the
-cleanest licence available — needs roughly 10 GB of VRAM at FP16 or 6 GB quantised to FP8, and
-produces a batch this size in minutes rather than the hours a CPU would take. Either
-[ComfyUI](https://github.com/black-forest-labs/flux2) or Hugging Face `diffusers` drives it on
-Ubuntu; `diffusers` is preferable for a fixed reproducible batch, being a seedable script rather
-than a UI.
+Photorealistic avatars are a **separate design** —
+[photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) — because they need a GPU machine
+this one does not assume, and because they change nothing here. The upload path, the bucket, the
+distribution and every handler are identical either way: demo-data uploads through the same three
+API calls whatever the bytes are. That design replaces a directory of images and reseeds. Nothing in
+this document waits on it, and if it never happens, what ships here is a complete, working feature
+rather than half of one.
 
-**Why phasing is nearly free here.** The upload path, the bucket, the distribution and every handler
-are identical under both, because demo-data uploads through the same three API calls either way.
-Phase 2 is a different set of bytes going through unchanged machinery, followed by a reseed. There
-is no redesign and no migration, so phase 1 can land and be verified now instead of waiting on
-hardware.
-
-### The pool-and-read-back mechanism is kept in phase 1, not deferred
+### The pool-and-read-back mechanism is genuinely needed, not deferred
 
 Worth recording because the first instinct was wrong. Procedural avatars are deterministic from a
 seed, so seeding on a person's name — already unique by construction via `SampleData.personNames` —
@@ -268,9 +307,9 @@ third-party service on the critical path of seeding an environment. So the image
 with the DiceBear CLI at authoring time and committed as classpath resources, which makes them a
 **pool** exactly like photographs would be.
 
-That is a good outcome rather than a concession: the uniqueness machinery phase 2 needs anyway gets
-built and proven in phase 1, so the later swap touches no structure. The pool is sized generously
-(see below) precisely because these images are free to regenerate.
+That is a good outcome rather than a concession: the uniqueness machinery a photorealistic pool
+would need anyway gets built and proven here, so a later swap touches no structure. The pool is
+sized generously (see below) precisely because these images are free to regenerate.
 
 ### An avatar is never reused within an environment
 
@@ -294,16 +333,15 @@ Cheap to override — flagged because I picked them rather than asking.
    (`updateMyName`/`renamePerson`). A split would double a three-call surface; say so if you'd
    rather keep the precedent.
 3. **JPEG-only output at 256×256.** Comfortably above 2× the largest rendered size. Transparency is
-   lost, which does not matter under a circular mask — but note it means phase 1's vector avatars
+   lost, which does not matter under a circular mask — but note it means the vector avatars
    are rasterised and flattened onto a background rather than served as SVG, which is the price of
    one canonical derivative for every image regardless of origin.
 4. **Accepted input types are JPEG and PNG only.** Both are handled by `javax.imageio` in the JDK.
    WebP would need a third-party decoder, and this codebase has previously declined a 2 MB
-   dependency for one method call. DiceBear's CLI renders PNG, so phase 1 fits without SVG support.
+   dependency for one method call. DiceBear's CLI renders PNG, so no SVG support is needed.
 5. **2 MiB upload ceiling, minimum 64×64, maximum 4096×4096.**
 6. **A pool of 200**, against a default `TARGET_PEOPLE` of 100. Larger than the 120 first proposed
-   because procedural images cost nothing to generate, so headroom is free; phase 2 can size to
-   whatever the generation run justifies.
+   because procedural images cost nothing to generate, so headroom is free.
 7. **A DiceBear CC0 style, not a CC-BY one.** The CC-BY styles (Adventurer, Big Smile, Micah,
    Personas and others) are usable but require visible designer credit, which means a UI
    attribution surface this feature does not otherwise need.
@@ -312,10 +350,10 @@ Cheap to override — flagged because I picked them rather than asking.
    as more general and invite unrelated content onto a distribution designed around immutable
    content-addressed objects.
 9. **`database-reset` also empties the avatars bucket.**
-10. **The gender split survives phase 1.** `FEMALE_FIRST_NAMES` keeps choosing between two halves of
-    the pool even for procedural avatars, so the mechanism phase 2 depends on stays exercised rather
-    than being written once and never run. Whether a given DiceBear style reads as gendered at all
-    is a separate question — see non-blocking question 5.
+10. **The gender split is kept.** `FEMALE_FIRST_NAMES` keeps choosing between two halves of the
+    pool even for procedural avatars, so the mechanism a photorealistic pool depends on stays
+    exercised rather than written once and never run. Whether a given DiceBear style reads as
+    gendered at all is a separate question — see non-blocking question 3.
 
 ## Open questions
 
@@ -323,32 +361,27 @@ Cheap to override — flagged because I picked them rather than asking.
 
 **None.** Both are resolved:
 
-- *Image sourcing* — settled by the phasing decision above. Phase 1 needs no GPU, no model and no
+- *Image sourcing* — settled by the split above. This design needs no GPU, no model and no
   generation run.
 - *`avatarUrl`'s type* — settled as a bare `String`, recorded under Trade-offs.
 
 ### Non-blocking
 
-1. **Unreferenced served objects are never deleted.** Content-addressed objects are shared, so
-   removing one person's photo cannot safely delete the object. For demo environments this is
-   bounded by the pool (~200 × ~15 KB). For real uploads it is unbounded, which conflicts with
-   "nothing accumulates without a bound". A reaper comparing bucket contents against live
-   `avatarUrl`s is the obvious answer, and is not needed until real users can upload.
-2. **Should `removeAvatar` ship now** or wait for the upload UI that would use it?
-3. **Does the avatars distribution need its own `default_root_object` or index behaviour?** Almost
+1. **Does the avatars distribution need its own `default_root_object` or index behaviour?** Almost
    certainly not — nothing should ever request its root — but an explicit 403 beats whatever the
    default turns out to be.
-4. **Which DiceBear CC0 style?** Nine qualify. This is an aesthetic call best made by looking at
+2. **Which DiceBear CC0 style?** Nine qualify. This is an aesthetic call best made by looking at
    them against the real UI rather than argued in a document, and it changes nothing structural.
-5. **Should phase 1 avatars read as gendered at all?** The existing `FEMALE_FIRST_NAMES` tagging
+3. **Should avatars read as gendered at all?** The existing `FEMALE_FIRST_NAMES` tagging
    exists so a photo does not contradict a name. Several CC0 styles are deliberately neutral, in
    which case the split still runs (choice 10) but selects between two arbitrary halves. Harmless,
    and worth a look once a style is picked.
-6. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
+4. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
    of `java.awt` composing shapes from a name hash would remove the pool, the read-back, the
    exhaustion check and the Node build-time dependency, and scale without limit. Rejected for now
-   as bespoke art with uncertain results, and because the pool machinery is needed for phase 2
-   regardless — but it is the cheaper design if phase 2 were ever abandoned.
+   as bespoke art with uncertain results, and because the pool machinery is needed by
+   [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) regardless — but it is the
+   cheaper design if that one is ever abandoned.
 
 ## Impacts on components
 
@@ -361,6 +394,8 @@ Cheap to override — flagged because I picked them rather than asking.
   `RemoveAvatarHandler`; registered in `ResolverDispatchHandler`, and constructed eagerly in
   its constructor so they are captured in the SnapStart snapshot.
 - `impl/.../handler/CreatePersonHandler.java` — drops the `avatarUrl` argument.
+- `impl/.../handler/DeletePersonHandler.java` and the `deleteMyAccount` path — each deletes
+  everything under `avatars/v1/<personId>/` as part of the existing cascade.
 - `impl/.../dynamo/PersonRepository.java` — `PutItem` → attribute-level `UpdateItem`; new
   `updatePhotoUrl`.
 - `RenamePersonHandler`, `UpdateMyNameHandler`, `SetPersonAdminHandler`,
@@ -404,7 +439,7 @@ at all**.
 Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.md):
 
 - **DynamoDB `People` table** — the `photoUrl` attribute is **renamed to `avatarUrl`**, keeping its
-  meaning and nullability. Its *format* also narrows, to the bare `v1/<sha256>`, and only the API
+  meaning and nullability. Its *format* also narrows, to `v1/<personId>/<sha256>`, and only the API
   may now write it. The stored value is deliberately **not** what the API returns — host and
   extension are added on read, so stored data carries no environment hostname and no boilerplate.
   Writes change from full-item `PutItem` to attribute-level `UpdateItem`, a storage-access change
@@ -418,7 +453,7 @@ Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.m
 - **Cognito** — unaffected.
 - **New: S3.** One bucket per environment, `<env>-mootmaker-avatars-<account>`, with two
   prefixes: `uploads/<personId>/<uploadId>` (private staging, expired after 1 day by lifecycle
-  rule) and `avatars/v1/<sha256>.jpg` (served, `immutable`).
+  rule) and `avatars/v1/<personId>/<sha256>.jpg` (served, `immutable`, one object per person).
 - **New: DNS.** One `avatars.<environment>.mootmaker.com` A/AAAA record pair per environment in the
   `mootmaker.com` hosted zone that mootmaker-domain owns, plus a per-environment ACM certificate.
 - **No backfill.** Existing values are demo data only, and the rollout is a reset-and-reseed, so
@@ -459,7 +494,7 @@ Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.m
   Per the process rules it still belongs in
   [`../tools/workstation/manifest.yaml`](../tools/workstation/manifest.yaml) as a tool future work
   will need.
-- **Phase 1 rasterises vector art.** DiceBear renders SVG; the pool is PNG, and the API then
+- **Vector art is rasterised.** DiceBear renders SVG; the pool is PNG, and the API then
   normalises to JPEG at 256×256. Flattening happens twice, so the source PNGs should be generated at
   256×256 or larger with an opaque background, not scaled up from something smaller.
 - **What this leaves behind:** staging uploads (bounded by the 1-day lifecycle rule); served photo
@@ -472,8 +507,13 @@ Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.m
 
 ## Testing impacts
 
-**Unit (mootmaker-api)** — the natural home for validation, because it is pure logic over bytes
-with no deployment needed: reject a non-image, a too-large dimension, a mismatched declared length,
+**Unit (mootmaker-api)** — the natural home for validation and for the ownership rules, because
+both are logic with no deployment needed. The ownership cases matter most: setting an avatar twice
+leaves exactly one object under the person's prefix; re-uploading the *same* image does not delete
+the avatar it just set (the key is identical, so a naive "delete everything else" sweep would erase
+it); and deleting a person removes their prefix while leaving another person's identical image
+untouched — the case that global content-addressing would have got wrong. Then validation, which is
+pure logic over bytes: reject a non-image, a too-large dimension, a mismatched declared length,
 an unsupported type; confirm the key is the source hash and is stable across runs; confirm EXIF does
 not survive. Plus the `UpdateItem` refactor: each of the four existing carry-forward regression
 tests (including the two `regressionMootmakerApi71...` ones) should keep asserting the same
@@ -567,14 +607,14 @@ revert also needs a reseed. Nothing is destroyed that is not demo data.
   known gap with split-out components; this adds something new for it to miss.
 - **Image licensing** is the one risk that is awkward rather than merely expensive to reverse: once
   images are committed to a public repository, a licence problem means a history rewrite, not a
-  deletion. Phase 1 reduces this close to zero by using CC0 styles, which are public domain — but
+  deletion. CC0 styles reduce this close to zero, being public domain — but
   DiceBear licences are **per style**, not library-wide, so picking a CC-BY style by mistake would
   reintroduce an attribution obligation. Verify the chosen style's licence at the point of
-  generation, not from memory. Phase 2 will reopen this against the model's licence.
-- **Phase 2 quietly not happening** is the realistic failure mode of a phased plan. If it stalls,
-  the product keeps cartoon avatars indefinitely, which is a legitimate outcome but should be a
-  decision rather than a drift. Non-blocking question 6 notes the cheaper design that would be
-  right in that case.
+  generation, not from memory.
+- **[photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) quietly not happening** would
+  leave the product on cartoon avatars indefinitely. That is a legitimate outcome — nothing here is
+  incomplete without it — but it should be closed deliberately rather than left drifting.
+  Non-blocking question 4 notes the cheaper design that would then be right.
 - **Retiring the nested-route regression test** removes a guard that caught a real shipped bug. It
   is only safe because the rule it guarded ceases to exist; if absolute URLs are ever walked back,
   that test must come back with them.
