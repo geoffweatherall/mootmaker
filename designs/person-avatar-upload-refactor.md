@@ -309,6 +309,17 @@ API calls whatever the bytes are. That design replaces a directory of images and
 this document waits on it, and if it never happens, what ships here is a complete, working feature
 rather than half of one.
 
+### The pool is pre-generated and committed, not generated in Java at seed time
+
+A Java-native generator — roughly 200–300 lines of `java.awt` composing shapes from a hash of the
+person's name — was considered and rejected. It would delete the pool, the read-back, the exhaustion
+check and the Node build-time dependency, and scale past any `TARGET_PEOPLE`, which is a real
+simplification. Against it: the output is bespoke art whose quality rests on shape composition
+rather than on a designer's work, and the pool machinery has to exist anyway for
+[photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) — so removing it here would only
+mean building it there. DiceBear gives proven artwork under CC0 for the cost of a build-time CLI
+whose output is committed.
+
 ### The pool-and-read-back mechanism is genuinely needed, not deferred
 
 Worth recording because the first instinct was wrong. Procedural avatars are deterministic from a
@@ -356,15 +367,24 @@ Cheap to override — flagged because I picked them rather than asking.
 5. **2 MiB upload ceiling, minimum 64×64, maximum 4096×4096.**
 6. **A pool of 200**, against a default `TARGET_PEOPLE` of 100. Larger than the 120 first proposed
    because procedural images cost nothing to generate, so headroom is free.
-7. **A DiceBear CC0 style, not a CC-BY one.** The CC-BY styles (Adventurer, Big Smile, Micah,
-   Personas and others) are usable but require visible designer credit, which means a UI
-   attribution surface this feature does not otherwise need.
+7. **Notionists Neutral**, a CC0 style. Clean line-drawn people that read as professional rather
+   than playful, which suits a meeting-booking tool, and which sit next to a name without competing
+   with it. The Neutral variant carries no gender cues — which is what makes choice 11 possible.
+   The CC-BY styles (Adventurer, Big Smile, Micah, Personas and others) are usable but require
+   visible designer credit, meaning a UI attribution surface this feature does not otherwise need.
 8. **The subdomain is `avatars.<environment>.mootmaker.com`** (`avatars.mootmaker.com` in
    production), sitting alongside the existing `api.` and `www.`. `media.` or `assets.` would read
    as more general and invite unrelated content onto a distribution designed around immutable
    content-addressed objects.
 9. **`database-reset` also empties the avatars bucket.**
-10. **Gender matching is dropped here, and `FEMALE_FIRST_NAMES` deleted with it.** DiceBear styles
+10. **The distribution defines no `default_root_object` and no custom error responses**, so a
+    request to the bare host gets S3's own 403 unchanged. Nothing legitimate ever asks for this
+    host's root — every real URL is `/v1/<personId>/<hash>.jpg` — so anything landing there is a bug
+    or a probe, and both are better served by a plain refusal than by a redirect that would put
+    webapp knowledge back into the API's infrastructure. Stated explicitly rather than left to
+    CloudFront's defaults, because the bug this refactor follows came precisely from an unexamined
+    default quietly rewriting 403/404 to `index.html` at status 200.
+11. **Gender matching is dropped here, and `FEMALE_FIRST_NAMES` deleted with it.** DiceBear styles
     are seeded from a string and take no gender, so matching would mean biasing per-style options —
     suppressing facial hair on one half, say — which is both fiddly and a stereotype written into
     code. A Neutral variant sidesteps it entirely. The tagging set is removed rather than left
@@ -374,30 +394,20 @@ Cheap to override — flagged because I picked them rather than asking.
 
 ## Open questions
 
-### Blocking
+**None.** Every question this design raised has been answered and moved into Trade-offs or Choices
+above, on 2026-09-29:
 
-**None.** Both are resolved:
+| Was | Settled as |
+|---|---|
+| Image sourcing | Procedural CC0 avatars; photorealistic split to its own design |
+| `avatarUrl`'s type | A bare `String` |
+| DiceBear style | Notionists Neutral |
+| Distribution root behaviour | Explicit 403, no root object, no custom error responses |
+| Gender matching | Deferred to [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) |
+| Pool vs Java-native generation | Pre-generated DiceBear pool |
 
-- *Image sourcing* — settled by the split above. This design needs no GPU, no model and no
-  generation run.
-- *`avatarUrl`'s type* — settled as a bare `String`, recorded under Trade-offs.
-
-### Non-blocking
-
-1. **Does the avatars distribution need its own `default_root_object` or index behaviour?** Almost
-   certainly not — nothing should ever request its root — but an explicit 403 beats whatever the
-   default turns out to be.
-2. **Which DiceBear CC0 style?** Realistically four: **Lorelei**, **Notionists**, **Open Peeps** or
-   **Pixel Art** — the only CC0 styles that depict a person rather than an abstract pattern. An
-   aesthetic call best made by looking at them against the real UI rather than argued here, and it
-   changes nothing structural. My lean is Notionists: it reads cleanest against a professional
-   meeting-booking tool, where Open Peeps is noticeably more playful.
-3. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
-   of `java.awt` composing shapes from a name hash would remove the pool, the read-back, the
-   exhaustion check and the Node build-time dependency, and scale without limit. Rejected for now
-   as bespoke art with uncertain results, and because the pool machinery is needed by
-   [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) regardless — but it is the
-   cheaper design if that one is ever abandoned.
+The only remaining unknowns are implementation details that resolve themselves in the doing, not
+decisions anyone is waiting on.
 
 ## Impacts on components
 
@@ -641,10 +651,9 @@ revert also needs a reseed. Nothing is destroyed that is not demo data.
 
 Filled in properly once this reaches Ready; sparse while Drafting.
 
-1. `[Geoff]` Move this design to **Ready** if it is. Nothing is blocked: both blocking questions are
-   resolved, and the only outstanding `[Geoff]` item is picking a DiceBear CC0 style, which blocks
-   nothing until step 8. Note the field rename means steps 4 and 7 are no longer deployable in
-   either order — the webapp must follow the API, not precede it.
+1. `[Geoff]` Move this design to **Ready** if it is. Nothing is blocked and no `[Geoff]` items
+   remain — every open question is answered and recorded above. Note the field rename means steps 4
+   and 7 are no longer deployable in either order: the webapp must follow the API, not precede it.
 2. `[Claude]` mootmaker-api: `PersonRepository` `PutItem` → `UpdateItem`, and strip the four
    handlers' carry-forward. Own commit, own PR — independently valuable and independently
    reviewable, and does not depend on anything else here. **This can start immediately.**
@@ -656,9 +665,9 @@ Filled in properly once this reaches Ready; sparse while Drafting.
    independence this design is built around, before anything downstream moves.
 7. `[Claude]` mootmaker-webapp: schema bump, codegen, delete `public/avatars/`, remove
    `originRelative()`, update fixtures, retire the nested-route case.
-8. `[Claude]` Generate the 200-image CC0 pool with the DiceBear CLI and commit it with its
-   regeneration script, then mootmaker-demo-data: bundle it, rework `SampleData`/`DemoData`, add the
-   binary PUT.
+8. `[Claude]` Generate the 200-image Notionists Neutral pool with the DiceBear CLI and commit it
+   with its regeneration script, then mootmaker-demo-data: bundle it, collapse the two gendered
+   pools into one, delete `FEMALE_FIRST_NAMES`, and add the binary PUT.
 9. `[Claude]` Acceptance coverage in both repos; allocate the use-case number.
 10. `[Claude]` Documentation updates listed above.
 11. `[Claude]` Deploy all three to one ephemeral environment, reset, reseed, full acceptance run,
