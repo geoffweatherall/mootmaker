@@ -50,7 +50,7 @@ Out of scope, deliberately:
 
 ## Trade-offs and decisions
 
-- **`photoUrl` is a path relative to the webapp's own origin (e.g. `"avatars/female-07.jpg"`), not a
+- **`photoUrl` is a path relative to the webapp's own origin (e.g. `"/avatars/female-07.jpg"`), not a
   full URL.** The alternative — hotlinking the stock photos' original source (pravatar.cc) at
   runtime — was rejected: depending on a third-party service at runtime for something rendered in a
   deployed product is fragile (rate limits, outages, or the service changing), and it would make
@@ -133,7 +133,7 @@ and (with a default instead of null) `dateFormat`/`timeFormat`/`weekStart`.
 - **No package-size impact on `mootmaker-demo-data`.** It only ever emits a filename string over
   GraphQL — the image bytes never pass through it or get bundled into its Lambda jar.
 - **Cross-repo filename convention.** `mootmaker-demo-data`'s photo-list strings
-  (`avatars/male-01.jpg` … `avatars/female-12.jpg`) must match what `mootmaker-webapp` actually
+  (`/avatars/male-01.jpg` … `/avatars/female-12.jpg`) must match what `mootmaker-webapp` actually
   bundles, with nothing enforcing agreement — the same kind of cross-repo trust `mootmaker.graphql`
   and `webapp/types.ts` used to require before codegen, but with no generator here. Mitigated by
   `PersonAvatar`'s `onError` fallback (see Trade-offs) rather than solved outright.
@@ -165,6 +165,43 @@ No migration. `mootmaker-api` deploys first (additive, backward-compatible: exis
 the photo library, starts rendering `photoUrl` when present — a no-op for every existing Person,
 which all currently have `photoUrl: null`). `mootmaker-demo-data` deploys last and only then starts
 assigning photos to newly created people.
+
+**`test` and `production` need a database reset, not just a release.** Geoff's call, 2026-09-28.
+`mootmaker-demo-data` only ever creates the shortfall and never mutates a Person after creation, so
+an environment that already has its full complement of demo people gains no photos at all from a
+release — it is already at target, so nothing is created. Getting photos there means invoking
+`mootmaker-api`'s `database-reset` and then re-running `mootmaker-demo-data` to seed fresh. In
+`production` that is safe for real users specifically because reset preserves Cognito-linked
+Persons: real accounts survive, keep `photoUrl: null`, and correctly keep showing initials — it is
+the generated demo people that get recreated, with photos.
+
+## What went wrong first time (2026-09-28)
+
+Worth keeping, because the failure mode is the interesting part rather than the fix.
+
+The first cut stored the path **document-relative** (`avatars/female-07.jpg`) while this document
+claimed it was "relative to the webapp's own origin". Those are different things: a browser resolves
+a slashless path against the current page, so from `/rooms/<date>/availability` it requested
+`/rooms/<date>/avatars/female-07.jpg`.
+
+**That failed invisibly, twice over.** This is an SPA, so CloudFront answers any unmatched path with
+`index.html` at HTTP **200** — not a 404. The `<img>` received HTML it could not decode, MUI's
+`Avatar` treated it as a load error, and the initials fallback — added deliberately for the
+filename-drift risk below — swallowed it. The app looked exactly like a working app where nobody had
+a photo.
+
+Three checks all passed anyway, and it is worth being precise about why each one missed it:
+
+- The **Playwright spec** only exercised `/persons`, a depth-1 route where document-relative
+  resolution coincidentally produces the right URL — the single route where the bug is invisible.
+- The **acceptance suite** (142 tests) passed because nothing in it asserts on an avatar image.
+- **Curl checks** of `/avatars/male-07.jpg` returned 200 — the right file, at a URL the app never
+  actually requested.
+
+The lesson that generalises: asserting an `<img>` is *present* proves nothing, because it was present
+throughout. The regression test now asserts `naturalWidth > 0` from a two-segment route, and was
+confirmed to fail against the old code before being kept. Guard the *rendered outcome*, and from the
+route shape where it can actually break.
 
 ## Risks
 
