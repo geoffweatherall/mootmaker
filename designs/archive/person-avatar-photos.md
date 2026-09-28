@@ -13,10 +13,14 @@ in `mootmaker-api` (confirmed there is none today).
 
 ## Status
 
-**Building** — 2026-09-28. Drafted and immediately built in one live session: Geoff specified the
-key product decisions directly (stock library vs. upload, real-sign-ups-always-fall-back, the 10%
-no-photo rate, guess-gender-from-name) rather than reviewing an async draft, which stands in for the
-normal Drafting → Ready human gate on this one.
+**Shipped** — 2026-09-28. Drafted and built in one live session: Geoff specified the key product
+decisions directly (stock library vs. upload, real-sign-ups-always-fall-back, the 10% no-photo
+rate, guess-gender-from-name) rather than reviewing an async draft, which stood in for the normal
+Drafting → Ready human gate on this one. Deployed to a shared ephemeral environment
+(`claude-260928-qjhn`): a `mootmaker-demo-data` top-up there produced 89% of 100 people with a
+gender-matched photo and 11% on the initials fallback, the full webapp acceptance suite passed
+(142/142, including sign-up) confirming a real sign-up still falls back to initials, and
+`data-model.md` is updated.
 
 ## Scope / non-goals
 
@@ -165,24 +169,29 @@ assigning photos to newly created people.
 ## Risks
 
 - **Filename drift between demo-data and webapp** — see Technical considerations. Mitigated, not
-  eliminated, by the `onError` fallback.
+  eliminated, by `PersonAvatar`'s fallback to initials on a load failure (MUI's `Avatar` does this
+  itself once `src` is set - no extra code needed, confirmed in `person-avatar.spec.ts`).
 - **The stock photos read as generic/repeated at scale** — 12 photos per gender means any demo
   environment with more than a couple dozen people will repeat photos. Accepted for v1: this is
   demo data, not a claim that this many named individuals exist.
 
 ## Implementation checklist
 
-- [ ] `mootmaker-api`: schema, `Person.java`, `PersonRepository`, `CreatePersonHandler`, the four
-      field-carrying handlers, and their tests.
-- [ ] `mootmaker-webapp`: bundle the 24 photos, update `PersonAvatar.tsx`, add `photoUrl` to every
+- [x] `mootmaker-api`: schema, `Person.java`, `PersonRepository`, `CreatePersonHandler`, the four
+      field-carrying handlers, and their tests ([#83](https://github.com/geoffweatherall/mootmaker-api/pull/83)).
+- [x] `mootmaker-webapp`: bundle the 24 photos, update `PersonAvatar.tsx`, add `photoUrl` to every
       Person-shaped query/mutation, regenerate codegen, thread the prop through all 7 call sites,
-      component tests.
-- [ ] `mootmaker-demo-data`: gender-tag `FIRST_NAMES`, add the two photo-filename lists, wire the
-      90/10 assignment into `topUpPeople`, update its `createPerson` call, tests.
-- [ ] Deploy all three to a shared ephemeral environment; run `mootmaker-demo-data` and confirm
-      visually in the webapp.
-- [ ] Update `data-model.md`/READMEs if they enumerate `Person` fields.
-- [ ] Move this doc to Shipped once deployed and verified.
+      tests ([#130](https://github.com/geoffweatherall/mootmaker-webapp/pull/130)).
+- [x] `mootmaker-demo-data`: gender-tag `FIRST_NAMES`, add the two photo-filename lists, wire the
+      90/10 assignment into `topUpPeople`, update its `createPerson` call, tests
+      ([#44](https://github.com/geoffweatherall/mootmaker-demo-data/pull/44)).
+- [x] Deploy all three to a shared ephemeral environment (`claude-260928-qjhn`); confirmed via the
+      GraphQL API directly (89/100 people got a gender-matched photo) and via CloudFront serving the
+      exact bundled file - no headed browser available in this session to eyeball it directly, so
+      the full webapp acceptance suite (142/142, real Chromium) stands in for that.
+- [x] Update `data-model.md` - it enumerates `Person`'s attributes; `photoUrl` added alongside the
+      others. No repo README enumerates the same fields.
+- [x] Move this doc to Shipped once deployed and verified.
 
 ## Definition of done
 
@@ -190,3 +199,5 @@ Unit tests green in all three repos; `mootmaker-api`, `mootmaker-webapp`, and `m
 deployed to one reused ephemeral environment; a demo-data top-up on that environment shows photos on
 roughly 90% of newly created people, gender-plausible, the remaining 10% showing initials; a signed-up
 (non-demo) person still shows initials; acceptance suite green on that environment.
+
+All met: see Status above.
