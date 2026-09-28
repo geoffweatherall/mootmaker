@@ -69,14 +69,23 @@ which is exactly what `mootmaker-api/verify/`'s acceptance suite runs against �
 half-working system. An origin-relative `photoUrl` compounds it, because it is the API implicitly
 asserting that it is served from the webapp's origin.
 
-So photos get `photos.<environment>.mootmaker.com`, a distribution and certificate owned by
+So avatars get `avatars.<environment>.mootmaker.com`, a distribution and certificate owned by
 mootmaker-api. This follows an existing pattern rather than inventing one:
 `mootmaker-domain/deploy/terraform/acm.tf` already states that hostnames "get their own certificate
 from mootmaker-api/mootmaker-webapp's own Terraform, validated against the zone this project
-creates", and `mootmaker-webapp/deploy/terraform/domain.tf` resolves that zone with a
-`data "aws_route53_zone"` lookup rather than a cross-repo state reference. mootmaker-api copies that
-shape exactly. It will be the API repo's first custom domain — today it only exposes AppSync's
-AWS-provided URL.
+creates".
+
+More than that, **mootmaker-api already does exactly this.** `mootmaker-api/deploy/terraform/domain.tf`
+owns `api.<environment>.mootmaker.com` today, with its own ACM certificate, DNS validation against a
+`data "aws_route53_zone"` lookup, and a Route53 alias — the whole pattern, already in this repo and
+already working. Adding a second hostname is extending a file, not introducing a capability. (An
+earlier draft of this document claimed this would be the API's first custom domain and that it only
+exposed AppSync's AWS-provided URL. Both were wrong.)
+
+Note the production naming rule that file establishes: production drops the environment segment
+entirely (`api.mootmaker.com`, matching the webapp's `www.mootmaker.com`), so avatars are served
+from `avatars.mootmaker.com` in production and `avatars.<environment>.mootmaker.com` everywhere
+else.
 
 **The cost, stated honestly:** one more CloudFront distribution and ACM certificate in every
 environment's create-and-destroy cycle. Certificates are free and distributions carry no fixed
@@ -98,9 +107,10 @@ and Apollo's normalised cache identity.
 ### `photoUrl` is stored as a path and resolved to an absolute URL on read
 
 DynamoDB stores **`v1/<sha256>`** — the non-boilerplate part and nothing else. The API prepends its
-own photo host and the `person-photos/` prefix, and appends the extension, when building a response,
-so `Person.photoUrl` reaches the client as a fully-resolved
-`https://photos.<environment>.mootmaker.com/person-photos/v1/<sha256>.jpg`.
+own avatar host, and appends the extension, when building a response, so `Person.photoUrl` reaches
+the client as a fully-resolved `https://avatars.<environment>.mootmaker.com/v1/<sha256>.jpg` —
+`https://avatars.mootmaker.com/v1/<sha256>.jpg` in production, which drops the environment segment
+the same way `api.mootmaker.com` and `www.mootmaker.com` already do.
 
 The `v1/` stays in the *stored* value rather than becoming configuration, and that distinction is
 load bearing: the processing version is per-photo state, not a global setting. If normalisation ever
@@ -122,7 +132,8 @@ Consequence for demo-data: its read-back must compare on the **path portion** of
 
 ### Served keys are content-addressed, on the hash of the *source* bytes
 
-The served object is `person-photos/v1/<sha256-of-uploaded-bytes>.jpg`.
+The served object is `avatars/v1/<sha256-of-uploaded-bytes>.jpg` in the bucket, reachable at
+`/v1/<sha256>.jpg` on the distribution — see the note on `origin_path` below for why those differ.
 
 This single choice does three jobs:
 
@@ -253,10 +264,11 @@ Cheap to override — flagged because I picked them rather than asking.
 7. **A DiceBear CC0 style, not a CC-BY one.** The CC-BY styles (Adventurer, Big Smile, Micah,
    Personas and others) are usable but require visible designer credit, which means a UI
    attribution surface this feature does not otherwise need.
-8. **The subdomain is `photos.<environment>.mootmaker.com`**, matching `www.<environment>...`.
-   `media.` or `assets.` would read as more general and invite non-photo content onto a
-   distribution designed around immutable content-addressed objects.
-9. **`database-reset` also empties the photos bucket.**
+8. **The subdomain is `avatars.<environment>.mootmaker.com`** (`avatars.mootmaker.com` in
+   production), sitting alongside the existing `api.` and `www.`. `media.` or `assets.` would read
+   as more general and invite unrelated content onto a distribution designed around immutable
+   content-addressed objects.
+9. **`database-reset` also empties the avatars bucket.**
 10. **The gender split survives phase 1.** `FEMALE_FIRST_NAMES` keeps choosing between two halves of
     the pool even for procedural avatars, so the mechanism phase 2 depends on stays exercised rather
     than being written once and never run. Whether a given DiceBear style reads as gendered at all
@@ -283,7 +295,7 @@ work any more.
    "nothing accumulates without a bound". A reaper comparing bucket contents against live
    `photoUrl`s is the obvious answer, and is not needed until real users can upload.
 3. **Should `removePersonPhoto` ship now** or wait for the upload UI that would use it?
-4. **Does the photos distribution need its own `default_root_object` or index behaviour?** Almost
+4. **Does the avatars distribution need its own `default_root_object` or index behaviour?** Almost
    certainly not — nothing should ever request its root — but an explicit 403 beats whatever the
    default turns out to be.
 5. **Which DiceBear CC0 style?** Nine qualify. This is an aesthetic call best made by looking at
@@ -292,7 +304,15 @@ work any more.
    exists so a photo does not contradict a name. Several CC0 styles are deliberately neutral, in
    which case the split still runs (choice 10) but selects between two arbitrary halves. Harmless,
    and worth a look once a style is picked.
-7. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
+7. **Should the GraphQL surface be renamed "avatar" too?** With the path and subdomain now
+   `avatars`, "photo" survives only in the API: `Person.photoUrl`, `requestPersonPhotoUpload`,
+   `confirmPersonPhotoUpload`, `removePersonPhoto`. Every other part of the project already says
+   avatar — `PersonAvatar.tsx`, `designs/archive/person-avatar-photos.md`, this document's own
+   title — so "photo" is the outlier, and the phase 1 images are not photographs at all, which
+   makes the name actively misleading. Against: `photoUrl` is a shipped field, so renaming is a
+   breaking schema change. Cheap to do now while the only readers are ours and the schema is being
+   versioned anyway; steadily more expensive later.
+8. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
    of `java.awt` composing shapes from a name hash would remove the pool, the read-back, the
    exhaustion check and the Node build-time dependency, and scale without limit. Rejected for now
    as bespoke art with uncertain results, and because the pool machinery is needed for phase 2
@@ -314,8 +334,8 @@ work any more.
 - `RenamePersonHandler`, `UpdateMyNameHandler`, `SetPersonAdminHandler`,
   `UpdateMyPreferencesHandler` — each loses its hand-written carry-forward.
 - New image validation/normalisation class, and a small S3 wrapper.
-- `impl/.../handler/DatabaseResetHandler.java` — also empties the photos bucket.
-- `deploy/terraform/` — new `s3.tf` for the photos bucket (versioning off, public access blocked,
+- `impl/.../handler/DatabaseResetHandler.java` — also empties the avatars bucket.
+- `deploy/terraform/` — new `s3.tf` for the avatars bucket (versioning off, public access blocked,
   lifecycle rule expiring `uploads/` after 1 day, bucket policy granting this repo's own
   distribution via OAC), new `cloudfront.tf` and `domain.tf` for the distribution, certificate and
   Route53 records — modelled on `mootmaker-webapp/deploy/terraform/domain.tf`, including the
@@ -333,7 +353,7 @@ at all**.
 - `webapp/public/avatars/` — **deleted** (24 files).
 - `webapp/src/graphql/` — regenerate after the schema change; `@mootmaker/schema` bump.
 - `webapp/src/testSupport/mocks/fixtures.ts` and `webapp/tests/person-avatar.spec.ts` — fixture
-  values become absolute `https://photos.…` URLs.
+  values become absolute `https://avatars.…` URLs.
 - `webapp/src/components/PersonAvatar.tsx` — `originRelative()` deleted; `src` used as given.
 
 ### mootmaker-demo-data
@@ -358,10 +378,10 @@ Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.m
   Writes change from full-item `PutItem` to attribute-level `UpdateItem`, which is a storage-access
   change rather than a shape change — no migration.
 - **Cognito** — unaffected.
-- **New: S3.** One bucket per environment, `<env>-mootmaker-person-photos-<account>`, with two
+- **New: S3.** One bucket per environment, `<env>-mootmaker-avatars-<account>`, with two
   prefixes: `uploads/<personId>/<uploadId>` (private staging, expired after 1 day by lifecycle
-  rule) and `person-photos/v1/<sha256>.jpg` (served, `immutable`).
-- **New: DNS.** One `photos.<environment>.mootmaker.com` A/AAAA record pair per environment in the
+  rule) and `avatars/v1/<sha256>.jpg` (served, `immutable`).
+- **New: DNS.** One `avatars.<environment>.mootmaker.com` A/AAAA record pair per environment in the
   `mootmaker.com` hosted zone that mootmaker-domain owns, plus a per-environment ACM certificate.
 - **No backfill.** Existing `photoUrl` values point at webapp-bundled files that this change
   deletes. They are demo data only, and the rollout is a reset-and-reseed, so nothing is migrated.
@@ -381,10 +401,16 @@ Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.m
   repeat is a no-op overwrite of identical content.
 - **Lambda needs S3 in the SnapStart snapshot.** Build the S3 client eagerly, in the constructor,
   like every other handler dependency.
-- **The photo host must be configuration, never derived.** The resolver Lambda reads it from an
+- **The avatar host must be configuration, never derived.** The resolver Lambda reads it from an
   environment variable set by this repo's own Terraform. Reconstructing it from the environment name
   in code would reintroduce, in string concatenation, exactly the implicit coupling this revision
-  removes.
+  removes — and would get production wrong on the first try, since production drops the environment
+  segment.
+- **The distribution uses `origin_path = "/avatars"`**, so the public URL carries no path prefix and
+  `https://avatars.mootmaker.com/avatars/v1/...` does not stutter. That is the cosmetic reason. The
+  substantive one is that `origin_path` makes the `uploads/` prefix **unreachable through
+  CloudFront at all**: staging objects cannot be fetched publicly even by an exact-key guess, which
+  is a stronger guarantee than a bucket policy that has to be read correctly to be trusted.
 - **`database-reset` must empty the bucket, not delete it.** The bucket is a Terraform resource; a
   reset that removed it would put Terraform and reality out of step.
 - **Certificate validation is the slow part of a first deploy.** ACM DNS validation against the
@@ -455,11 +481,11 @@ no copy or structure it looks at. Explicitly considered, no change needed.
 - `docs/reference/use-cases.md` — one new numbered case for the acceptance test above.
 - `docs/development/` — the cross-repo architecture gains a second custom domain; mootmaker-api is
   no longer AppSync-URL-only.
-- `mootmaker-api/README.md` — the photos bucket, distribution and subdomain, the upload flow, and
+- `mootmaker-api/README.md` — the avatars bucket, distribution and subdomain, the upload flow, and
   `database-reset`'s widened remit.
 - `mootmaker-webapp/README.md` — avatars are no longer bundled or served by this component at all.
 - `mootmaker-demo-data/README.md` — the bundled photo library and the create-then-upload sequence.
-- `mootmaker-domain/README.md` — if it enumerates which hostnames exist, `photos.<env>` joins them.
+- `mootmaker-domain/README.md` — if it enumerates which hostnames exist, `avatars.<env>` joins them.
 - `designs/archive/person-avatar-photos.md` — add a line pointing at this document as its successor.
 - This document moves to `archive/` at Shipped.
 
