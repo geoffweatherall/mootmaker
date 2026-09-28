@@ -19,8 +19,13 @@ design could proceed on hardware this one requires and does not yet have.
 **In scope**
 
 - Choosing and installing a local image-generation stack on a GPU machine.
-- Generating a pool of photorealistic face images, gender-balanced to match
-  `SampleData.FEMALE_FIRST_NAMES`.
+- Generating a pool of photorealistic face images.
+- **Re-introducing gender matching**, which the parent design deliberately dropped. It restores
+  `SampleData.FEMALE_FIRST_NAMES` (deleted there rather than left as dead code) and the
+  male/female split of the pool, plus the unit case asserting an assigned image matches its name's
+  tagged gender. This belongs here and not there because DiceBear styles are seeded from a string
+  and take no gender at all, whereas a generated photograph does — the requirement only becomes
+  expressible once the images are photorealistic.
 - Replacing the committed pool in `mootmaker-demo-data/impl/src/main/resources/avatars/`.
 - Recording the model, prompts and seeds so the pool is reproducible.
 
@@ -128,8 +133,10 @@ because the bytes change, which is an ordinary reseed, not a migration.
 
 ## Testing impacts
 
-**Unit (mootmaker-demo-data)** — the existing pool tests carry over unchanged: every bundled resource
-loads from the classpath, the gender split holds, no avatar repeats within an environment. They are
+**Unit (mootmaker-demo-data)** — one genuinely new case, for the gender matching this design
+re-introduces: an assigned image's half of the pool matches its name's tag in
+`FEMALE_FIRST_NAMES`. The existing pool tests carry over unchanged: every bundled resource
+loads from the classpath, no avatar repeats within an environment. They are
 written against the pool's shape rather than its contents, so replacing the images should not touch
 them. If a test needs changing, that is a signal the parent design leaked image specifics into logic
 that should not know about them.

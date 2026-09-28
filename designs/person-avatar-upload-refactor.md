@@ -364,10 +364,13 @@ Cheap to override — flagged because I picked them rather than asking.
    as more general and invite unrelated content onto a distribution designed around immutable
    content-addressed objects.
 9. **`database-reset` also empties the avatars bucket.**
-10. **The gender split is kept.** `FEMALE_FIRST_NAMES` keeps choosing between two halves of the
-    pool even for procedural avatars, so the mechanism a photorealistic pool depends on stays
-    exercised rather than written once and never run. Whether a given DiceBear style reads as
-    gendered at all is a separate question — see non-blocking question 3.
+10. **Gender matching is dropped here, and `FEMALE_FIRST_NAMES` deleted with it.** DiceBear styles
+    are seeded from a string and take no gender, so matching would mean biasing per-style options —
+    suppressing facial hair on one half, say — which is both fiddly and a stereotype written into
+    code. A Neutral variant sidesteps it entirely. The tagging set is removed rather than left
+    unused, since dead code that exists "for a future design" is dead forever if that design never
+    lands; [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) re-adds it, where it
+    genuinely earns its place.
 
 ## Open questions
 
@@ -389,17 +392,7 @@ Cheap to override — flagged because I picked them rather than asking.
    aesthetic call best made by looking at them against the real UI rather than argued here, and it
    changes nothing structural. My lean is Notionists: it reads cleanest against a professional
    meeting-booking tool, where Open Peeps is noticeably more playful.
-3. **Should avatars read as gendered at all?** The existing `FEMALE_FIRST_NAMES` tagging exists so
-   an image does not contradict a name. DiceBear makes this awkward on purpose: a style is seeded
-   from a string and does not take a gender, and every person-depicting CC0 style ships an explicit
-   **Neutral** variant. Biasing a split through per-style options (suppressing facial hair on one
-   half, say) would be both fiddly and a stereotype encoded in code.
-
-   My recommendation is to use a Neutral variant and let the split select between two arbitrary
-   halves, exactly as choice 10 already describes — the mechanism stays exercised for
-   [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md), where gender matching genuinely
-   matters, without this design pretending to a precision it cannot deliver.
-4. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
+3. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
    of `java.awt` composing shapes from a name hash would remove the pool, the read-back, the
    exhaustion check and the Node build-time dependency, and scale without limit. Rejected for now
    as bespoke art with uncertain results, and because the pool machinery is needed by
@@ -449,7 +442,8 @@ at all**.
 ### mootmaker-demo-data
 
 - `impl/src/main/resources/avatars/` — new, 200 PNGs (~3 MB into a 12 MB shaded jar).
-- `SampleData.java` — `FEMALE_AVATAR_PHOTOS`/`MALE_AVATAR_PHOTOS` become classpath resource names;
+- `SampleData.java` — `FEMALE_AVATAR_PHOTOS`/`MALE_AVATAR_PHOTOS` collapse into one pool of
+  classpath resource names, and `FEMALE_FIRST_NAMES` is deleted;
   `avatarPhotoFor` takes the set already in use and returns an unused resource or null.
 - `DemoData.java` — `topUpPeople` creates the person, then requests, PUTs and confirms.
 - `GraphQlClient.java` — needs a plain binary PUT alongside its GraphQL POST.
@@ -543,9 +537,10 @@ tests (including the two `regressionMootmakerApi71...` ones) should keep asserti
 outcomes, but now pass because the repository cannot clobber rather than because a handler
 remembered.
 
-**Unit (mootmaker-demo-data)** — the existing `DemoDataTopUpTest` cases for the 10% rate and the
-gender tagging stay. `everyAssignedPhotoIsOriginRelative` is superseded: the path is no longer
-demo-data's to construct. New: never assigns a photo already in use given a set of existing
+**Unit (mootmaker-demo-data)** — the existing `DemoDataTopUpTest` case for the 10%-no-avatar rate
+stays. Two are **deleted**: `everyAssignedPhotoIsOriginRelative`, because the path is no longer
+demo-data's to construct, and `everyAssignedPhotoMatchesTheFirstNamesTaggedGender`, because gender
+matching moves to [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md). New: never assigns a photo already in use given a set of existing
 `avatarUrl`s; throws rather than repeating when the pool is exhausted; every bundled resource is
 actually loadable from the classpath (cheap, and catches a resource that did not make it into the
 shaded jar).
@@ -637,7 +632,7 @@ revert also needs a reseed. Nothing is destroyed that is not demo data.
 - **[photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) quietly not happening** would
   leave the product on cartoon avatars indefinitely. That is a legitimate outcome — nothing here is
   incomplete without it — but it should be closed deliberately rather than left drifting.
-  Non-blocking question 4 notes the cheaper design that would then be right.
+  Non-blocking question 3 notes the cheaper design that would then be right.
 - **Retiring the nested-route regression test** removes a guard that caught a real shipped bug. It
   is only safe because the rule it guarded ceases to exist; if absolute URLs are ever walked back,
   that test must come back with them.
