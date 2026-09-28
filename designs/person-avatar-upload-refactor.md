@@ -283,9 +283,23 @@ the only component that uses them — bundling them into the webapp is what crea
 filename convention that broke.
 
 **This design ships procedural vector avatars.**
-[DiceBear](https://www.dicebear.com/licenses/) publishes nine **CC0** styles (Lorelei, Notionists,
-Open Peeps, Pixel Art, Thumbs among them): public domain, no attribution, nothing to reason about
+[DiceBear](https://www.dicebear.com/licenses/) publishes **42 CC0 1.0** styles — public domain, no
+attribution, commercial use and redistribution both explicitly permitted, so nothing to reason about
 for a public repository. No GPU, no model, no generation run, no model licence.
+
+Licences are **per style**, and the split matters: 42 are CC0, **14 are CC BY 4.0** (Adventurer, Big
+Ears, Big Smile, Croodles, Dylan, Fun Emoji, Glyphs, Micah, Miniavs, Personas, Toon Head and their
+Neutral variants) and would oblige us to carry visible designer credit; Icons is MIT; and Avataaars
+and Bottts carry the artist's own terms. Only the CC0 set is in scope here.
+
+Most of those 42 are abstract — rings, shapes, waves, planets. The styles that actually depict a
+person, and so are real candidates, are **Lorelei, Notionists, Open Peeps and Pixel Art**, each of
+which also has a **Neutral** variant. `Initials` is CC0 too but is precisely what the existing
+fallback already draws, so it would be a no-op.
+
+The DiceBear **library code** is MIT (Copyright 2026 Florian Körner). That obligation attaches to
+redistributing the library, which this design never does — the CLI is used once at authoring time
+and only its output images are committed. Worth noting in case that ever changes.
 
 Photorealistic avatars are a **separate design** —
 [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) — because they need a GPU machine
@@ -370,12 +384,21 @@ Cheap to override — flagged because I picked them rather than asking.
 1. **Does the avatars distribution need its own `default_root_object` or index behaviour?** Almost
    certainly not — nothing should ever request its root — but an explicit 403 beats whatever the
    default turns out to be.
-2. **Which DiceBear CC0 style?** Nine qualify. This is an aesthetic call best made by looking at
-   them against the real UI rather than argued in a document, and it changes nothing structural.
-3. **Should avatars read as gendered at all?** The existing `FEMALE_FIRST_NAMES` tagging
-   exists so a photo does not contradict a name. Several CC0 styles are deliberately neutral, in
-   which case the split still runs (choice 10) but selects between two arbitrary halves. Harmless,
-   and worth a look once a style is picked.
+2. **Which DiceBear CC0 style?** Realistically four: **Lorelei**, **Notionists**, **Open Peeps** or
+   **Pixel Art** — the only CC0 styles that depict a person rather than an abstract pattern. An
+   aesthetic call best made by looking at them against the real UI rather than argued here, and it
+   changes nothing structural. My lean is Notionists: it reads cleanest against a professional
+   meeting-booking tool, where Open Peeps is noticeably more playful.
+3. **Should avatars read as gendered at all?** The existing `FEMALE_FIRST_NAMES` tagging exists so
+   an image does not contradict a name. DiceBear makes this awkward on purpose: a style is seeded
+   from a string and does not take a gender, and every person-depicting CC0 style ships an explicit
+   **Neutral** variant. Biasing a split through per-style options (suppressing facial hair on one
+   half, say) would be both fiddly and a stereotype encoded in code.
+
+   My recommendation is to use a Neutral variant and let the split select between two arbitrary
+   halves, exactly as choice 10 already describes — the mechanism stays exercised for
+   [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md), where gender matching genuinely
+   matters, without this design pretending to a precision it cannot deliver.
 4. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
    of `java.awt` composing shapes from a name hash would remove the pool, the read-back, the
    exhaustion check and the Node build-time dependency, and scale without limit. Rejected for now
