@@ -166,6 +166,30 @@ feedback would otherwise have to travel back over a subscription or live in a st
 The existing `daysInvalidated` subscription precedent (carry a signal, let the client refetch) is
 noted and deliberately not used here: there is nothing to signal, because the mutation returns.
 
+### `avatarUrl` stays a bare `String`
+
+AppSync permits no arbitrary custom scalars — only its own fourteen — so the realistic alternatives
+were `AWSURL`, an `Avatar` object type, a field with a `size` argument, or a union over avatar
+kinds. Every other field in this schema is already a bare `String` with a precise description, down
+to `linkedEmails: [String!]!` rather than `AWSEmail` and ISO date-times rather than `AWSDateTime`.
+
+`AWSURL` had the strongest case, and not merely for tidiness: `avatarUrl` is composed at read time
+from a Lambda environment variable, so a misconfigured host would hand every client a broken URL
+that fails as an initials fallback — precisely the silent failure this refactor exists because of.
+
+It was still rejected, because the guard it offers is weaker than the one already planned.
+Well-formedness is not reachability: `https://` followed by nonsense is a perfectly valid URL. The
+acceptance check in Definition of done fetches the URL and asserts it returns `image/jpeg`, which
+proves the bytes are genuinely there. Buying a weaker check at the cost of the schema's consistency
+is a bad trade.
+
+Note for anyone revisiting this: the absence of AWS scalars elsewhere is *not* evidence they were
+rejected on principle. `AWSDateTime` demands a time-zone offset that this codebase's naive local
+times do not have, which is a real semantic conflict — it does not generalise to `AWSURL`.
+
+An `Avatar` object type remains the right shape if alt text or a placeholder image ever appears.
+Today it would carry one real field and two constants.
+
 ### The GraphQL surface says "avatar", not "photo"
 
 `Person.photoUrl` becomes **`Person.avatarUrl`**, and the mutations are `requestAvatarUpload`,
@@ -291,39 +315,36 @@ Cheap to override — flagged because I picked them rather than asking.
 10. **The gender split survives phase 1.** `FEMALE_FIRST_NAMES` keeps choosing between two halves of
     the pool even for procedural avatars, so the mechanism phase 2 depends on stays exercised rather
     than being written once and never run. Whether a given DiceBear style reads as gendered at all
-    is a separate question — see non-blocking question 6.
+    is a separate question — see non-blocking question 5.
 
 ## Open questions
 
 ### Blocking
 
-1. **Does `Person.avatarUrl` stay a bare `String`?** Now that only the API ever writes it, it stores
-   `v1/<sha256>` and it is resolved to an absolute URL on read, it could become a narrower type.
-   Keeping `String` is the smaller change and is probably right, but it is worth one sentence of
-   agreement rather than assumption.
+**None.** Both are resolved:
 
-The image-sourcing question that previously blocked this is **resolved** by the phasing decision
-above: phase 1 needs no GPU, no model and no generation run, so nothing about the images gates the
-work any more.
+- *Image sourcing* — settled by the phasing decision above. Phase 1 needs no GPU, no model and no
+  generation run.
+- *`avatarUrl`'s type* — settled as a bare `String`, recorded under Trade-offs.
 
 ### Non-blocking
 
-2. **Unreferenced served objects are never deleted.** Content-addressed objects are shared, so
+1. **Unreferenced served objects are never deleted.** Content-addressed objects are shared, so
    removing one person's photo cannot safely delete the object. For demo environments this is
    bounded by the pool (~200 × ~15 KB). For real uploads it is unbounded, which conflicts with
    "nothing accumulates without a bound". A reaper comparing bucket contents against live
    `avatarUrl`s is the obvious answer, and is not needed until real users can upload.
-3. **Should `removeAvatar` ship now** or wait for the upload UI that would use it?
-4. **Does the avatars distribution need its own `default_root_object` or index behaviour?** Almost
+2. **Should `removeAvatar` ship now** or wait for the upload UI that would use it?
+3. **Does the avatars distribution need its own `default_root_object` or index behaviour?** Almost
    certainly not — nothing should ever request its root — but an explicit 403 beats whatever the
    default turns out to be.
-5. **Which DiceBear CC0 style?** Nine qualify. This is an aesthetic call best made by looking at
+4. **Which DiceBear CC0 style?** Nine qualify. This is an aesthetic call best made by looking at
    them against the real UI rather than argued in a document, and it changes nothing structural.
-6. **Should phase 1 avatars read as gendered at all?** The existing `FEMALE_FIRST_NAMES` tagging
+5. **Should phase 1 avatars read as gendered at all?** The existing `FEMALE_FIRST_NAMES` tagging
    exists so a photo does not contradict a name. Several CC0 styles are deliberately neutral, in
    which case the split still runs (choice 10) but selects between two arbitrary halves. Harmless,
    and worth a look once a style is picked.
-7. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
+6. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
    of `java.awt` composing shapes from a name hash would remove the pool, the read-back, the
    exhaustion check and the Node build-time dependency, and scale without limit. Rejected for now
    as bespoke art with uncertain results, and because the pool machinery is needed for phase 2
@@ -552,7 +573,7 @@ revert also needs a reseed. Nothing is destroyed that is not demo data.
   generation, not from memory. Phase 2 will reopen this against the model's licence.
 - **Phase 2 quietly not happening** is the realistic failure mode of a phased plan. If it stalls,
   the product keeps cartoon avatars indefinitely, which is a legitimate outcome but should be a
-  decision rather than a drift. Non-blocking question 7 notes the cheaper design that would be
+  decision rather than a drift. Non-blocking question 6 notes the cheaper design that would be
   right in that case.
 - **Retiring the nested-route regression test** removes a guard that caught a real shipped bug. It
   is only safe because the rule it guarded ceases to exist; if absolute URLs are ever walked back,
@@ -562,10 +583,10 @@ revert also needs a reseed. Nothing is destroyed that is not demo data.
 
 Filled in properly once this reaches Ready; sparse while Drafting.
 
-1. `[Geoff]` Decide the one remaining blocking question (whether `avatarUrl` stays a `String`), and
-   pick a DiceBear CC0 style when convenient — the latter blocks nothing until step 8. Note the
-   rename means steps 4 and 7 are no longer independently deployable in the other order: the webapp
-   must follow the API, not precede it.
+1. `[Geoff]` Move this design to **Ready** if it is. Nothing is blocked: both blocking questions are
+   resolved, and the only outstanding `[Geoff]` item is picking a DiceBear CC0 style, which blocks
+   nothing until step 8. Note the field rename means steps 4 and 7 are no longer deployable in
+   either order — the webapp must follow the API, not precede it.
 2. `[Claude]` mootmaker-api: `PersonRepository` `PutItem` → `UpdateItem`, and strip the four
    handlers' carry-forward. Own commit, own PR — independently valuable and independently
    reviewable, and does not depend on anything else here. **This can start immediately.**
