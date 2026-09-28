@@ -2,13 +2,14 @@
 
 ## Summary
 
-Avatar photos are currently a static library bundled into mootmaker-webapp, pointed at by a
-free-string `Person.photoUrl` that mootmaker-demo-data fills in by convention. This replaces that
-with a real upload path owned by the API: a presigned S3 upload, a confirm step that validates and
-normalises the image, and a content-addressed object served from an API-owned bucket behind the
-API's own CloudFront distribution and subdomain. The stock photos move into mootmaker-demo-data,
-which uploads them through the same API calls a future webapp upload feature will use. It also
-fixes the carry-forward problem underneath, by moving `PersonRepository` off whole-record
+Avatars are currently a static library bundled into mootmaker-webapp, pointed at by a free-string
+`Person.photoUrl` that mootmaker-demo-data fills in by convention. This replaces that with a real
+upload path owned by the API: a presigned S3 upload, a confirm step that validates and normalises
+the image, and a content-addressed object served from an API-owned bucket behind the API's own
+CloudFront distribution and subdomain. The field is renamed to `avatarUrl` in the same change. The
+image library moves into mootmaker-demo-data, which uploads it through the same API calls a future
+webapp upload feature will use. It also fixes the carry-forward problem underneath, by moving
+`PersonRepository` off whole-record
 `PutItem`.
 
 ## Status
@@ -22,7 +23,7 @@ generation to follow, which removed the only remaining blocker.
 
 **In scope**
 
-- A two-step upload API (`requestPersonPhotoUpload` / `confirmPersonPhotoUpload`) plus removal.
+- A two-step upload API (`requestAvatarUpload` / `confirmAvatarUpload`) plus removal.
 - A new API-owned S3 bucket for staging and serving person photos, behind a CloudFront distribution
   and subdomain that mootmaker-api owns outright.
 - Server-side validation and normalisation of uploaded images.
@@ -31,20 +32,20 @@ generation to follow, which removed the only remaining blocker.
 - Moving the avatar image library out of mootmaker-webapp and into mootmaker-demo-data, grown to
   cover a whole environment without repeats.
 - Phase 1's procedural CC0 avatar pool and the script that regenerates it.
-- Removing `photoUrl` as an argument to `createPerson`.
+- Removing `avatarUrl` as an argument to `createPerson`.
 - Replacing whole-record `PutItem` in `PersonRepository` with attribute-level `UpdateItem`.
 
 **Explicit non-goals**
 
 - **No webapp upload UI.** The API is designed so the webapp can add one later without a second
   redesign, but no picker, cropper or settings control is built here.
-- **No per-person photo history.** One current photo; replacing it simply repoints `photoUrl`.
+- **No per-person photo history.** One current photo; replacing it simply repoints `avatarUrl`.
 - **No image CDN features** — no on-the-fly resizing, no format negotiation, no WebP/AVIF. One
   canonical derivative, described below.
-- **No change to the initials fallback.** `PersonAvatar` keeps rendering initials when `photoUrl`
+- **No change to the initials fallback.** `PersonAvatar` keeps rendering initials when `avatarUrl`
   is null or the image fails, unchanged.
 - **No avatar for real sign-ups.** `PostConfirmationCreatePersonHandler` still creates people
-  without a photo; `me` still does not select `photoUrl`.
+  without a photo; `me` still does not select `avatarUrl`.
 - **Phase 2 is out of scope here.** Generating photorealistic images needs hardware this design does
   not assume and changes nothing structural, so it is a follow-up piece of work with its own
   checklist — not a half-finished item in this one.
@@ -66,7 +67,7 @@ distribution. The second half can be fudged with an account-scoped wildcard, but
 and the real damage is worse than either: **mootmaker-api could no longer be deployed and verified
 on its own.** Photo serving would only work once the webapp existed, so an API-only environment —
 which is exactly what `mootmaker-api/verify/`'s acceptance suite runs against — would be a
-half-working system. An origin-relative `photoUrl` compounds it, because it is the API implicitly
+half-working system. An origin-relative `avatarUrl` compounds it, because it is the API implicitly
 asserting that it is served from the webapp's origin.
 
 So avatars get `avatars.<environment>.mootmaker.com`, a distribution and certificate owned by
@@ -104,10 +105,10 @@ strategy.
 Presigned GET URLs remain rejected: a URL that changes per request destroys both browser caching
 and Apollo's normalised cache identity.
 
-### `photoUrl` is stored as a path and resolved to an absolute URL on read
+### `avatarUrl` is stored as a path and resolved to an absolute URL on read
 
 DynamoDB stores **`v1/<sha256>`** — the non-boilerplate part and nothing else. The API prepends its
-own avatar host, and appends the extension, when building a response, so `Person.photoUrl` reaches
+own avatar host, and appends the extension, when building a response, so `Person.avatarUrl` reaches
 the client as a fully-resolved `https://avatars.<environment>.mootmaker.com/v1/<sha256>.jpg` —
 `https://avatars.mootmaker.com/v1/<sha256>.jpg` in production, which drops the environment segment
 the same way `api.mootmaker.com` and `www.mootmaker.com` already do.
@@ -128,7 +129,7 @@ Consequence for the webapp: `originRelative()` in `PersonAvatar.tsx` is **delete
 used exactly as the API gave it.
 
 Consequence for demo-data: its read-back must compare on the **path portion** of a returned
-`photoUrl`, not the whole string, so the comparison stays environment-agnostic.
+`avatarUrl`, not the whole string, so the comparison stays environment-agnostic.
 
 ### Served keys are content-addressed, on the hash of the *source* bytes
 
@@ -140,7 +141,7 @@ This single choice does three jobs:
 1. **`immutable` is honest.** A different image is a different key, so a cached URL can never go
    stale. Replacing a person's photo needs no invalidation.
 2. **demo-data can read back what is in use.** It hashes its own bundled file and knows exactly
-   what `photoUrl` that file would produce. It fetches every existing person's `photoUrl` and
+   what `avatarUrl` that file would produce. It fetches every existing person's `avatarUrl` and
    excludes the ones already taken. Crucially this depends only on the *source* bytes, which
    demo-data holds — **not** on server-side processing being byte-for-byte reproducible, which
    would have been brittle across an image-library upgrade.
@@ -153,8 +154,8 @@ get new keys. Without it, `immutable` would be a lie the first time the resize c
 
 ### Upload is a presigned PUT with a synchronous confirm
 
-Three calls: `requestPersonPhotoUpload` returns a presigned URL; the client PUTs the bytes straight
-to S3; `confirmPersonPhotoUpload` validates, normalises, stores and sets `photoUrl`, returning
+Three calls: `requestAvatarUpload` returns a presigned URL; the client PUTs the bytes straight
+to S3; `confirmAvatarUpload` validates, normalises, stores and sets `avatarUrl`, returning
 errors synchronously in the project's usual `errors: [...]` result shape.
 
 Fully async processing (S3 event → processor → subscription) was rejected as disproportionate. For
@@ -165,7 +166,25 @@ feedback would otherwise have to travel back over a subscription or live in a st
 The existing `daysInvalidated` subscription precedent (carry a signal, let the client refetch) is
 noted and deliberately not used here: there is nothing to signal, because the mutation returns.
 
-### `createPerson` loses its `photoUrl` argument
+### The GraphQL surface says "avatar", not "photo"
+
+`Person.photoUrl` becomes **`Person.avatarUrl`**, and the mutations are `requestAvatarUpload`,
+`confirmAvatarUpload` and `removeAvatar`.
+
+"Avatar" is the general concept — the thing shown next to a person's name, whatever it is made of.
+"Photo" is one possible kind, and deliberately not the kind phase 1 ships: calling a generated
+vector cartoon a photo would be plainly wrong. Keeping the general name now leaves room for a
+genuine `photo` concept later without a second rename, which is the reasoning Geoff gave for the
+choice. Every other part of the project already says avatar — `PersonAvatar.tsx`,
+`designs/archive/person-avatar-photos.md`, this document's own title — so this removes the outlier
+rather than introducing a new word.
+
+The cost is a breaking schema change and a stored-attribute rename. Both are cheap **only because
+of when this happens**: the schema is already being versioned in this change, every client is ours,
+and the rollout is a reset-and-reseed that discards existing values anyway. The same rename in six
+months would need a migration and a deprecation window.
+
+### `createPerson` loses its `avatarUrl` argument
 
 Setting a photo becomes the upload flow's job, and only the upload flow's job. This restores
 `createPerson(name: String!)` to its original shape and removes the one place where an unvalidated
@@ -177,7 +196,7 @@ the webapp would.
 This was raised as possibly redundant once photos have a dedicated mutation. It is not. Today every
 handler that changes a person rebuilds the whole `Person` record and `PutItem`s it, so
 `RenamePersonHandler`, `UpdateMyNameHandler`, `SetPersonAdminHandler` and
-`UpdateMyPreferencesHandler` each carry a hand-written `current.get().photoUrl()` purely to avoid
+`UpdateMyPreferencesHandler` each carry a hand-written `current.get().avatarUrl()` purely to avoid
 erasing a field they have no interest in. A dedicated photo mutation removes one instance of that
 problem and adds another — the photo mutation would itself have to carry `name`, `isAdmin` and all
 three preferences forward.
@@ -278,7 +297,7 @@ Cheap to override — flagged because I picked them rather than asking.
 
 ### Blocking
 
-1. **Does `Person.photoUrl` stay a bare `String`?** Now that only the API ever writes it, it stores
+1. **Does `Person.avatarUrl` stay a bare `String`?** Now that only the API ever writes it, it stores
    `v1/<sha256>` and it is resolved to an absolute URL on read, it could become a narrower type.
    Keeping `String` is the smaller change and is probably right, but it is worth one sentence of
    agreement rather than assumption.
@@ -293,8 +312,8 @@ work any more.
    removing one person's photo cannot safely delete the object. For demo environments this is
    bounded by the pool (~200 × ~15 KB). For real uploads it is unbounded, which conflicts with
    "nothing accumulates without a bound". A reaper comparing bucket contents against live
-   `photoUrl`s is the obvious answer, and is not needed until real users can upload.
-3. **Should `removePersonPhoto` ship now** or wait for the upload UI that would use it?
+   `avatarUrl`s is the obvious answer, and is not needed until real users can upload.
+3. **Should `removeAvatar` ship now** or wait for the upload UI that would use it?
 4. **Does the avatars distribution need its own `default_root_object` or index behaviour?** Almost
    certainly not — nothing should ever request its root — but an explicit 403 beats whatever the
    default turns out to be.
@@ -304,15 +323,7 @@ work any more.
    exists so a photo does not contradict a name. Several CC0 styles are deliberately neutral, in
    which case the split still runs (choice 10) but selects between two arbitrary halves. Harmless,
    and worth a look once a style is picked.
-7. **Should the GraphQL surface be renamed "avatar" too?** With the path and subdomain now
-   `avatars`, "photo" survives only in the API: `Person.photoUrl`, `requestPersonPhotoUpload`,
-   `confirmPersonPhotoUpload`, `removePersonPhoto`. Every other part of the project already says
-   avatar — `PersonAvatar.tsx`, `designs/archive/person-avatar-photos.md`, this document's own
-   title — so "photo" is the outlier, and the phase 1 images are not photographs at all, which
-   makes the name actively misleading. Against: `photoUrl` is a shipped field, so renaming is a
-   breaking schema change. Cheap to do now while the only readers are ours and the schema is being
-   versioned anyway; steadily more expensive later.
-8. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
+7. **Is a Java-native avatar generator preferable to a pre-generated pool?** Roughly 200–300 lines
    of `java.awt` composing shapes from a name hash would remove the pool, the read-back, the
    exhaustion check and the Node build-time dependency, and scale without limit. Rejected for now
    as bespoke art with uncertain results, and because the pool machinery is needed for phase 2
@@ -322,13 +333,13 @@ work any more.
 
 ### mootmaker-api
 
-- `api/mootmaker.graphql` — three new mutations, new result/error types, `photoUrl` removed from
+- `api/mootmaker.graphql` — three new mutations, new result/error types, `avatarUrl` removed from
   `createPerson`. Version bump in `api/package.json` (the publish workflow fails otherwise — this
   has bitten twice).
-- `impl/.../handler/` — new `RequestPersonPhotoUploadHandler`, `ConfirmPersonPhotoUploadHandler`,
-  `RemovePersonPhotoHandler`; registered in `ResolverDispatchHandler`, and constructed eagerly in
+- `impl/.../handler/` — new `RequestAvatarUploadHandler`, `ConfirmAvatarUploadHandler`,
+  `RemoveAvatarHandler`; registered in `ResolverDispatchHandler`, and constructed eagerly in
   its constructor so they are captured in the SnapStart snapshot.
-- `impl/.../handler/CreatePersonHandler.java` — drops the `photoUrl` argument.
+- `impl/.../handler/CreatePersonHandler.java` — drops the `avatarUrl` argument.
 - `impl/.../dynamo/PersonRepository.java` — `PutItem` → attribute-level `UpdateItem`; new
   `updatePhotoUrl`.
 - `RenamePersonHandler`, `UpdateMyNameHandler`, `SetPersonAdminHandler`,
@@ -371,20 +382,26 @@ at all**.
 
 Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.md):
 
-- **DynamoDB `People` table** — no new attributes. `photoUrl` already exists and keeps its meaning
-  and nullability; only its *format* narrows, to the bare `v1/<sha256>`, and only the API may now
-  write it. Note the stored value is deliberately **not** what the API returns — host, prefix and
-  extension are all added on read, so stored data carries no environment hostname and no boilerplate.
-  Writes change from full-item `PutItem` to attribute-level `UpdateItem`, which is a storage-access
-  change rather than a shape change — no migration.
+- **DynamoDB `People` table** — the `photoUrl` attribute is **renamed to `avatarUrl`**, keeping its
+  meaning and nullability. Its *format* also narrows, to the bare `v1/<sha256>`, and only the API
+  may now write it. The stored value is deliberately **not** what the API returns — host and
+  extension are added on read, so stored data carries no environment hostname and no boilerplate.
+  Writes change from full-item `PutItem` to attribute-level `UpdateItem`, a storage-access change
+  rather than a shape change.
+- **The attribute rename needs no migration, but only because of the rollout.** Nothing reads
+  `photoUrl` after this ships, and every existing value points at a webapp-bundled file the change
+  deletes, so the old attribute is simply abandoned rather than copied forward. That is safe here
+  and would not be for an attribute holding data anyone cared about — worth stating, because "we
+  renamed a DynamoDB attribute with no migration" is otherwise a dangerous precedent to copy.
+  Stray `photoUrl` attributes disappear with the reset.
 - **Cognito** — unaffected.
 - **New: S3.** One bucket per environment, `<env>-mootmaker-avatars-<account>`, with two
   prefixes: `uploads/<personId>/<uploadId>` (private staging, expired after 1 day by lifecycle
   rule) and `avatars/v1/<sha256>.jpg` (served, `immutable`).
 - **New: DNS.** One `avatars.<environment>.mootmaker.com` A/AAAA record pair per environment in the
   `mootmaker.com` hosted zone that mootmaker-domain owns, plus a per-environment ACM certificate.
-- **No backfill.** Existing `photoUrl` values point at webapp-bundled files that this change
-  deletes. They are demo data only, and the rollout is a reset-and-reseed, so nothing is migrated.
+- **No backfill.** Existing values are demo data only, and the rollout is a reset-and-reseed, so
+  nothing is migrated.
 
 ## Technical considerations
 
@@ -397,7 +414,7 @@ Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.m
   must match the bytes. That is stricter than a range and worth stating in the schema description.
 - **Content type is still client-asserted** at request time. S3 enforces the header matches the
   signature, not that the bytes match the header; only the decode in confirm proves it is an image.
-- **`confirmPersonPhotoUpload` must be idempotent.** The key is a pure function of the bytes, so a
+- **`confirmAvatarUpload` must be idempotent.** The key is a pure function of the bytes, so a
   repeat is a no-op overwrite of identical content.
 - **Lambda needs S3 in the SnapStart snapshot.** Build the S3 client eagerly, in the constructor,
   like every other handler dependency.
@@ -445,7 +462,7 @@ remembered.
 **Unit (mootmaker-demo-data)** — the existing `DemoDataTopUpTest` cases for the 10% rate and the
 gender tagging stay. `everyAssignedPhotoIsOriginRelative` is superseded: the path is no longer
 demo-data's to construct. New: never assigns a photo already in use given a set of existing
-`photoUrl`s; throws rather than repeating when the pool is exhausted; every bundled resource is
+`avatarUrl`s; throws rather than repeating when the pool is exhausted; every bundled resource is
 actually loadable from the classpath (cheap, and catches a resource that did not make it into the
 shaded jar).
 
@@ -476,7 +493,7 @@ no copy or structure it looks at. Explicitly considered, no change needed.
 
 ## Documentation impacts
 
-- `docs/reference/data-model.md` — narrow `photoUrl`'s described format, note that the stored value
+- `docs/reference/data-model.md` — narrow `avatarUrl`'s described format, note that the stored value
   is a path and the returned value absolute; add the S3 bucket, its two prefixes, and the subdomain.
 - `docs/reference/use-cases.md` — one new numbered case for the acceptance test above.
 - `docs/development/` — the cross-repo architecture gains a second custom domain; mootmaker-api is
@@ -501,11 +518,14 @@ can ship and be verified before either other repo moves. A sensible order is sti
 1. mootmaker-api — schema, handlers, bucket, distribution, subdomain. Deployable and verifiable on
    its own.
 2. mootmaker-webapp — schema bump, codegen, deleted images, `originRelative()` removed.
-3. mootmaker-demo-data — photo library and upload flow.
+3. mootmaker-demo-data — avatar library and upload flow.
 4. Per environment: deploy all three, `database-reset`, then invoke demo-data.
 
-Between steps 1 and 2 the webapp renders initials for everyone, because `photoUrl` comes back in a
-form it has not yet been rebuilt for — a visibly degraded but not broken state, and short-lived.
+Between steps 1 and 2 the webapp renders initials for everyone: it is still selecting `photoUrl`,
+which no longer exists. A visibly degraded but not broken state, and short-lived — but note this is
+a **hard** break rather than a soft one, because the field is renamed rather than merely reformatted.
+The webapp's `codegen:check` will fail until step 2 lands, which is the intended behaviour and not
+a reason to delay step 1.
 
 Reversibility is good up to the point the images are deleted from mootmaker-webapp; after that a
 revert also needs a reseed. Nothing is destroyed that is not demo data.
@@ -542,8 +562,10 @@ revert also needs a reseed. Nothing is destroyed that is not demo data.
 
 Filled in properly once this reaches Ready; sparse while Drafting.
 
-1. `[Geoff]` Decide the one remaining blocking question (whether `photoUrl` stays a `String`), and
-   pick a DiceBear CC0 style when convenient — the latter blocks nothing until step 8.
+1. `[Geoff]` Decide the one remaining blocking question (whether `avatarUrl` stays a `String`), and
+   pick a DiceBear CC0 style when convenient — the latter blocks nothing until step 8. Note the
+   rename means steps 4 and 7 are no longer independently deployable in the other order: the webapp
+   must follow the API, not precede it.
 2. `[Claude]` mootmaker-api: `PersonRepository` `PutItem` → `UpdateItem`, and strip the four
    handlers' carry-forward. Own commit, own PR — independently valuable and independently
    reviewable, and does not depend on anything else here. **This can start immediately.**
@@ -571,7 +593,7 @@ Filled in properly once this reaches Ready; sparse while Drafting.
   central claim and should be proven directly, not inferred.
 - A single ephemeral environment with all three components deployed, reset and reseeded, where
   100 demo people hold **90 distinct** avatars and 10 none, with no image shared by two people —
-  checked by comparing the returned `photoUrl`s, not by trusting the assignment code.
+  checked by comparing the returned `avatarUrl`s, not by trusting the assignment code.
 - The new acceptance case proves `naturalWidth > 0`, and the existing acceptance suite is still
   green on that environment.
 - A served photo responds with `Cache-Control: public, max-age=31536000, immutable` and a real
