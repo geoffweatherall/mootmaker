@@ -170,6 +170,33 @@ itself. That question is now answered by reading the days in the window and filt
 the day is being fetched anyway. Its rebuild repair, `RebuildMeetingParticipantsRepair`, went with
 it. **Nothing in this model is stored twice any more.**
 
+## S3
+
+### Avatars — `${resource_prefix}-avatars-${account_id}`
+
+One bucket per environment, owned by mootmaker-api (`deploy/terraform/avatars.tf`). Private: the
+only public route in is the avatars CloudFront distribution, and the only way to write is through
+the API. Two prefixes:
+
+| Prefix | Holds | Lifetime |
+|---|---|---|
+| `uploads/<personId>/<uploadId>` | A staged upload, exactly as the client sent it, awaiting `confirmAvatarUpload`. Never served | Expired after one day by a lifecycle rule. The API never deletes these, so that confirming stays retryable |
+| `avatars/v1/<personId>/<sha256>.jpg` | A person's avatar: a 256×256 JPEG the API produced by decoding and re-encoding the upload. `<sha256>` is the hash of the **uploaded** bytes, not of the JPEG | Until the person's avatar is replaced or removed, or the person is deleted |
+
+**At most one object per person under `avatars/`.** Setting an avatar writes the new object, updates
+the Person, then deletes everything else under that person's prefix. A person's `avatarUrl`
+attribute (see [People](#people--resource_prefix-people)) holds the part of the key between
+`avatars/` and `.jpg`.
+
+Keys are per person, so the same image held by two people is two objects, and deleting one person
+cannot break another's avatar.
+
+Served at `https://avatars.<environment>.mootmaker.com/v1/<personId>/<sha256>.jpg` —
+`avatars.mootmaker.com` in production. The distribution's origin path is `/avatars`, which is why
+that segment is absent from the URL and why `uploads/` cannot be reached through it at all.
+
+`database-reset` deletes every object except those under a surviving person's prefix.
+
 ## Cross-references between Cognito and DynamoDB
 
 - **The link is a list, `Person.cognitoSubs`** (a person can have more than one linked account),
