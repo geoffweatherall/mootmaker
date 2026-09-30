@@ -243,7 +243,8 @@ genuinely new (`deleteRoom` didn't exist before this design).
 Supersedes § K — see [designs/admin-rooms-and-people.md](../../designs/archive/admin-rooms-and-people.md).
 Cases 132–136 carry over K's functional ground against the new top-level `/persons` page; 137–142
 are genuinely new (admin badge/linked-email display, grant/revoke admin, and `deletePerson` with
-its cascade and self/reserved-account guards didn't exist before this design).
+its cascade and self/reserved-account guards didn't exist before this design). Case 143 was added by
+[designs/person-avatar-upload-refactor.md](../../designs/person-avatar-upload-refactor.md).
 
 132. <a id="uc-132"></a> **[All frontends]** Standard user does not see the Persons page. *(webapp: [Q.132](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q132) · android: not yet automated)*
 133. <a id="uc-133"></a> **[All frontends]** Admin adds a new person (e.g. a guest with no login) → appears in Persons, selectable as organiser/attendee/calendar subject. *(webapp: [Q.133](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q133) · android: not yet automated)*
@@ -256,6 +257,7 @@ its cascade and self/reserved-account guards didn't exist before this design).
 140. <a id="uc-140"></a> **[All frontends]** An admin editing their own Person sees the admin switch disabled, rather than being able to attempt (and have rejected) revoking their own access. *(webapp: [Q.140](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q140) · android: not yet automated)*
 141. <a id="uc-141"></a> **[All frontends]** Admin deletes a Person → every upcoming meeting they organise is cancelled, they're removed from every upcoming meeting they only attend, past meetings are untouched. *(webapp: [Q.141](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q141) · android: not yet automated)*
 142. <a id="uc-142"></a> **[All frontends]** An admin attempting to delete their own Person via the admin Persons page is rejected, with a pointer to Delete account in Settings instead. *(webapp: [Q.142](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q142) · android: not yet automated)*
+143. <a id="uc-143"></a> **[All frontends]** A person who has an avatar is shown with it wherever people appear; a person who has none is shown with their initials. *(webapp: [Q.143](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q143) · android: not yet automated)*
 
 ## Notes
 
