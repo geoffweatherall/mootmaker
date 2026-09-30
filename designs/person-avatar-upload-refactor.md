@@ -379,7 +379,8 @@ Cheap to override — flagged because I picked them rather than asking.
    production), sitting alongside the existing `api.` and `www.`. `media.` or `assets.` would read
    as more general and invite unrelated content onto a distribution designed around immutable
    content-addressed objects.
-9. **`database-reset` also empties the avatars bucket.**
+9. **`database-reset` also empties the avatars bucket.** *Amended in implementation - see "What
+   changed during implementation", item 1.*
 10. **The distribution defines no `default_root_object` and no custom error responses**, so a
     request to the bare host gets S3's own 403 unchanged. Nothing legitimate ever asks for this
     host's root — every real URL is `/v1/<personId>/<hash>.jpg` — so anything landing there is a bug
@@ -411,6 +412,47 @@ above, on 2026-09-29:
 
 The only remaining unknowns are implementation details that resolve themselves in the doing, not
 decisions anyone is waiting on.
+
+## What changed during implementation
+
+Found while building, 2026-09-30. Each is a place the code deliberately does not match the text
+above or below it; where they disagree, this section is right. Recorded here rather than by quietly
+rewriting the original reasoning, so the decision and its correction can both be read.
+
+1. **`database-reset` does not empty the bucket** (choice 9). A reset keeps some people - the
+   reserved demo and e2e accounts everywhere, every linked person in `production` - and emptying the
+   bucket would leave each of them with an `avatarUrl` pointing at a deleted object. It deletes
+   every object *except* those under a surviving person's prefix. Staged uploads and anything under
+   a prefix naming nobody always go. In an ordinary ephemeral environment the outcome is the same
+   empty bucket.
+2. **On deleting a person, the avatar goes before the record** - the opposite of the order for
+   setting one. Record-first would strand the image under a prefix no retry can reach, because a
+   retry answers `PersonNotFound`, and a deleted person's picture would stay publicly served.
+   Image-first leaves a Person to retry against.
+3. **The resolver role holds `s3:ListBucket`.** The infrastructure step first withheld it. It is
+   needed twice over: the sweep lists the person's prefix, because the record cannot name an object
+   orphaned by an interrupted attempt; and without it S3 answers a missing key with 403 rather than
+   404, so `UploadNotFound` could not be told from a broken permission.
+4. **`confirmAvatarUpload` never deletes the staged upload.** Deleting it on success would turn a
+   retry after a lost response into `UploadNotFound`, breaking the idempotency this design requires.
+   The one-day lifecycle rule is the only thing that removes staged bytes.
+5. **A missing avatar is a 403, not a 404.** The distribution may `GetObject` but not list, so S3
+   declines to say whether a key exists. Still a real refusal with an XML body, never a page at
+   status 200, which was the point. The definition of done below has been corrected to match.
+6. **Non-square images are centre-cropped**, not stretched or letterboxed. The design fixed the
+   output at 256x256 without saying how a non-square source gets there.
+7. **Avatar errors report the first rule broken, not all of them**, unlike every other error enum
+   here. An image that does not decode has no dimensions to check.
+8. **The shaded jar grew from 11.1 MB to 15.5 MB**, from the AWS SDK `s3` module. Not anticipated
+   above, and larger than dependencies this project has previously declined.
+9. **Deleting an avatar does not purge CloudFront**
+   ([mootmaker-api#91](https://github.com/geoffweatherall/mootmaker-api/issues/91)). An image
+   fetched before it was deleted can keep being served from an edge cache, and the `immutable`
+   header that makes caching cheap is what makes this long-lived. Harmless for demo data. It must be
+   settled before a real upload UI ships, and is therefore a prerequisite this design hands to
+   whichever design adds that UI.
+10. **Terraform is one file, `avatars.tf`**, not the `s3.tf` / `cloudfront.tf` / `domain.tf` split
+    listed under Impacts, and the repository method is `updateAvatarUrl`, not `updatePhotoUrl`.
 
 ## Impacts on components
 
@@ -688,7 +730,7 @@ Filled in properly once this reaches Ready; sparse while Drafting.
 - The new acceptance case proves `naturalWidth > 0`, and the existing acceptance suite is still
   green on that environment.
 - A served photo responds with `Cache-Control: public, max-age=31536000, immutable` and a real
-  404 for a missing key, both verified against the deployed distribution rather than inferred from
+  refusal for a missing key (403 - see "What changed during implementation", item 5), both verified against the deployed distribution rather than inferred from
   Terraform.
 - Teardown of that environment leaves no certificate or DNS record behind, confirmed by looking.
 - Every item under Documentation impacts actually done.
