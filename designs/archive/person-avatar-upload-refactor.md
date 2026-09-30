@@ -463,10 +463,12 @@ rewriting the original reasoning, so the decision and its correction can both be
    above, and larger than dependencies this project has previously declined.
 9. **Deleting an avatar does not purge CloudFront**
    ([mootmaker-api#91](https://github.com/geoffweatherall/mootmaker-api/issues/91)). An image
-   fetched before it was deleted can keep being served from an edge cache, and the `immutable`
-   header that makes caching cheap is what makes this long-lived. Harmless for demo data. It must be
-   settled before a real upload UI ships, and is therefore a prerequisite this design hands to
-   whichever design adds that UI.
+   fetched before it was deleted can keep being served from an edge cache to anyone holding its
+   URL. **Accepted** by Geoff on 2026-10-01 as an edge case: an avatar orphaned when its person is
+   deleted is fine. What does matter, he added, is the reverse: creating an avatar must never fail
+   because the object it writes already exists - which it does whenever a confirm is retried or the
+   same image is uploaded again. It never has failed, since the write is an unconditional
+   `PutObject`; that is now stated in `AvatarStore.putAvatar` and checked against real S3.
 10. **Terraform is one file, `avatars.tf`**, not the `s3.tf` / `cloudfront.tf` / `domain.tf` split
     listed under Impacts, and the repository method is `updateAvatarUrl`, not `updatePhotoUrl`.
 
