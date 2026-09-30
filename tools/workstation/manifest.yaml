@@ -128,6 +128,32 @@ tools:
       Only needed when actually splitting a repository. `git subtree split` is the fallback if it
       cannot be installed, but filter-repo is the better tool.
 
+  - name: nvidia-gpu
+    why: >-
+      Runs mootmaker-demo-data/photorealistic-avatar-generator/, which regenerates the committed
+      pool of demo avatar photographs with Stable Diffusion. Only needed to change that pool;
+      nothing in any build or deploy uses it.
+    check: command -v nvidia-smi && nvidia-smi -L
+    version: nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
+    install: sudo ubuntu-drivers install
+    notes: >-
+      Built on a 4 GB GTX 1650; a full 200-image pool took about 6 hours there. See the generator's
+      README.
+    optional: true
+  - name: avatar-generator-venv
+    why: >-
+      The Python environment for mootmaker-demo-data/photorealistic-avatar-generator/: PyTorch,
+      diffusers and OpenCV at the versions its requirements.txt pins. Same scope as nvidia-gpu.
+    check: test -x ~/.venvs/avatar-gen/bin/python
+    version: ~/.venvs/avatar-gen/bin/python --version
+    install: >-
+      python3 -m venv ~/.venvs/avatar-gen &&
+      ~/.venvs/avatar-gen/bin/pip install -r
+      ../mootmaker-demo-data/photorealistic-avatar-generator/requirements.txt
+    notes: >-
+      The generator's README asks for Python 3.14. The Stable Diffusion model, about 2 GB,
+      downloads to ~/.cache/huggingface on the first run.
+    optional: true
   - name: curl
     why: Checking deployed sites respond, and installing other tools.
     check: command -v curl

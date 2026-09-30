@@ -244,7 +244,7 @@ Supersedes § K — see [designs/admin-rooms-and-people.md](../../designs/archiv
 Cases 132–136 carry over K's functional ground against the new top-level `/persons` page; 137–142
 are genuinely new (admin badge/linked-email display, grant/revoke admin, and `deletePerson` with
 its cascade and self/reserved-account guards didn't exist before this design). Case 143 was added by
-[designs/person-avatar-upload-refactor.md](../../designs/person-avatar-upload-refactor.md).
+[designs/archive/person-avatar-upload-refactor.md](../../designs/archive/person-avatar-upload-refactor.md).
 
 132. <a id="uc-132"></a> **[All frontends]** Standard user does not see the Persons page. *(webapp: [Q.132](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q132) · android: not yet automated)*
 133. <a id="uc-133"></a> **[All frontends]** Admin adds a new person (e.g. a guest with no login) → appears in Persons, selectable as organiser/attendee/calendar subject. *(webapp: [Q.133](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/q-persons.md#tc-q133) · android: not yet automated)*
