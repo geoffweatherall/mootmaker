@@ -10,9 +10,30 @@ built by that design and are not touched here.
 
 ## Status
 
-**Drafting** — 2026-09-29. Split out of
-[person-avatar-upload-refactor.md](person-avatar-upload-refactor.md) on the same day, so that
-design could proceed on hardware this one requires and does not yet have.
+**Shipped** — 2026-10-01. Geoff generated and reviewed the pool (mootmaker-demo-data #47, #48),
+and demo-data was switched to it in #49, merged to `main` on 2026-10-01 without a release.
+
+Verified on `claude-260929-9mjc` on 2026-10-01, after a reset and a fresh demo-data run, by
+checking the result against the pool files rather than trusting the code: 100 people, 88 with a
+photograph, 88 distinct, 88 of 88 served, and **0 where the photograph's sex differs from the one
+the person's first name is tagged with** (40 women, 48 men). Signed in as the demo user, all 88
+decoded on `/persons`.
+
+Where it differs from the text below:
+
+- **The pool is in `avatars-photo/`**, as `man-N.jpg` and `woman-N.jpg`, not a replacement of
+  `avatars/`. That directory - the DiceBear drawings - was deleted in #49 rather than kept as a
+  fallback, which settles open question 5.
+- **The generator does not currently reproduce the committed pool.** Its ethnicity mix was changed
+  after the pool was generated, which reshuffles every prompt and makes `pool.py` fail an assertion
+  on start (see #47). The images and `manifest.json` are unaffected, so the pool is still
+  *documented* - but the Definition of done's "reproducible from the committed script" holds only
+  once the mix is restored or the pool is regenerated at the new one.
+- Photographs are about 13 KB each after the API normalises them, against 5 KB for the drawings,
+  and the jar carries 10 MB of them.
+
+Split out of [person-avatar-upload-refactor.md](person-avatar-upload-refactor.md) on 2026-09-29, so
+that design could proceed on hardware this one required and did not yet have.
 
 ## Scope / non-goals
 

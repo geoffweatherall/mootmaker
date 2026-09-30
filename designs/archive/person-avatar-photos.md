@@ -13,6 +13,11 @@ in `mootmaker-api` (confirmed there is none today).
 
 ## Status
 
+**Superseded** by [person-avatar-upload-refactor.md](person-avatar-upload-refactor.md), shipped
+2026-10-01: avatars are now uploaded through the API and served from its own host, rather than
+bundled into the webapp and named by convention. The photographs described here were replaced by
+[photorealistic-demo-avatars.md](photorealistic-demo-avatars.md)'s generated pool.
+
 **Shipped** — 2026-09-28. Drafted and built in one live session: Geoff specified the key product
 decisions directly (stock library vs. upload, real-sign-ups-always-fall-back, the 10% no-photo
 rate, guess-gender-from-name) rather than reviewing an async draft, which stood in for the normal

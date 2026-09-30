@@ -14,13 +14,29 @@ webapp upload feature will use. It also fixes the carry-forward problem undernea
 
 ## Status
 
-**Building** — 2026-09-29. Approved to **Ready** by Geoff on 2026-09-29 and moved straight to
-Building the same day, as implementation started immediately.
+**Shipped** — 2026-10-01. Merged to `main` in all four repositories on that date (mootmaker-api
+#87, #88, #89, #92; mootmaker-webapp #133; mootmaker-demo-data #46; mootmaker #126, #127), after
+being deployed and verified on ephemeral environments on 2026-09-30:
 
-Revised through the day before approval: avatars get their own CloudFront distribution
-and subdomain rather than riding the webapp's, so mootmaker-api stays independently deployable;
-photorealistic images were split out to
-[photorealistic-demo-avatars.md](photorealistic-demo-avatars.md); `photoUrl` was renamed
+- **mootmaker-api verified on its own**, in an environment where mootmaker-webapp was never
+  deployed (`claude-260930-api1`): 77/77 acceptance tests, including fetching served avatars.
+  Its teardown was then checked by looking: no certificate, DNS record, bucket or distribution
+  left behind.
+- **All three components together** (`claude-260929-9mjc`): 400 API unit and 77 acceptance tests,
+  demo-data 81 unit and 15 acceptance, webapp 143/143 acceptance including the new Q.143.
+  Reset and seeded: 100 people, 84 with avatars, 84 distinct, 84 of 84 served.
+
+Not yet released to `test` or `production` - Geoff asked for the merge without a release. The
+rollout for each is a release followed by `database-reset` and a demo-data run.
+
+Where the build departed from the text below is recorded in "What changed during
+implementation". [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md) shipped the same
+day, so the pool described here as DiceBear drawings has since been replaced by photographs.
+
+Approved to **Ready** by Geoff on 2026-09-29 and moved straight to Building. Revised through the
+day before approval: avatars get their own CloudFront distribution and subdomain rather than riding
+the webapp's, so mootmaker-api stays independently deployable; photorealistic images were split out
+to [photorealistic-demo-avatars.md](photorealistic-demo-avatars.md); `photoUrl` was renamed
 `avatarUrl`; and objects became per-person rather than globally content-addressed, so an avatar can
 be deleted with its person and a person can hold at most one.
 
@@ -508,7 +524,7 @@ at all**.
 
 ## Changes to the domain data model and data storage models
 
-Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.md):
+Delta against [`../docs/reference/data-model.md`](../../docs/reference/data-model.md):
 
 - **DynamoDB `People` table** — the `photoUrl` attribute is **renamed to `avatarUrl`**, keeping its
   meaning and nullability. Its *format* also narrows, to `v1/<personId>/<sha256>`, and only the API
@@ -564,7 +580,7 @@ Delta against [`../docs/reference/data-model.md`](../docs/reference/data-model.m
 - **The DiceBear CLI needs Node and is authoring-time only.** It runs once to produce the pool,
   whose output is committed; nothing in the build, the jar or the Lambda depends on it afterwards.
   Per the process rules it still belongs in
-  [`../tools/workstation/manifest.yaml`](../tools/workstation/manifest.yaml) as a tool future work
+  [`../tools/workstation/manifest.yaml`](../../tools/workstation/manifest.yaml) as a tool future work
   will need.
 - **Vector art is rasterised.** DiceBear renders SVG; the pool is PNG, and the API then
   normalises to JPEG at 256×256. Flattening happens twice, so the source PNGs should be generated at
