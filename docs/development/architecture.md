@@ -64,9 +64,12 @@ See [`../process/environments.md`](../process/environments.md) for policy and
 ## How the webapp reaches the API
 
 The webapp needs values that only exist after the API is deployed — the GraphQL URL, the Cognito
-user pool and client IDs. `mootmaker-api/authenticate.sh` reads them from that environment's
-Terraform outputs, and the webapp's `deploy.sh` passes the environment name straight through. So an
-API and a webapp deployed with the same environment name are wired together automatically.
+user pool and client IDs. The API's deploy publishes them to SSM Parameter Store under
+`/mootmaker/<environment>/api/`, and the webapp's `deploy.sh` looks them up by environment name. So
+an API and a webapp deployed with the same environment name are wired together automatically. The
+same pattern serves every consumer: test runners, the release smoke tests, and the shared email
+queue (`/mootmaker/email-testing/sqs-queue-url`). See mootmaker-api#94 and the API README's
+"Published configuration".
 
 This is why `mootmaker-api` must be a sibling checkout, and why it must be deployed first.
 
