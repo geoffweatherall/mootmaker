@@ -14,9 +14,11 @@ that do not renew. Separately, the SSO session limit goes from 18 to 24 hours.
 
 ## Status
 
-**Drafting**, as of 2026-10-03. Nothing has been changed in AWS. Two blocking questions remain
-(see Open questions). The more important one is whether management write access belongs to a
-second Identity Center user.
+**Drafting**, as of 2026-10-03. Nothing has been changed in AWS. Geoff has answered every
+blocking question: management write access goes to a second Identity Center user (D7), and the
+session length is 24 hours for everything (D8). No blocking questions remain. Content-wise it is
+ready for Geoff to promote to Ready. Even after that, AWS changes still need Geoff's explicit
+go-ahead (see Implementation checklist).
 
 ## How SSO credentials actually work
 
@@ -177,6 +179,10 @@ management account's own spend, the actual invoice, and **Free Tier usage, which
 organisation (payer) level**. The free-tier questions from the October cost investigation (Cognito
 MAU, for example) can only be answered properly from the management account.
 
+Claude may query billing **without asking first**, because a normal check is a handful of
+US$0.01 calls. Afterwards it states roughly what the check cost. It asks before any check expected
+to take more than about 20 calls. *Decided by Geoff, 2026-10-03.*
+
 **D6. A wrapper applies every stack: change set, review, execute.** `deploy-stack.sh <template>`
 in the bootstrap repo:
 
@@ -194,6 +200,35 @@ It works out which account it is targeting from the template's directory, `manag
 or `workload-account/`. It refuses to run if `aws sts get-caller-identity` reports a different
 account. That catches running a management template with workload credentials, or the reverse.
 
+**D7. The stack operator belongs to a second Identity Center user.** *Decided by Geoff,
+2026-10-03.* This follows from point 3 of "How SSO credentials actually work": a token can reach
+every assignment its user has. Under this design:
+
+- `ManagementStackOperator` is assigned **only** to a second user, `geoff-management`, email
+  `geoff.weatherall+mootmaker-management@gmail.com`. Identity Center needs each user's email to be
+  unique; the plus-address still delivers to the same inbox.
+- Your everyday user, and so its cached token, has no route to management write access. AWS
+  enforces that, not convention. Anything running as you, Claude included, cannot get operator
+  credentials from `~/.aws/sso/cache/`.
+- MFA is a second TOTP entry in the authenticator app you already use. It is cloud-synced, so it
+  inherits the same recovery as everything else. Passkeys were considered and rejected: they would
+  add a device dependency for one rarely used user.
+- `ManagementBillingReadOnly` stays on your normal user (D5).
+- You stay signed in as your normal user all day. The management user is signed in only for the
+  moment `with-management-credentials.sh` needs it, in a **private window** (one browser profile
+  holds one access portal sign-in at a time). On the command line both sign-ins exist side by side.
+  The management one is signed out as soon as its one set of credentials has been taken (D4).
+- **Only Geoff runs the helper.** Claude prepares the exact command and Geoff runs it. A Claude
+  Code deny rule makes sure of that (Technical considerations). The browser MFA would be a gate on
+  its own, but Claude holding management write credentials for the length of a command is
+  avoidable, so it is avoided.
+
+**D8. The SSO session is 24 hours, everywhere.** *Decided by Geoff, 2026-10-03.* It is one setting
+for the whole instance, so it also covers the browser access portal and console access to
+everything your normal user is assigned. Under D7 that no longer includes management write access.
+The management user's own sign-ins never last that long, because the helper ends them straight
+away (D4).
+
 ## Choices you had me make
 
 - **Splitting billing read and stack operator into two permission sets** (D5). You described one
@@ -207,7 +242,7 @@ account. That catches running a management template with workload credentials, o
   the right place to keep root.
 - **The narrow custom billing policy instead of `AWSBillingReadOnlyAccess`** (D5). If Claude turns
   out to need something it leaves out, that gets added specifically.
-- **Names:** `ManagementStackOperator`, `ManagementBillingReadOnly`,
+- **Names:** `geoff-management`, `ManagementStackOperator`, `ManagementBillingReadOnly`,
   `mootmaker-management-cloudformation`, profile `mootmaker-billing`, scripts `deploy-stack.sh`
   and `with-management-credentials.sh`. All of these are easy to change before implementation.
 - **The workload account gets no service role** (D1). `WorkloadAdministrator` is already an admin
@@ -217,37 +252,17 @@ account. That catches running a management template with workload credentials, o
 
 ### Blocking
 
-1. **Should the stack operator belong to a second Identity Center user?** This is the one real
-   choice, and it follows from point 3 of "How SSO credentials actually work".
-   - **(a) Same user, recommended against.** If your normal user is assigned the operator, your
-     everyday token can get management write credentials. The helper script and the `config`
-     layout stop this happening *by accident*, but not on purpose: any process running as you,
-     Claude included, can read the cached token and call `get-role-credentials`.
-   - **(b) A second user, e.g. `geoff-management`, recommended.** Only this user is assigned
-     `ManagementStackOperator`. Your everyday token then cannot reach management write access at
-     all, which actually enforces "normally only workload creds". The costs: a second password,
-     a second MFA registration (the same authenticator app can hold both), and signing in as that
-     user in a private window or separate browser profile. One browser profile holds one access
-     portal sign-in at a time, and signing in as the second user there would replace your normal
-     portal sign-in. Your normal CLI token would not be affected. Billing read-only stays on your
-     normal user either way.
-2. **Is 24 hours the session length you want, given that it applies to everything?** It also
-   applies to the access portal in the browser, which means 24 hours of console access to anything
-   your normal user is assigned. If (b) above is chosen, that no longer includes management write
-   access.
+None. The two that were here, a second user and the session length, are now D7 and D8.
 
 ### Non-blocking
 
-3. **Does the Cost Explorer API need the root-only "IAM user and role access to Billing
+1. **Does the Cost Explorer API need the root-only "IAM user and role access to Billing
    information" setting?** That setting definitely controls the Billing *console* for roles in the
    management account. Whether it also controls the `ce` API is to be confirmed on first use. The
    plan is to turn it on anyway, because the bill and invoice views need it.
-4. **Exact service-role actions.** The list in Technical considerations comes from the three
+2. **Exact service-role actions.** The list in Technical considerations comes from the three
    templates' resource types and is a first draft. Expect one or two additions on the first real
    update, as happened with the GitHub Actions deploy role.
-5. **Should Claude ask before each billing query?** Cost Explorer charges US$0.01 per API request
-   (see Technical considerations). This is well under the NZ$1 threshold for a normal check, so
-   the proposal is no, as long as each check is a handful of calls.
 
 ## Impacts on components
 
@@ -256,7 +271,7 @@ account. That catches running a management template with workload credentials, o
 - `management-account/management-access.yaml`, **new**. Contains the
   `mootmaker-management-cloudformation` service role, the `ManagementStackOperator` and
   `ManagementBillingReadOnly` permission sets, and their assignments to the management account
-  (the operator to the user chosen in Open question 1). Creating it needs `CAPABILITY_NAMED_IAM`.
+  (the operator to `geoff-management`, billing read to your normal user). Creating it needs `CAPABILITY_NAMED_IAM`.
   Root deploys it.
 - `management-account/identity-center.yaml`, **unchanged**. Its stack starts being updated by the
   operator through the service role.
@@ -269,7 +284,7 @@ account. That catches running a management template with workload credentials, o
   `management-access.yaml` and the console-only settings.
 
 **Identity Center (console only, management account):** session duration changes from 18 to 24
-hours. Under option (b), a second user is created.
+hours. The second user, `geoff-management`, is created and registers MFA (D7).
 
 **Management account settings (console only, root):** "IAM user and role access to Billing
 information" is activated.
@@ -290,7 +305,7 @@ N/A. Account infrastructure only. No Cognito or DynamoDB changes.
 
 ## Technical considerations
 
-**Service role actions (first draft, for Open question 4):**
+**Service role actions (first draft, for non-blocking Open question 2):**
 
 - *scp-guardrails:* `organizations:CreatePolicy`, `UpdatePolicy`, `DeletePolicy`,
   `DescribePolicy`, `AttachPolicy`, `DetachPolicy`, `ListPolicies`, `ListTargetsForPolicy`,
@@ -344,14 +359,14 @@ change set you decline). Sign-ins and role use are recorded in CloudTrail event 
 keeps for 90 days and then discards, at no cost. No trail or log storage is added. The helper's
 throwaway `HOME` is deleted on exit, including on Ctrl-C, using `trap`.
 
-**Guardrails for Claude.** These are a backstop, on top of D3 and Open question 1:
+**Guardrails for Claude.** These are a backstop, on top of D3 and D7:
 
 - A deny rule in Claude Code settings for running `with-management-credentials.sh` and for
   `aws sso get-role-credentials`. Claude has no legitimate reason to use either.
 - The "Terraform/AWS pre-approved" memory is narrowed: its pre-approval covers the default
   profile and `mootmaker-billing` only.
 
-Under option (b) the deny rule is a second layer. Under option (a) it is the only thing in the way.
+With D7 the deny rule is a second layer: the everyday token cannot reach the operator anyway.
 
 ## Testing impacts
 
@@ -373,7 +388,7 @@ layer for IAM, because the behaviour under test *is* AWS's policy evaluation:
   - A test change set that adds an assignment to account 339140804537, run through the service
     role (D3).
   - `mootmaker-billing` calling `budgets:ModifyBudget` and `payments:ListPaymentInstruments` (D5).
-  - Under option (b): the everyday token calling `get-role-credentials` for
+  - The everyday token calling `get-role-credentials` for
     `ManagementStackOperator`.
 - **Expiry:** an hour after running the helper, its credentials fail, and no file for that session
   remains in `~/.aws/sso/cache/`.
@@ -405,7 +420,7 @@ There are no environments involved; this is applied once, to the two real accoun
 because each step depends on the one before:
 
 1. Make the console-only changes (session duration, billing access toggle, and the second user
-   under option (b)). Each takes effect immediately and can be undone on its own.
+   for D7). Each takes effect immediately and can be undone on its own.
 2. Root creates `management-access` in the console. This is the last routine root deployment.
 3. Verify the new access using read-only operations first (`DescribeStacks`, Cost Explorer).
 4. Compare each deployed stack with git (Technical considerations), then do a no-op CLI update of
@@ -422,10 +437,10 @@ cheap: delete the `management-access` stack and carry on with root in the consol
 | Risk | Likelihood | Effect | Mitigation |
 |---|---|---|---|
 | The service role lacks an action, so a stack update fails part-way and rolls back | Medium, the first time | Update rolls back; no lockout | CloudFormation rolls back automatically. Add the action through a root update of `management-access`. |
-| A bad `identity-center` update breaks `WorkloadAdministrator` | Low | Workload CLI access is lost until it is fixed | The operator lives in a different stack, and under option (b) a different user, so it can still fix `identity-center`. Root is the fallback. |
+| A bad `identity-center` update breaks `WorkloadAdministrator` | Low | Workload CLI access is lost until it is fixed | The operator lives in a different stack and belongs to a different user, so it can still fix `identity-center`. Root is the fallback. |
 | A bad `management-access` update breaks the operator itself | Low | The CLI path is lost | Only root changes that stack, and root is the fallback. This is the same position as today. |
-| A token on the workstation gets management write access | Low under (b), real under (a) | Changes to SCPs and the workload permission set, but not to management access (D3) | D3, option (b), the helper's logout, and the Claude deny rule. |
-| The 24-hour session widens exposure from a stolen laptop session | Low | Six extra hours of workload access | Accepted for convenience. Workload is bounded by the SCPs, and management write access is outside the session under (b). |
+| A token on the workstation gets management write access | Low | Changes to SCPs and the workload permission set, but not to management access (D3) | D3, D7, the helper's logout, and the Claude deny rule. |
+| The 24-hour session widens exposure from a stolen laptop session | Low | Six extra hours of workload access | Accepted for convenience. Workload is bounded by the SCPs, and management write access is outside the session (D7). |
 | Cost Explorer queries add up | Low | Cents per check | Covered by the spending memory. A per-call cost is noted for Claude. |
 
 Nothing here is hard to reverse. The one step that gets close is the second Identity Center user,
@@ -436,7 +451,7 @@ and deleting that user undoes it.
 Do not start until Status is Ready **and** Geoff has given explicit instructions for the AWS
 changes.
 
-1. [Geoff] Answer Open questions 1 and 2.
+1. [Geoff] Promote Status to Ready.
 2. [Claude] Write `management-access.yaml`, `deploy-stack.sh` and
    `with-management-credentials.sh` on `feature/cloudformation-from-cli-via-sso` in
    mootmaker-bootstrap-aws-accounts. Lint with `cfn-lint`. Run
@@ -444,9 +459,10 @@ changes.
 3. [Claude] Read-only: compare the workload stacks' deployed templates with git (`get-template`)
    and report any differences.
 4. [Geoff] Console, management account, root: set the session duration to 24 hours and activate
-   IAM billing access. Under (b), create the second user and register its MFA.
-5. [Geoff] Console, root: create the `management-access` stack (`CAPABILITY_NAMED_IAM`). Note the
-   user ID parameter if option (b) is chosen.
+   IAM billing access. Create `geoff-management` with its plus-address email, then sign in once in
+   a private window to set its password and add a TOTP entry in the existing authenticator app.
+5. [Geoff] Console, root: create the `management-access` stack (`CAPABILITY_NAMED_IAM`). It takes
+   `geoff-management`'s user ID for the operator assignment and your normal user ID for billing.
 6. [Geoff] Add `[profile mootmaker-billing]` to `~/.aws/config` on each machine.
 7. [Claude] Verify `mootmaker-billing` positive and negative checks (step 3 of Rollout).
 8. [Geoff + Claude] Run `with-management-credentials.sh` and compare the management stacks with
