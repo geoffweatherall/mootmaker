@@ -14,9 +14,13 @@ that do not renew. Separately, the SSO session limit goes from 18 to 24 hours.
 
 ## Status
 
-**Building**, as of 2026-10-03. Geoff promoted it to Ready the same day and asked for work to
-begin. The Claude steps are done in mootmaker-bootstrap-aws-accounts#30. Waiting on Geoff's root
-and console steps (Implementation checklist 4 to 6), then the management-side checks.
+**Shipped**, 2026-10-03. Built in mootmaker-bootstrap-aws-accounts#30 and verified against
+both real accounts the same day (see "Outcome" at the end). Two items could not be confirmed on the
+day and are tracked as issues rather than holding this open:
+[#31](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/issues/31), the service
+role's first real write and a deliberate test of its denies, and
+[#32](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/issues/32), confirming
+the 24-hour session.
 
 ## How SSO credentials actually work
 
@@ -486,3 +490,47 @@ changes.
 - The READMEs, `AGENTS.md`, the Claude Code deny rule and the memory files are updated, not just
   planned.
 - No root login is needed for any of the three existing management stacks.
+
+## Outcome
+
+What happened when this was built, where it differs from the plan above.
+
+**Verified 2026-10-03:**
+
+- **The stack operator works only through the helper.** It returned
+  `AWSReservedSSO_ManagementStackOperator_…/geoff-management` in 339140804537.
+- **The operator is denied what it should be.** It was refused the `management-access` stack,
+  direct Organizations, SSO, Identity Store, Budgets and IAM writes, and Cost Explorer.
+- **The everyday token is refused the operator.** Asking it for the operator role returned
+  `ForbiddenException: No access`. D7 holds.
+- **The helper leaves nothing behind.** No management token stayed in `~/.aws/sso/cache` and no
+  temporary directory remained. The everyday session survived.
+- **`mootmaker-billing` behaves as designed.** It reads org-wide Cost Explorer, Free Tier usage and
+  budgets. It is refused budget changes, account contact details and Organizations writes.
+- **All six stacks were checked from the CLI.**
+  - The three management stacks were updated through the service role and reached
+    UPDATE_COMPLETE with no resource changes.
+  - The three workload stacks gave empty change sets.
+  - Git matched what was deployed, apart from stale doc paths in comments.
+
+**Differences from the plan:**
+
+- **The operator has read access to what the stacks manage.** It can read Organizations, SSO,
+  Identity Store and Budgets. D2 said "no write of its own", which still holds. The read was added
+  so that drift detection and pre-update checks work.
+- **The two user IDs were swapped on the first root creation of `management-access`.**
+  - That gave the everyday user the operator role, and the only symptom was "No access" from the
+    helper.
+  - It was fixed by a root update, and the README now warns about it.
+  - The everyday user's name is `geoff.weatherall`, not the `geoff-…` form used in some places
+    above.
+- **The helper signs out on every exit path, not only on success.** The first failed run exited
+  before signing out, leaving that sign-in live on the server.
+- **A first CLI update creates a change set even when nothing has changed.** Attaching the service
+  role counts as a change, so `deploy-stack.sh` says "no resource changes" rather than printing an
+  empty table.
+- **Open question 1 (Billing IAM access toggle) remains unanswered for the `ce` API.** The toggle
+  was switched on before the first query, so whether the API needs it was never tested.
+- **The Claude Code deny rule is broader than intended.** It matches any shell command that
+  mentions the helper's filename, which also blocks editing or referencing it from the shell. It
+  was left that way because it errs on the safe side.
