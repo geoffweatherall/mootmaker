@@ -14,11 +14,9 @@ that do not renew. Separately, the SSO session limit goes from 18 to 24 hours.
 
 ## Status
 
-**Drafting**, as of 2026-10-03. Nothing has been changed in AWS. Geoff has answered every
-blocking question: management write access goes to a second Identity Center user (D7), and the
-session length is 24 hours for everything (D8). No blocking questions remain. Content-wise it is
-ready for Geoff to promote to Ready. Even after that, AWS changes still need Geoff's explicit
-go-ahead (see Implementation checklist).
+**Building**, as of 2026-10-03. Geoff promoted it to Ready the same day and asked for work to
+begin. The Claude steps are done in mootmaker-bootstrap-aws-accounts#30. Waiting on Geoff's root
+and console steps (Implementation checklist 4 to 6), then the management-side checks.
 
 ## How SSO credentials actually work
 
@@ -90,7 +88,10 @@ change what `[default]` does.
 everything the three workload templates touch (`cloudformation`, `iam`, `lambda`, `events`, `sns`,
 `logs`, `budgets`). `workload-account/README.md` already says "root isn't required for this". All
 three workload stacks are in `us-east-1`, inside the region lock (checked read-only 2026-10-03).
-None of them uses a service role. No permission change is planned. If the first CLI update hits a
+None of them uses a service role. No permission change is planned. Cost Explorer for the workload
+account's own costs also stays here: `WorkloadAdministrator` already has `ce:*`, and Geoff
+confirmed on 2026-10-03 that this is where it belongs. `ManagementBillingReadOnly` (D5) covers only
+what the workload account cannot see. If the first CLI update hits a
 denial, the fix is to add to the allow-list in both `scp-guardrails.yaml` and
 `identity-center.yaml`, as for any other new service.
 
