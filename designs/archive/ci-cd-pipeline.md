@@ -359,6 +359,17 @@ trace/screenshot only on failure. The `json` reporter stays in both — it refer
 files by path rather than embedding them, so it's small either way, which is what makes it the
 right thing to eventually ship to CloudWatch (Decision 11) without needing this fix repeated there.
 
+**What a green Stage 1 does not prove, found 2026-09-03
+([mootmaker#42](https://github.com/geoffweatherall/mootmaker/issues/42)).** A fresh environment
+only ever exercises Terraform's *create* path, so any defect that occurs only when *changing*
+existing infrastructure is invisible to Stage 1 by construction. The concrete case: `v0.0.4`
+failed deploying to `test` on `lambda:PublishVersion`. Creating a Lambda with `publish = true`
+publishes version 1 inside `CreateFunction`, so no ephemeral run had ever needed the separate
+permission that every *update* does. "All three components passed acceptance against real AWS"
+therefore means "they can be created and work", not "they can be updated". That gap is exactly
+what Decision 6's standing `test` covers, and this was the first time `test` caught something
+that would otherwise have failed first in `production`.
+
 ### 8. Build once, promote the same artifact to `test` then `production`
 
 **Decision:** each component's build-and-test stage uploads its build output (`mootmaker-api` and
@@ -443,6 +454,20 @@ counterargument (an automatic redeploy hiding a data-shape problem that redeploy
 doesn't actually fix) is accepted knowingly — the alternative, leaving `production` visibly broken
 while waiting on a human, is worse for a public demo, and the GitHub Release (Decision 5) still
 records that a rollback happened and why, so the masking is never silent.
+
+**What the rollback can and cannot recover from, found 2026-09-03
+([mootmaker#46](https://github.com/geoffweatherall/mootmaker/issues/46)).** Every assertion the
+production smoke suite makes is also asserted, many times over, by `mootmaker-webapp`'s acceptance
+suite in Stage 1. So a *code* defect the production smoke would catch fails Stage 1 first and never
+reaches production. What can reach it are *environment* defects (config, data shape, a race,
+drift), and redeploying the previous version does not repair those: the old code meets the same
+bad environment. Put together, **the automatic rollback is most likely to run in exactly the cases
+where it cannot help.** It is still the right default, since it restores a known-good artifact
+quickly when the cause is unknown, and the masking stays visible because the release record notes
+every rollback. But "production smoke failed, so roll back" should not be read as "rollback will
+fix it". The Definition of done's rollback exercise proves the *mechanism* works. It does not
+prove recovery from a realistic production failure, and no constructible sabotage could: any code
+sabotage that fails the production smoke fails Stage 1 first.
 
 ### 11. Consolidated CloudWatch logging: durable full detail behind Decision 5's summary
 
