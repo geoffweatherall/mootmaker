@@ -359,6 +359,17 @@ trace/screenshot only on failure. The `json` reporter stays in both — it refer
 files by path rather than embedding them, so it's small either way, which is what makes it the
 right thing to eventually ship to CloudWatch (Decision 11) without needing this fix repeated there.
 
+**What a green Stage 1 does not prove, found 2026-09-03
+([mootmaker#42](https://github.com/geoffweatherall/mootmaker/issues/42)).** A fresh environment
+only ever exercises Terraform's *create* path, so any defect that occurs only when *changing*
+existing infrastructure is invisible to Stage 1 by construction. The concrete case: `v0.0.4`
+failed deploying to `test` on `lambda:PublishVersion`. Creating a Lambda with `publish = true`
+publishes version 1 inside `CreateFunction`, so no ephemeral run had ever needed the separate
+permission that every *update* does. "All three components passed acceptance against real AWS"
+therefore means "they can be created and work", not "they can be updated". That gap is exactly
+what Decision 6's standing `test` covers, and this was the first time `test` caught something
+that would otherwise have failed first in `production`.
+
 ### 8. Build once, promote the same artifact to `test` then `production`
 
 **Decision:** each component's build-and-test stage uploads its build output (`mootmaker-api` and
