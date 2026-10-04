@@ -455,6 +455,20 @@ doesn't actually fix) is accepted knowingly — the alternative, leaving `produc
 while waiting on a human, is worse for a public demo, and the GitHub Release (Decision 5) still
 records that a rollback happened and why, so the masking is never silent.
 
+**What the rollback can and cannot recover from, found 2026-09-03
+([mootmaker#46](https://github.com/geoffweatherall/mootmaker/issues/46)).** Every assertion the
+production smoke suite makes is also asserted, many times over, by `mootmaker-webapp`'s acceptance
+suite in Stage 1. So a *code* defect the production smoke would catch fails Stage 1 first and never
+reaches production. What can reach it are *environment* defects (config, data shape, a race,
+drift), and redeploying the previous version does not repair those: the old code meets the same
+bad environment. Put together, **the automatic rollback is most likely to run in exactly the cases
+where it cannot help.** It is still the right default, since it restores a known-good artifact
+quickly when the cause is unknown, and the masking stays visible because the release record notes
+every rollback. But "production smoke failed, so roll back" should not be read as "rollback will
+fix it". The Definition of done's rollback exercise proves the *mechanism* works. It does not
+prove recovery from a realistic production failure, and no constructible sabotage could: any code
+sabotage that fails the production smoke fails Stage 1 first.
+
 ### 11. Consolidated CloudWatch logging: durable full detail behind Decision 5's summary
 
 **Decision (added 2026-09-03):** Decision 5's GitHub Release solves "what happened, roughly" but
