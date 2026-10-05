@@ -10,7 +10,8 @@ twice during the release itself, requiring two extra release attempts to fix.
 
 ## Status
 
-**Drafting** — 2026-09-20.
+**Drafting** — 2026-10-05. Both blocking questions answered by Geoff on 2026-10-05 (see "Trade-offs
+and decisions"); left at Drafting for Geoff to re-read before moving it to Ready.
 
 ## Scope / non-goals
 
@@ -49,6 +50,16 @@ Not in scope, deliberately deferred rather than rejected (see "Open questions"):
   `mootmaker-email-testing`, and keeps the trigger, the deploy, and the pass/fail result in one
   workflow run rather than splitting state across two workflows connected only by an
   eventually-consistent webhook. Not confirmed with Geoff — see "Choices you had me make".
+- **A required, merge-blocking check, not advisory** (decided by Geoff, 2026-10-05). The failure it
+  exists to catch is a webapp PR that merged green and then broke the release. An advisory check
+  can be merged past, which is exactly how that happened. Flakiness is a real cost of a required
+  gate, and the answer to it is fixing the flaky test, as with mootmaker-webapp#119, rather than
+  making the check optional.
+- **The ephemeral environment deploys `mootmaker-api` from `main`** (decided by Geoff, 2026-10-05),
+  the same as `release-build.yml`. A release takes everything on `main`, so that is the API the
+  webapp change will actually ship with; the latest release tag would miss API changes merged but
+  not yet released. The workflow should print the API commit it deployed, since a webapp reviewer
+  has no other way to know.
 - **Cost is treated as acceptable but called out explicitly, not assumed silently.** An ephemeral
   deploy-and-teardown per PR push is real AWS spend and several minutes of wall time on top of
   `pr-checks.yml`'s current zero-AWS gate. Ephemeral environments are already established as cheap
@@ -66,16 +77,8 @@ Not in scope, deliberately deferred rather than rejected (see "Open questions"):
 
 ## Open questions
 
-Blocking:
-
-- **Required (merge-blocking) or advisory-only status check?** A required check that's genuinely
-  flaky is a real cost — this same release saw one non-deterministic webapp acceptance-suite
-  failure that passed unchanged on rerun. Advisory-only avoids blocking merges on flakiness but
-  means it can be ignored.
-- **Which `mootmaker-api` ref does the ephemeral env deploy for the smoke run?** `release-build.yml`
-  deploys `mootmaker-api` fresh from `main` as a dependency of the environment under test, not as
-  the thing being verified. The same logic likely applies here, but should be stated rather than
-  assumed, since a webapp PR reviewer has no reason to know which api commit their smoke run used.
+Blocking: none. Both were answered on 2026-10-05 and are recorded under "Trade-offs and decisions":
+a required gate, deploying `mootmaker-api` from `main`.
 
 Non-blocking:
 
@@ -110,6 +113,15 @@ N/A — no persisted-state changes, purely CI/CD.
 - Leaves behind nothing beyond the ephemeral environment's own lifetime (torn down in an
   `if: always()` step); on-failure diagnostics (Playwright trace/error-context) should follow
   `release-build.yml`'s existing 30-day artifact retention precedent rather than a new policy.
+
+- **The release deploy role cannot be assumed from a pull request today** (found 2026-10-05).
+  `mootmaker-release-github-actions-deploy`'s trust policy (mootmaker-bootstrap-aws-accounts,
+  `workload-account/github-actions-deploy-role.yaml`) accepts mootmaker-webapp only for
+  `ref:refs/tags/v*`. A `pull_request` workflow presents the OIDC subject
+  `repo:geoffweatherall/mootmaker-webapp:pull_request`, so building this needs a trust-policy
+  change: either that subject on the existing role, or a narrower role of its own. It must not
+  extend to pull requests from forks. GitHub withholds OIDC tokens from fork PRs by default, and
+  that default is what keeps a stranger's PR from deploying into this account.
 
 ## Testing impacts
 
