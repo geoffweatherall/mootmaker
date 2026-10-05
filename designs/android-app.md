@@ -9,7 +9,9 @@ credit plus the Pro plan). Those sessions build and run JVM-level tests but cann
 emulator, so emulator tests run in **GitHub Actions**, which is free for this public repo and has
 hardware virtualization. Hands-on testing happens on Geoff's laptop or phone. The design also
 covers what a third deployable component does to the release pipeline, how the app gets published
-for sideloading, and how it is smoke-tested.
+for sideloading, and how it is smoke-tested. The path to parity is split into
+[eleven milestones](#milestones). Each is a thin vertical slice that ends with a published APK, so
+token spend can be paused or paced at any milestone boundary.
 
 This doc offers **options rather than single answers** in several places, at Geoff's request. Each
 one is lettered so a reply can be as short as "Q3: B". Geoff last did Android development about ten
@@ -116,6 +118,21 @@ mootmaker-release#5 is what happened when a divergent copy existed. So device te
 **through that package, running on the host** (the CI runner or the laptop), not through a Kotlin
 port. Q5 covers how a test running on the device reaches it.
 
+### 7. Thin vertical slices, each ending in a published APK
+
+Geoff's stated preference (2026-10-05). Every milestone delivers user-visible functionality **and**
+everything needed to ship it: tests at every layer that applies, the release pipeline, smoke tests
+and a published APK. Consequences:
+
+- The build/test/publish path is built in the **first** functional milestone (M1), not at the end.
+  The early milestones are heavier for this reason, and the later ones are lighter.
+- The app is always shippable, and stopping after any milestone leaves something real.
+- **The web app covers the gaps.** Users are assumed to have the webapp too, so sign-up and forgot
+  password come late (M8). Until a feature exists in the app, it can open the webapp for it (choice
+  10).
+- The order is constrained by the API, which already exists in full. Every slice uses it as-is, so
+  no milestone waits on backend work except M1's small, additive touch points.
+
 ## Choices you had me make
 
 None of these were worth blocking on. Each can be overridden cheaply.
@@ -164,12 +181,18 @@ None of these were worth blocking on. Each can be overridden cheaply.
    Android refuses to install an update whose `versionCode` (an integer) is not higher than the
    installed one. Release numbers only ever increase (failed attempts burn their number), so
    this always increases. `versionName` is the plain `6.1.0` string.
-8. **Phase order** in the [Implementation checklist](#implementation-checklist): auth, then
-   read-only screens, then writes, then settings, admin and live updates. Each phase is usable on its
-   own and roughly sized for one or two cloud sessions.
+8. **Milestone order** (see [Milestones](#milestones)): sign-in and the home agenda first, then
+   the read-only screens, then creating and changing meetings, then live updates, settings, account
+   lifecycle and admin. M7–M9 are independent of each other and can be reordered freely.
 9. **minSdk 26 (Android 8.0).** This covers effectively every phone still in use and gives native
    `java.time`, which the date handling needs (see Technical considerations). `targetSdk` follows
    the latest stable API level. Non-blocking; raising minSdk later is easy.
+10. **Unbuilt features open the webapp.** While parity is incomplete, an entry point for a feature
+    the app does not have yet (Add Meeting before M4, Settings before M7, "Create an account" before
+    M8) opens the matching `www.<env>.mootmaker.com` page in a Chrome Custom Tab, an in-app browser
+    tab. The web session is separate, so the user may have to sign in there too. Alternative: hide
+    the entry point until the feature exists. Linking is more honest about what the product can do,
+    and each link is deleted when its milestone lands.
 
 ## Open questions
 
@@ -223,9 +246,10 @@ and an APK cannot be rolled back off people's phones.
 | **B** | Independent release | `mootmaker-android` has its own release workflow and version line; the bundle doesn't know it exists | Releases decouple. An app fix doesn't need an API release | API releases are no longer checked against the app at all except through the n-1 check, which would then need to live in `release.yml` anyway. Two version lines to explain |
 | **C** | Bundled testing, independent publishing | `release.yml` builds and smoke-tests the app every time (protecting it), but publishing an APK is a separate decision | Protects the app on every API change without forcing an app release | The most moving parts. Unclear what "the app's version" means |
 
-**Leaning: A**, but **only once the app reaches its first usable phase** (auth plus read-only
-screens). Until then, the app is built and tested only by its own PR checks, and `release.yml` is
-unchanged. Joining is a checklist item, not day one.
+**Leaning: A, from M1.** Decision 7 puts publishing in the first functional slice, so the app
+joins `release.yml` in M1, and every milestone after that ships through an ordinary release. If
+Geoff picks B instead, M1 builds `mootmaker-android`'s own release workflow in place of the
+`release.yml` changes, and the milestone plan is otherwise unchanged.
 
 #### Q4. Where is the APK published for sideloading?
 
@@ -269,6 +293,10 @@ non-blocking N4.
 | **B** | **Maestro** | Black-box flows in YAML, run from the host, tapping the UI by visible text, like a person would | Tests the exact release APK without a test build. Host-side, so it can call the npm email client directly. Very readable, close to how the release smoke suite reads | Coarser waiting and assertions. Another tool. Less suited to a large suite |
 | **C** | Appium | WebDriver for mobile apps | Familiar to Selenium users | Heavy, slow, and nothing it does is needed here |
 
+Note that the email helper is only needed from **M8** (sign-up and forgot password). M1–M7 sign in
+with accounts created through the admin API, so they need no email, and this question can be
+answered for M1 without settling the email half.
+
 **Leaning: A for the acceptance suite, B for release smoke.** Acceptance is large and benefits from
 precision. Smoke is about five minutes of black-box clicking on **the exact published artifact**,
 which is what Maestro is for, and it is also how the n-1 check runs an *old* APK that has no
@@ -298,16 +326,19 @@ invent a second one.
 ### Non-blocking
 
 - **N1.** SRP versus `USER_PASSWORD_AUTH` on the Android client, if Q2 is B.
-- **N2.** Whether `use-cases.md` gets per-frontend tags (`[web]`, `[android]`, `[both]`), or the
-  android acceptance suite keeps its own mapping. The android repo's AGENTS.md already flags that
-  "some cases are webapp-specific in ways that will need untangling". Leaning: tags.
+- **N2.** ~~Per-frontend tags in `use-cases.md`~~ **Already done.** Every case is tagged
+  **[All frontends]** (119) or **[Webapp-specific]** (18), and carries an "android: not yet
+  automated" slot for its Android test-case link. `mootmaker-android/AGENTS.md`'s note that this
+  still needs untangling is out of date and gets corrected in M0. What's left is minor: some
+  [All frontends] cases describe browser behaviour (URLs as state, tab visibility) that needs an
+  Android reading. Decide case by case as each milestone reaches them.
 - **N3.** A parity rule going forward: once Android has parity, does a new feature count as done
   only when both frontends have it, or can Android lag? Leaning: allowed to lag, tracked as an issue
   in `mootmaker-android` per feature.
 - **N4.** Developer verification before global enforcement in 2027 (see Q4).
 - **N5.** Android App Links: tapping `https://www.mootmaker.com/meetings/<id>` on a phone opens the
   app. Needs `/.well-known/assetlinks.json` on the webapp's domain. Nice later, not parity.
-- **N6.** Which cloud-session model per phase (Sonnet for scaffolding and screens, Opus for auth,
+- **N6.** Which cloud-session model per milestone (Sonnet for scaffolding and screens, Opus for auth,
   caching and subscriptions), to make the credit last. See
   [Using the cloud credit](#using-the-cloud-credit-well).
 
@@ -315,25 +346,218 @@ invent a second one.
 
 Mapped against the webapp's routes (`webapp/src/App.tsx`) and the use-case catalogue's sections.
 
-| Webapp | Use cases | Android | Phase |
+| Webapp | Use cases | Android | Milestone |
 |---|---|---|---|
-| `/signin`, sign out | B | Sign-in screen; sign-out in the menu | 1 |
-| `/signup` | A | Sign-up plus verification-code screen | 1 |
-| `/forgot-password` | C | Same two-step flow | 1 |
-| `/` home, with demo login pre-filled | D | Home; demo credentials pre-filled from `mobile-config.json`, as on the web | 1–2 |
-| `/rooms/:date/availability` | E | Room availability, day by day | 2 |
-| `/persons/:personId/calendar` | G | Person calendar | 2 |
-| `/meetings/:meetingId` | H | Meeting details | 2 |
-| `/meetings/add`, `/meetings/:id/edit` | F, O | Add, edit and cancel meeting; room suggestion | 3 |
-| Attendee response | (attendee-response-status) | Going / Maybe / Not going control | 3 |
-| `/settings`: name, date/time format, avatar, delete account | I, N | Settings screen; avatar via the Android **Photo Picker** (no storage permission needed) | 4 |
-| `/rooms`, `/persons` (admin) | J, K, P, Q | Admin screens behind the same `custom:class` check as `RequireAdmin` | 5 |
-| Live updates (`daysInvalidated` subscription) | M | AppSync subscription while the app is in the foreground | 6 |
-| Authorization boundaries | L | Enforced server-side already; app tests mirror the web's | 1–5 |
-| `/about` | — | About screen with version, licences, and the hidden environment switcher | 1 |
+| `/signin`, sign out | B | Sign-in screen; sign-out in the menu | M1 |
+| `/signup` | A | Sign-up plus verification-code screen | M8 |
+| `/forgot-password` | C | Same two-step flow | M8 |
+| `/` home, with demo login pre-filled | D | Home; demo credentials pre-filled from `mobile-config.json`, as on the web; Today/Tomorrow agenda | M1 (agenda), M5 (Needs your response) |
+| `/rooms/:date/availability` | E | Room availability, day by day | M2 |
+| `/persons/:personId/calendar` | G | Person calendar | M3 |
+| `/meetings/:meetingId` | H | Meeting details | M3 |
+| `/meetings/add`, `/meetings/:id/edit` | F, O | Add (M4), edit and cancel (M5) meeting; room suggestion | M4–M5 |
+| Attendee response | (attendee-response-status) | Going / Maybe / Not going control | M5 |
+| `/settings`: name, date/time format, avatar, delete account | I, N | Settings screen; avatar via the Android **Photo Picker** (no storage permission needed); delete account in M8 | M7 |
+| `/rooms`, `/persons` (admin) | J, K, P, Q | Admin screens behind the same `custom:class` check as `RequireAdmin` | M9 |
+| Live updates (`daysInvalidated` subscription) | M | AppSync subscription while the app is in the foreground | M6 |
+| Authorization boundaries | L | Enforced server-side already; app tests mirror the web's | M1–M9 |
+| `/about` | — | About screen with version, licences, and the hidden environment switcher | M1 |
 
 Webapp-specific: browser-only behaviour in section M (tab visibility, URLs as state) has a
 counterpart (app foreground/background, the back stack), but the tests are written differently.
+
+## Milestones
+
+Eleven milestones from nothing to parity. **Each one is a thin vertical slice:** user functionality
+plus its unit, integration and screenshot tests, its acceptance cases on an emulator against a real
+ephemeral environment, any smoke-test change, and a release that publishes the APK. Stopping after
+any milestone leaves a working, published app that covers everything up to that point, with the
+webapp covering the rest.
+
+**Sizes** are rough, so Geoff can pace spending. They will be recalibrated after M1:
+
+| Size | Roughly |
+|---|---|
+| **S** | One cloud session |
+| **M** | Two or three sessions |
+| **L** | Four to six sessions |
+
+**Every milestone ends the same way** ("done" for a milestone):
+
+1. PR checks green: build, lint, unit, Robolectric, screenshots.
+2. A green labelled acceptance run on an emulator against an ephemeral environment, covering the
+   milestone's use cases.
+3. The `android:` slot of each covered case in `use-cases.md` links to its Android test case.
+4. A release that publishes the APK, with smoke tests green (from M1 on).
+5. Geoff installs the published APK on his phone and tries the new slice. It's a two-minute check
+   and the cheapest UX review there is.
+6. A spend check: a line in this doc recording roughly what the milestone used, so the next
+   milestone's estimate gets better.
+
+### M0 — Toolchain spike · S · no user functionality
+
+The one milestone that is not a vertical slice. It exists to find out cheaply whether the cloud plus
+Actions approach works before spending on anything else.
+
+- **Cloud session:** check `/dev/kvm`, `nproc`, `free -g`, and that `dl.google.com` and
+  `registry.npmjs.org` are reachable. Write `scripts/cloud-setup.sh` and time it under 5 minutes.
+- **App:** an empty Compose app, with Apollo Kotlin generating types from the npm-tarball schema
+  (proves codegen without using it yet).
+- **CI:** `pr-checks.yml` (build, lint, one unit test, one Robolectric test, one screenshot) and an
+  emulator job running one trivial instrumented test (proves KVM in Actions).
+- **Docs:** fix `mootmaker-android`'s README and AGENTS.md (the placeholder text and the stale N2
+  note).
+- **Exit:** PR checks and the emulator job are green on `main`. Nothing is published.
+
+### M1 — Sign in and see your day · L · use cases B, D.22–D.24
+
+The walking skeleton: thin on features, but every layer of the build/test/publish path exists by
+the end of it.
+
+- **User sees:**
+  - A sign-in screen with the demo credentials pre-filled, as on the web.
+  - A home screen with your name and the **Today/Tomorrow agenda**. Rows are not tappable yet;
+    meeting details come in M3.
+  - Sign out.
+  - An About screen with the version and the hidden environment switcher.
+  - "Create an account" and other unbuilt entry points open the webapp (choice 10).
+- **App:** config loader (`mobile-config.json`, cached, switchable), Cognito client (Q2), encrypted
+  token storage and refresh, Apollo client with the naive-`LocalDateTime` scalar adapter, the
+  `workspace { me days }` query, navigation, Material 3 theme in mootmaker's colours.
+- **Backend (separate sessions in those repos):**
+  - `mootmaker-api`: Android Cognito client plus SSM parameter, and the `graphql-inspector` PR check.
+  - `mootmaker-webapp`: `mobile-config.json` in `deploy.sh`.
+  - Both are additive and released in the same release as the first APK.
+- **Tests:**
+  - Unit: config parsing, date formatting, error mapping.
+  - Robolectric: sign-in validation and error states, agenda empty state (D.23), the no-linked-Person
+    message (D.24).
+  - Screenshots: sign-in, home with data, home empty.
+  - Acceptance: B and D.22–24, against an ephemeral environment with accounts created through the
+    admin API.
+  - e2e: config fetch, real Cognito sign-in, a real query.
+- **Pipeline and publish:**
+  - Geoff creates the keystore.
+  - `acceptance.yml` (labelled), `release-build.yml`, and the `release.yml` changes (Q3).
+  - Maestro smoke for `test` and `production`: demo sign-in, then the agenda renders.
+  - The APK is attached to the GitHub Release, labelled "preview".
+- **Exit:** the per-milestone checklist above. The first APK is on a GitHub Release, and Geoff has
+  signed in to production with it on his phone.
+- **Can be split** if Geoff wants a smaller first bite:
+  - **M1a**: everything except the release integration. Ends with an APK installable from a CI
+    artifact, but not yet published.
+  - **M1b**: keystore, `release-build.yml`, `release.yml`, smoke, publish.
+
+  M1a alone bends the vertical-slice rule, which is why the default is to keep them together.
+
+### M2 — Room availability · M · use cases E (10), D.25
+
+- **User sees:** "Room availability today" from home; a day-by-day view of every room's bookings in
+  room colours; moving between days; times shown in the user's chosen date/time format (read-only
+  here, editable in M7).
+- **Tests:** room-colour fallback and availability layout logic as unit tests (ported cases from
+  `roomAvailabilityLogic.test.ts`), plus screens under Robolectric with screenshots, and acceptance
+  for E.
+- **Pipeline:** smoke flows add "availability renders". **The n-1 smoke check starts here**, the
+  first release where a previous APK exists.
+- **Publish extra:** the download page on www.mootmaker.com (Q4-B), if chosen. It's small and worth
+  having before the app is shown to anyone.
+
+### M3 — Meeting details and person calendar · M · use cases H (6), G (7)
+
+- **User sees:** tapping an agenda row or an availability booking opens meeting details. A person's
+  calendar opens from meeting details or the menu ("my calendar").
+- **Notes:** the first real navigation graph with arguments. Back-stack behaviour gets an Android
+  reading of the use cases about URL state.
+
+### M4 — Add a meeting · L · use cases F (19)
+
+The largest functional slice: the most use cases, and the first write.
+
+- **User sees:** Add Meeting from home and availability, with date and time pickers, attendee
+  picker, capacity, **room suggestion** (`suggestRoom`) and validation errors mapped from
+  `MeetingError`. On success, the user lands on the new meeting's details.
+- **Tests:** add-meeting validation as unit tests (ported cases from `addMeetingLogic.test.ts`), the
+  form under Robolectric, acceptance for F.
+- **Pipeline:** the `test`-stage smoke flow creates a meeting and reads it back, using a room
+  created over the admin API as the webapp smoke suite does (mootmaker-release#64). Production
+  smoke stays read-only.
+- **Could split** into M4a (create with a manually picked room) and M4b (room suggestion and the
+  rest of F's edge cases) if spend needs pacing.
+
+### M5 — Edit, cancel and respond · M · use cases O (12), D.107, attendee response
+
+- **User sees:** edit and cancel your own meetings; Going/Maybe/Not going on meetings you're invited
+  to; the home screen's "Needs your response" section.
+- **Notes:** reuses M4's form for editing. The meeting-version conflict handling
+  (`meetingVersion.ts` in the webapp) needs the same behaviour here.
+
+### M6 — Live updates · M · use cases M (live-update cases)
+
+- **User sees:** a meeting someone else books appears without refreshing, while the app is open.
+- **App:** AppSync subscription tied to the foreground lifecycle, invalidating everything held on
+  reconnect or return to the foreground (Technical considerations). This is also where the
+  webapp's Day-cache behaviour is ported deliberately.
+- **Tests:** acceptance makes a change over the API and asserts the app shows it without user
+  action. That's the Android counterpart of `live-updates.spec.ts`.
+- **Can move** anywhere after M4. Before M4 there is little in the app that changes.
+
+### M7 — Settings · M · use cases I (3), N (7), avatars
+
+- **User sees:** change your name, your date and time format, and your avatar (Photo Picker, then
+  the API's two-step upload: `requestAvatarUpload`, PUT to the presigned URL,
+  `confirmAvatarUpload`). Removing your avatar.
+- **Notes:** avatars mean image loading and caching appear for the first time (Coil, Compose's
+  usual image library). They show up in the agenda, details and calendar retroactively.
+
+### M8 — Account lifecycle · M · use cases A (6), C (5), delete account
+
+- **User sees:** sign up with an emailed code, forgot password, delete my account. The webapp
+  links from choice 10 for these are removed.
+- **Tests:** the host-side email helper (Q5) arrives here, with acceptance for A and C using real
+  emails through `mootmaker-email-testing`.
+- **Pipeline:** the `test`-stage smoke flow switches to the full **sign up with a real code → use →
+  delete account** shape, matching `test-stage.spec.ts`. That makes it the most valuable smoke
+  assertion, as on the web.
+
+### M9 — Admin: rooms and people · L · use cases P (8), Q (12), L (3)
+
+- **User sees (admins only):** rooms (create, edit, colour, delete) and people (rename, admin flag,
+  delete), behind the same `custom:class` check as the webapp's `RequireAdmin`.
+- **Tests:** acceptance for P and Q with an admin account, and L's authorization boundaries for a
+  standard account. The server already enforces them; these tests prove the app does not offer
+  what the server refuses.
+- **Smoke:** unchanged. The smoke account is a standard user, and admin flows are not part of the
+  five minutes.
+
+### M10 — Parity close-out · S
+
+- The remaining cross-cutting cases in M, an accessibility pass (TalkBack labels, large font
+  scaling), dark-mode screenshots for every screen, and any [All frontends] case still showing
+  "not yet automated" for Android.
+- Remove the "preview" label. Do the outstanding [Documentation impacts](#documentation-impacts).
+  Move this design to Shipped and archive it.
+
+### Pacing summary
+
+| Milestone | Size | Cumulative [All frontends] cases covered (approx.) |
+|---|---|---|
+| M0 Toolchain spike | S | 0 |
+| M1 Sign in, see your day | L | ~9 |
+| M2 Room availability | M | ~20 |
+| M3 Details and calendar | M | ~33 |
+| M4 Add a meeting | L | ~52 |
+| M5 Edit, cancel, respond | M | ~66 |
+| M6 Live updates | M | ~70 |
+| M7 Settings | M | ~81 |
+| M8 Account lifecycle | M | ~93 |
+| M9 Admin | L | ~116 |
+| M10 Close-out | S | 119 |
+
+The natural stopping points if spend runs short:
+- **after M3:** a read-only companion app;
+- **after M5:** the app does everything a non-admin does day to day, except sign-up;
+- **after M7:** everything except account creation and admin, both of which the webapp covers.
 
 ## Impacts on components
 
@@ -372,7 +596,7 @@ counterpart (app foreground/background, the back stack), but the tests are writt
 - If Q4-B: a small `/android` page, or a section on About, linking to the latest APK.
 - Unchanged otherwise.
 
-**`mootmaker-release`** (if Q3-A, at the phase described there)
+**`mootmaker-release`** (if Q3-A, from M1)
 
 - `compute-version` pins `mootmaker-android`'s `main` SHA.
 - `build-android` job calling `mootmaker-android/.github/workflows/release-build.yml@main`.
@@ -411,7 +635,7 @@ should enforce this in one place.
 `referenceDataCache.ts`, the eviction work-around in `useDaysInvalidated.ts`) encodes measured
 behaviour, not guesses. Apollo Kotlin's normalized cache differs from Apollo Client 4's. Start
 simpler (refetch when a screen becomes visible), and port the cache behaviour deliberately in
-Phase 6 rather than reproducing it line by line.
+M6 rather than reproducing it line by line.
 
 **Subscriptions follow the webapp's rule:** correctness never depends on the socket surviving.
 Android pauses background apps more aggressively than browsers freeze tabs, so subscribe only while
@@ -452,7 +676,7 @@ Play installs.
   stay under the limit.
 - A cloud session clones **one repo**. The hub's designs are reachable as raw GitHub URLs, and
   AGENTS.md already links that way. Work that also changes `mootmaker-api` or `mootmaker-webapp`
-  (Phase 0b) needs its own session in that repo, or a laptop session.
+  (M1's backend touch points) needs its own session in that repo, or a laptop session.
 
 **Files are not durable in a cloud session.** Anything not pushed is lost when the VM is reclaimed
 after idling. Sessions should commit and push at every green step, which is the project's normal
@@ -547,8 +771,8 @@ compute-version ★pins android SHA
 
 ## Using the cloud credit well
 
-- **One phase per session.** Start each cloud session with "read
-  `mootmaker/designs/android-app.md`, do Phase N". That is what this folder's design pattern is for,
+- **One milestone at a time, started deliberately.** Start each cloud session with "read
+  `mootmaker/designs/android-app.md`, continue milestone MN". That is what this folder's design pattern is for,
   and it keeps the context small.
 - **Push as you go.** See "Files are not durable" above.
 - **Cheaper model for scaffolding, stronger one for the tricky parts** (N6). Gradle setup and
@@ -557,9 +781,9 @@ compute-version ★pins android SHA
 - **Keep emulator debugging off the credit where possible.** When CI's emulator job fails in a way
   the logs do not explain, a laptop session with a local emulator is a faster loop than a cloud
   session reading CI logs, and it uses the Pro plan instead.
-- **Check spend after Phases 0 and 1** on claude.ai's usage page before committing to the rest.
+- **Check spend after M0 and M1** on claude.ai's usage page before committing to the rest.
   Setting up a new Android project uses a lot of tokens up front, so early spend overstates the
-  per-phase rate.
+  per-milestone rate.
 - Cloud sessions can **Auto-fix** a PR: watch CI and push fixes for failures. Useful for the
   emulator job, which a cloud session cannot run itself.
 
@@ -585,7 +809,7 @@ in `mootmaker-android` unless stated.
   `mobile-config.json`, Cognito sign-in works with the Android client, a GraphQL query returns, and
   a subscription delivers an invalidation. Proves the wiring that only a real environment can show.
 - **Acceptance (emulator, real ephemeral environment):** the use-case catalogue, through the real
-  UI, using Q5's tool. Grows phase by phase. Shares no code with the webapp's suite, by
+  UI, using Q5's tool. Grows milestone by milestone. Shares no code with the webapp's suite, by
   testing-strategy.md's rule that each frontend owns its own, but it uses the same use-case IDs.
 - **Release smoke (mootmaker-release):** new Android jobs as described above. The existing
   `test-stage.spec.ts` and `production-stage.spec.ts` are **unchanged**: the webapp's flows do not
@@ -604,7 +828,8 @@ in `mootmaker-android` unless stated.
   `mobile-config.json`; the contract section names Android as the first independently-released
   consumer.
 - [`testing-strategy.md`](../docs/reference/testing-strategy.md): Android rows in the layers table.
-- [`use-cases.md`](../docs/reference/use-cases.md): per-frontend tags if N2 goes that way.
+- [`use-cases.md`](../docs/reference/use-cases.md): each milestone fills in the `android:` links for
+  the cases it covers (the tags already exist; see N2).
 - [`environments.md`](../docs/process/environments.md): the `and-acc` and `rel-and` kinds in the
   naming table.
 - [`running-costs.md`](../docs/reference/running-costs.md): the extra environment per release and
@@ -619,11 +844,14 @@ in `mootmaker-android` unless stated.
 
 No data migration: the app is a new client of existing data.
 
-1. **Phases 0–2 ship nowhere.** They are built and tested by `mootmaker-android`'s own CI, and the
-   APK is installed by hand from PR builds or the laptop.
-2. **The app joins `release.yml`** (Q3-A) once Phase 2 is done, and the first release afterwards
-   publishes the first APK, labelled "preview" in its release notes and on the download page.
-3. **Phases 3–6** go out in ordinary releases. The "preview" label comes off at parity.
+1. **M0 ships nowhere.** It proves the toolchain only.
+2. **M1's release publishes the first APK**, labelled "preview" in its release notes (and on the
+   download page from M2). The same release carries the API's new Cognito client and the webapp's
+   `mobile-config.json`.
+3. **M2–M9** each go out in an ordinary release. Releases between milestones (API or webapp work)
+   republish the current APK unchanged in behaviour. That is expected under Q3-A, and it's what
+   the n-1 check is for.
+4. **M10** removes the "preview" label.
 
 There is no feature flag. The app's presence is the flag, and the API changes (a new Cognito
 client, a JSON file) are additive and invisible to the webapp.
@@ -640,47 +868,39 @@ client, a JSON file) are additive and invisible to the webapp.
   Watch the first ten releases.
 - **Parity drift:** the webapp keeps moving while Android catches up. N3 decides whether that is
   acceptable.
-- **The credit runs out mid-way.** Phase boundaries are natural stopping points, each phase leaves
-  something usable, and the work can continue in laptop sessions on the Pro plan.
+- **The credit runs out mid-way.** Every milestone ends published, so any boundary is a safe place
+  to stop. See the [pacing summary](#pacing-summary) for the natural ones. Work can also continue
+  in laptop sessions on the Pro plan.
 - **Developer verification** becomes mandatory for sideloading in NZ from 2027 (N4).
 - **Cloud environment assumptions change** (VM size, allowlist, the 5-minute setup cache). All
-  are documented product behaviour as of 2026-10-05, not guarantees. The Phase 0 probe re-checks
+  are documented product behaviour as of 2026-10-05, not guarantees. The M0 probe re-checks
   them.
 
 ## Implementation checklist
 
-Sparse while Drafting. It will be filled in properly once the open questions are answered.
+Sparse while Drafting. Each milestone's detailed tasks get written into its section above at
+the start of that milestone, so the checklist never runs far ahead of what is known.
 
-**Phase 0a — prove the toolchain** (no app code yet)
-1. `[Geoff]` Answer Q1–Q6.
+**Before M0**
+1. `[Geoff]` Answer Q1–Q6. Q5's email half can wait until M8.
 2. `[Geoff]` Install the Claude GitHub App on `mootmaker-android`, and create a cloud environment
    with Custom network access (Trusted plus `dl.google.com`).
-3. `[Claude]` In a throwaway cloud session: check `ls /dev/kvm`, `nproc`, `free -g`, and that
-   `dl.google.com` and `registry.npmjs.org` are reachable. Record the results here.
-4. `[Claude]` `scripts/cloud-setup.sh`, timed under 5 minutes. Skeleton Gradle project with Compose
-   and an Apollo Kotlin build generating from the npm-tarball schema.
-   `pr-checks.yml` (build, lint, unit, Robolectric, one Roborazzi screenshot). An emulator job
-   running one trivial instrumented test, proving KVM in Actions.
-5. `[Geoff]` Generate the release keystore locally, add it as repo secrets, and back it up offline.
 
-**Phase 0b — backend touch points** (separate sessions in `mootmaker-api` and `mootmaker-webapp`)
-6. `[Claude]` Android Cognito client plus SSM parameter. `mobile-config.json` in the webapp's
-   `deploy.sh`. The `graphql-inspector` check in the api's `pr-checks.yml`. Proven on one ephemeral
-   environment.
+**M0:** `[Claude]` as described in [M0](#m0--toolchain-spike--s--no-user-functionality).
+Record the probe results in this doc.
 
-**Phases 1–6** follow the [Feature parity](#feature-parity) table. Each phase adds its unit,
-integration and screenshot tests, extends the acceptance suite, and ends with a green labelled
-acceptance run.
+**Before M1**
+3. `[Geoff]` Generate the release keystore locally, add it as `mootmaker-android` repo secrets, and
+   back it up offline.
 
-**Phase 7 — release and distribution** (after Phase 2; see Rollout)
-7. `[Claude]` `release-build.yml` in android. The `release.yml` changes. Maestro smoke flows
-   (test, n-1, production). APK attached in `record-outcome`. The download page (if Q4-B).
-8. `[Geoff]` Install the published APK on his own phone from the public link.
+**M1–M10:** `[Claude]` one milestone at a time, each started explicitly by Geoff, each finishing
+with the per-milestone checklist under [Milestones](#milestones). `[Geoff]` does the phone check
+at the end of each.
 
 ## Definition of done
 
-- Every use case tagged for Android (N2) is covered by the Android acceptance suite, and that suite
-  is green against a real ephemeral environment.
+- M0–M10 are complete. Every **[All frontends]** case in `use-cases.md` links to an Android test
+  case, and the Android acceptance suite is green against a real ephemeral environment.
 - The webapp's and API's existing suites are still green. The `graphql-inspector` check is live on
   `mootmaker-api`.
 - A release run built, tested, smoke-tested (test, n-1 and production) and published an APK, and
