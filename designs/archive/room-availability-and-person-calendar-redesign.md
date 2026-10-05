@@ -14,8 +14,8 @@ pickers, Settings' People/Rooms lists, and the account menu.
 
 ## Status
 
-**Building** — 2026-09-19. Implementation started on `mootmaker-webapp`'s
-`feature/room-availability-and-person-calendar-redesign`, per the Implementation checklist below.
+**Shipped** — in production since release v2.2.2, 2026-09-19 (mootmaker-webapp#68). Moved to
+`designs/archive/` on 2026-10-05, when this PR was finally merged. See "Outcome" at the end.
 
 ## Scope / non-goals
 
@@ -330,11 +330,10 @@ one PR at the end. Progress as of 2026-09-19 (see that branch's own commits for 
 9. `[Claude]` ✅ Done — `docs/reference/use-cases.md` and `docs/reference/business-functionality.md`
    updated to describe the card/agenda design (including closing G.62's previously-documented
    "no week navigation" gap).
-10. `[Geoff]` Review the PR diff; merge when satisfied.
-11. `[Geoff]` Run `gh workflow run release.yml` in `mootmaker-release` to reach `production` — see
-    "Definition of done."
-12. `[Claude]` Once production is confirmed, move Status to Shipped and move this doc to
-    `designs/archive/`.
+10. `[Geoff]` ✅ Reviewed; the implementation merged as mootmaker-webapp#68 on 2026-09-19.
+11. `[Geoff]` ✅ Reached production in v2.2.2 (2026-09-19), after v2.2.0 and v2.2.1 failed in the
+    smoke stage - see "Outcome".
+12. `[Claude]` ✅ Status moved to Shipped and this doc moved to `designs/archive/` (2026-10-05).
 
 ## Definition of done
 
@@ -349,3 +348,28 @@ one PR at the end. Progress as of 2026-09-19 (see that branch's own commits for 
   visitor can see it, not that the code exists on `main`.
 - This PR is merged and the doc's Status is moved to Shipped, then the doc moves to
   `designs/archive/`.
+
+## Outcome
+
+Recorded 2026-10-05, when this design PR was merged. The implementation itself had shipped more than
+two weeks earlier, but this PR was left open with its Status still at Building, so the design
+looked like pending work long after it was live.
+
+- **Shipped as designed.** Room-status cards on Room Availability, a one-week agenda on Person
+  Calendar with a bottom-sheet/side-panel meeting detail, a floating "add a meeting" button on
+  both, and the Person Calendar button pre-filling the viewed person as an attendee (not on your own
+  calendar, where you are already the default organiser).
+- **Reaching production took three releases.** v2.2.0 and v2.2.1 both failed in the smoke stage
+  because `mootmaker-release`'s smoke suite still asserted on the old grid. The webapp's own
+  acceptance suite had been reworked for the new layout, but nothing ran the smoke suite before
+  release. That gap is the subject of `designs/pr-time-smoke-verification.md`.
+- **One follow-on was missed.** The design folded room-colour dots in Add Meeting's room picker into
+  scope, but checklist item 7 covered only the avatars, and the picker stayed a plain text label.
+  Found while closing this out, and fixed in mootmaker-webapp's `fix/room-picker-color-dot`. It
+  reaches production with the next release.
+- **Overtaken since: avatars are no longer initials-only.** This design deliberately left photos
+  out. v5.2.0 (2026-10) added photo avatars through the API, and `PersonAvatar` now shows a photo
+  when there is one and falls back to these initials otherwise. There is still no upload screen in
+  the webapp.
+- **Also moved since: the People and Rooms lists** this design gave avatars and dots to are no longer
+  in Settings. They are separate admin-only pages (`/persons`, `/rooms`).
