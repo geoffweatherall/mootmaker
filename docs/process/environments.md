@@ -69,19 +69,37 @@ were found the next day still running — 10 Lambdas and 16 DynamoDB tables betw
 one's Cognito pool, S3 bucket, CloudFront distribution and AppSync API.
 
 **Maximum lifetime: 24 hours.** Anything older than that is a leak and should be destroyed, whether
-or not anyone remembers what it was for.
+or not anyone remembers what it was for. The one exception is an environment **kept on purpose**,
+with a written reason — see below.
 
-A scheduled sweep now backs that up —
+A scheduled sweep backs that up —
 [`mootmaker-ephemeral-envs/.github/workflows/sweep.yml`](https://github.com/geoffweatherall/mootmaker-ephemeral-envs/blob/main/.github/workflows/sweep.yml),
-daily at 06:00 UTC. It **reports and changes nothing** until it has run clean for a trial period;
-graduating it to automatic teardown is a flag. It will not touch an environment Terraform holds a
-lock on, or one written to in the last 12 hours, so a running build is safe from it.
+daily at 06:00 UTC (19:00 NZDT / 18:00 NZST). Since 2026-10-05 it **tears down automatically**
+(mootmaker#51): any ephemeral environment whose state has not been written for **48 hours**, unless
+it is kept. It never touches one Terraform holds a lock on, so a running build is safe from it.
+
+The 24-hour rule and the 48-hour sweep are two layers, not a contradiction. The rule is what you do;
+the sweep catches what you forgot. The gap between them exists because the sweep measures state
+*writes*, not use — an environment someone is testing in by hand looks idle — and at 12 hours its
+report-only trial would have destroyed environments people still wanted.
+
+**To keep an environment up beyond that**, mark it with a reason. The sweep then skips it and lists
+it, with the reason and how long it has been kept, on every run:
 
 ```bash
-mootmaker-ephemeral-envs/create-ephemeral-env.sh claude [--with-demo-data]
+mootmaker-ephemeral-envs/keep-env.sh <name> "left up for Geoff to inspect"
+mootmaker-ephemeral-envs/unkeep-env.sh <name>
+mootmaker-ephemeral-envs/create-ephemeral-env.sh claude --keep "<reason>"   # at creation
+```
+
+Use it whenever an environment outlives the session that made it — including a person's own
+`geoff-*` environment left up overnight. Tearing the environment down removes the marker.
+
+```bash
+mootmaker-ephemeral-envs/create-ephemeral-env.sh claude [--with-demo-data] [--keep "<reason>"]
 mootmaker-ephemeral-envs/teardown-ephemeral-env.sh <name>
 mootmaker-ephemeral-envs/cleanup-stale-envs.sh          # interactive: asks about each one
-mootmaker-ephemeral-envs/sweep-stale-envs.sh            # what the schedule runs; report-only
+mootmaker-ephemeral-envs/sweep-stale-envs.sh            # what the schedule runs (with --destroy); report-only by hand
 ```
 
 `sweep-stale-envs.sh` also finds two kinds of debris a teardown leaves behind even when it
