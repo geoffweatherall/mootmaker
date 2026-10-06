@@ -110,7 +110,7 @@ This is how a cloud session works on anything it cannot run itself:
    failed check also arrives as an event that wakes the session if it has gone idle.
 3. The session reads why it failed, fixes it, pushes, and goes back to step 2.
 
-What the session can actually read back has to be checked in M0. `gh run view` and the
+What the session can actually read back was checked in M0; see [M0 results](#m0-results-2026-10-06). `gh run view` and the
 check-runs API go through `api.github.com`, which the GitHub proxy serves. But the **full job log
 and uploaded artifacts** (screenshots, test reports, logcat) are served from GitHub's blob storage
 hosts. Those are not on the cloud environment's Trusted allowlist, which includes only `raw.`,
@@ -119,8 +119,9 @@ that nothing depends on downloading logs or artifacts:
 
 - **Failures are summarised where the API serves them directly.** A final step parses the JUnit
   XML and writes failing test names, assertion messages and the relevant logcat lines into the
-  check run's output and annotations. `gh api repos/{owner}/{repo}/check-runs/{id}` returns those
-  as JSON, and they are short enough to read without filling context.
+  check run's annotations (M0 found the output title and summary come back empty, so annotations
+  carry it). `gh api repos/{owner}/{repo}/check-runs/{id}/annotations` returns them as JSON, and
+  they are short enough to read without filling context.
 - **Artifacts stay for Geoff and for later.** The full reports, screenshots of failures and logcat
   are still uploaded as normal Actions artifacts.
 - **If M0 shows the session needs more than the summary,** add the artifact host M0 finds
@@ -592,8 +593,8 @@ and skips the warm-up.
   `GreetingTest` produced a `failure` annotation reading
   `com.mootmaker.app.GreetingTest.greetingNamesTheApp: org.junit.ComparisonFailure: expected:<Moot[]> but was:<Moot[maker]>`,
   written by `.github/scripts/summarise-failures.py` (JUnit XML to `::error` annotations). The
-  check run's `output.title` and summary are empty; **the annotations carry the content**, so the
-  design's "write it into the check run's output" should read "annotations".
+  check run's `output.title` and summary are empty; **the annotations carry the content**, and the
+  [loop description](#the-cloudci-loop) above now says so.
 - **`get_job_logs` is a workaround**, not a verified one: it returned log content for a failed run
   with `failed_only` and a tail, but was tried only with `tail_lines=5`, so its size limits are
   unknown.
