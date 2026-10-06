@@ -4,10 +4,13 @@
 
 Start building `mootmaker-android`: a native Android app that reaches feature parity with
 mootmaker-webapp, using the same GraphQL API and the same Cognito user pool. Day-to-day
-development happens in Claude Code **cloud sessions** (paid for from a US$100 cloud-session
-credit plus the Pro plan). Those sessions build and run JVM-level tests but cannot run an Android
-emulator, so emulator tests run in **GitHub Actions**, which is free for this public repo and has
-hardware virtualization. Hands-on testing happens on Geoff's laptop or phone. The design also
+development happens in Claude Code **cloud sessions**, paid for from a US$100 cloud-session credit
+that **expires on 2026-11-05** and then from the Pro plan. Those sessions build and run JVM-level
+tests but cannot run an Android emulator, so emulator tests run in **GitHub Actions**, which is
+free for this public repo and has hardware virtualization. The session pushes, Actions runs the
+emulator suites, and the session reads the results back and fixes what failed
+([the cloud–CI loop](#the-cloudci-loop)). An emulator or a real phone is only for Geoff's hands-on
+spot checks. The design also
 covers what a third deployable component does to the release pipeline, how the app gets published
 for sideloading, and how it is smoke-tested. The path to parity is split into
 [eleven milestones](#milestones). Each is a thin vertical slice that ends with a published APK, so
@@ -22,6 +25,10 @@ explains what has changed since then, and terms are explained where they first a
 
 **Drafting** — 2026-10-05. First draft. The blocking questions under "Open questions" need Geoff's
 answers before this can move to Ready.
+
+Revised 2026-10-07 after checking the draft against the code and the current cloud-session docs:
+AWS access from pull requests (new Q7), where the signing secrets have to live, the release tag
+token's scope, multi-repository cloud sessions, the credit's expiry date, and the cloud–CI loop.
 
 ## Scope / non-goals
 
@@ -66,9 +73,12 @@ emulator needs that to run at a usable speed, so **the design assumes no emulato
 sessions**. The first checklist item confirms this cheaply. If KVM does turn out to be available,
 nothing here gets worse.
 
-According to the docs, the VM itself has no separate compute charge. Cloud sessions draw on the same
-usage and rate limits as the rest of the account, so the credit pays for **tokens**, not machine
-time.
+According to the docs, the VM itself has no separate compute charge, so the credit pays for
+**tokens**, not machine time. claude.ai's Usage page (checked 2026-10-07) describes it as
+"Cloud session credits: applies automatically to cloud sessions. After it's used or expires, your
+plan's regular usage applies". It is US$100 and **expires 2026-11-05** (8:59 PM NZDT). Laptop
+sessions never touch it, and usage credits are switched off, so nothing is ever charged beyond the
+plan. The expiry date drives the [pacing](#pacing-summary): credit left on 5 November is lost.
 
 ### 2. Emulator tests run in GitHub Actions on Linux runners
 
@@ -77,6 +87,47 @@ The `ubuntu-*` runners expose KVM; one udev-rule step makes it usable, and
 `reactivecircus/android-emulator-runner` boots an emulator inside the job. This is the standard way
 to run Android instrumented tests in CI. The macOS (Apple Silicon) runners cannot do this, so the
 emulator jobs are Linux-only.
+
+#### The cloud–CI loop
+
+This is how a cloud session works on anything it cannot run itself:
+
+1. The session pushes its branch and opens or updates the PR. `pr-checks.yml` runs on every push.
+   Emulator acceptance runs when the session asks for it: it adds the `run-acceptance` label through
+   the REST API (`gh api repos/{owner}/{repo}/issues/{n}/labels`; the GitHub proxy blocks most
+   GraphQL, which `gh pr edit` uses), or runs `gh workflow run acceptance.yml --ref <branch>`.
+   Acceptance runs also need AWS (Q7).
+2. The session waits with `gh run watch <run-id> --exit-status`, a single command that blocks until
+   the run finishes, so waiting costs almost nothing in tokens. Bash commands that outlive their
+   timeout move to the background and report back when they exit, and an acceptance run takes about
+   25–30 minutes, including creating the environment. With **auto-fix** turned on for the PR, a
+   failed check also arrives as an event that wakes the session if it has gone idle.
+3. The session reads why it failed, fixes it, pushes, and goes back to step 2.
+
+What the session can actually read back has to be checked in M0. `gh run view` and the
+check-runs API go through `api.github.com`, which the GitHub proxy serves. But the **full job log
+and uploaded artifacts** (screenshots, test reports, logcat) are served from GitHub's blob storage
+hosts. Those are not on the cloud environment's Trusted allowlist, which includes only `raw.`,
+`objects.`, `pkg-npm.` and `release-assets.githubusercontent.com`. So the workflows are written so
+that nothing depends on downloading logs or artifacts:
+
+- **Failures are summarised where the API serves them directly.** A final step parses the JUnit
+  XML and writes failing test names, assertion messages and the relevant logcat lines into the
+  check run's output and annotations. `gh api repos/{owner}/{repo}/check-runs/{id}` returns those
+  as JSON, and they are short enough to read without filling context.
+- **Artifacts stay for Geoff and for later.** The full reports, screenshots of failures and logcat
+  are still uploaded as normal Actions artifacts.
+- **If M0 shows the session needs more than the summary,** add the artifact host M0 finds
+  (`gh run download` reports which one it was refused) to the environment's Custom allowlist, next
+  to `dl.google.com`.
+
+M0 also confirms that a paused VM resumes cleanly when `gh run watch` returns or auto-fix wakes it.
+The docs say an idle VM pauses after a few minutes with its files saved.
+
+Screenshot tests (Roborazzi, under Robolectric) run **inside** the cloud session and produce PNGs
+it can look at directly. Emulator screenshots of a failure are the only images that come through
+CI. Geoff uses an emulator or his phone only for hands-on checks: the
+[end-of-milestone two-minute check](#milestones) and anything the CI summary cannot explain.
 
 ### 3. The laptop is for hands-on testing, not the main loop
 
@@ -162,8 +213,9 @@ None of these were worth blocking on. Each can be overridden cheaply.
 4. **A separate Cognito app client for Android** (`aws_cognito_user_pool_client.android`, public,
    no secret), rather than reusing the webapp's. This lets the Android client enable auth flows the
    webapp's does not (Q2), keeps its token lifetimes separate, and makes Cognito metrics show which
-   frontend signed in. It is published to SSM as `/mootmaker/<env>/api/cognito-android-client-id`,
-   following the existing pattern.
+   frontend signed in. It is published to SSM as `/mootmaker/<env>/api/cognito/android-client-id`,
+   beside the existing `cognito/webapp-client-id` in `published-config.tf`'s `published_config`
+   map.
 5. **Schema consumption via the npm tarball, not GitHub Packages.** The schema is published to both
    registries. GitHub Packages needs a token **even for public packages**, and a cloud session has
    no GitHub token inside its VM (git credentials stay behind a proxy). `registry.npmjs.org` is
@@ -251,6 +303,19 @@ joins `release.yml` in M1, and every milestone after that ships through an ordin
 Geoff picks B instead, M1 builds `mootmaker-android`'s own release workflow in place of the
 `release.yml` changes, and the milestone plan is otherwise unchanged.
 
+Two consequences of A that are easy to miss:
+
+- **The signing secrets live on `mootmaker-release`, not on `mootmaker-android`.** A reusable
+  workflow called with `uses:` from another repository sees the **caller's** secrets, never its own
+  repository's. So `build-android` passes them explicitly
+  (`secrets: { ANDROID_KEYSTORE_BASE64: ..., ... }`), and `release-build.yml` declares them under
+  `on.workflow_call.secrets`. The same applies to AWS: the call presents mootmaker-release's OIDC
+  subject, which the deploy role already trusts (`github-actions-deploy-role.yaml`), so
+  `build-android` needs no trust change.
+- **`RELEASE_TAG_PAT` must be widened to `mootmaker-android`.** It is a fine-grained token scoped
+  to exactly the repositories `tag` writes to ([ci-cd-pipeline.md](archive/ci-cd-pipeline.md)
+  Decision 3). Geoff edits the token's repository list; its value does not change.
+
 #### Q4. Where is the APK published for sideloading?
 
 **Sideloading** means installing an APK from outside an app store. The user downloads the file,
@@ -323,6 +388,34 @@ backend. This also fits what [pr-time-smoke-verification.md](pr-time-smoke-verif
 working out for the webapp. If that design lands an approach, Android should follow it rather than
 invent a second one.
 
+**A and B both need Q7 answered**: today no pull-request workflow in any repository can create an
+environment. Until Q7's change is live, Android acceptance can run only at release time (C), and
+the milestones' "green labelled acceptance run" step becomes "green `build-android` in a release".
+
+#### Q7. How do pull-request workflows get AWS access?
+
+Background: the deploy role `mootmaker-release-github-actions-deploy` trusts only these OIDC
+subjects ([`github-actions-deploy-role.yaml`](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/blob/main/workload-account/github-actions-deploy-role.yaml)):
+component repositories at `refs/tags/v*`, and mootmaker-release and mootmaker-ephemeral-envs at
+`refs/heads/main`. A `pull_request` workflow presents `repo:<owner>/<repo>:pull_request` and is
+refused. [pr-time-smoke-verification.md](pr-time-smoke-verification.md) found the same thing on
+2026-10-05. Cloud sessions have no AWS credentials either, and should not get any. So **every
+emulator run against a real environment happens in Actions**, and before M1's acceptance runs can
+happen, something has to trust pull requests.
+
+| | Option | For | Against |
+|---|---|---|---|
+| **A** | Add `repo:...mootmaker-android:pull_request` (and the webapp's) to the existing deploy role | One line per repository | A PR branch's workflow, which anyone with push access can edit, gets the full deploy role, including `test` and `production` state |
+| **B** | **A second, narrower role for PR workflows**, shared with pr-time-smoke-verification | Can be limited to ephemeral resources. Terraform state keys start `<env>/` and resource names `<env>-` (`resource_prefix` in mootmaker-api's `locals.tf`), so `test` and `production` can be denied explicitly | A second policy to keep in step with the first as components gain resources |
+| **C** | No PR access; acceptance only at release time (Q6-C) | No security change | Failures show up mid-release and burn version numbers. The cloud–CI loop can't check the backend half of a milestone before merging |
+
+GitHub withholds OIDC tokens from fork PRs by default, so outside contributors get no access under
+any option. Push access to these repositories is Geoff's alone (and the cloud sessions acting for
+him).
+
+**Leaning: B**, built once, in `mootmaker-bootstrap-aws-accounts`, by whichever of this design or
+pr-time-smoke-verification gets there first. It blocks M1, not M0. M0 needs no AWS.
+
 ### Non-blocking
 
 - **N1.** SRP versus `USER_PASSWORD_AUTH` on the Android client, if Q2 is B.
@@ -386,7 +479,8 @@ webapp covering the rest.
 
 1. PR checks green: build, lint, unit, Robolectric, screenshots.
 2. A green labelled acceptance run on an emulator against an ephemeral environment, covering the
-   milestone's use cases.
+   milestone's use cases. Until Q7's role exists, this is the acceptance suite inside a release's
+   `build-android` job instead.
 3. The `android:` slot of each covered case in `use-cases.md` links to its Android test case.
 4. A release that publishes the APK, with smoke tests green (from M1 on).
 5. Geoff installs the published APK on his phone and tries the new slice. It's a two-minute check
@@ -400,7 +494,13 @@ The one milestone that is not a vertical slice. It exists to find out cheaply wh
 Actions approach works before spending on anything else.
 
 - **Cloud session:** check `/dev/kvm`, `nproc`, `free -g`, and that `dl.google.com` and
-  `registry.npmjs.org` are reachable. Write `scripts/cloud-setup.sh` and time it under 5 minutes.
+  `registry.npmjs.org` are reachable. Write `scripts/cloud-setup.sh` and time it under 5 minutes,
+  including the Gradle warm-up (there are no hooks in a two-repository session).
+- **The cloud–CI loop**, end to end: push, `gh run watch` until the emulator job finishes, read its
+  result through `gh run view` and the check-runs API, then try `gh run view --log-failed` and
+  `gh run download` and record which hosts they are refused. Deliberately break the trivial test
+  once to prove that a failure summary reaches the session and auto-fix wakes it. Record what works
+  under [the cloud–CI loop](#the-cloudci-loop).
 - **App:** an empty Compose app, with Apollo Kotlin generating types from the npm-tarball schema
   (proves codegen without using it yet).
 - **CI:** `pr-checks.yml` (build, lint, one unit test, one Robolectric test, one screenshot) and an
@@ -554,7 +654,18 @@ The largest functional slice: the most use cases, and the first write.
 | M9 Admin | L | ~116 |
 | M10 Close-out | S | 119 |
 
-The natural stopping points if spend runs short:
+**The credit expires on 2026-11-05**, four weeks after this revision, and anything unspent is lost.
+So the aim is to **use it all by then**, not to stretch it out:
+
+- Start M0 as soon as Q1 is answered and the cloud environment exists. M0 needs nothing else, so
+  Q2–Q7 can be settled while it runs.
+- After M0 and again after M1, project forward: at the rate so far, which milestone will the
+  credit reach by 5 November? Early milestones overstate the rate, because a new Android project
+  uses a lot of tokens up front.
+- After 5 November, work continues on the Pro plan's regular limits, in cloud or laptop sessions,
+  but more slowly, because those limits also cover all of Geoff's other Claude use.
+
+The natural stopping points, if the credit (or the plan) runs short:
 - **after M3:** a read-only companion app;
 - **after M5:** the app does everything a non-admin does day to day, except sign-up;
 - **after M7:** everything except account creation and admin, both of which the webapp covers.
@@ -577,14 +688,17 @@ The natural stopping points if spend runs short:
 - `.github/workflows/release-build.yml` (Q3-A): `workflow_call`, mirroring the webapp's. Builds a
   signed release APK once, proves it against an `rel-and-…` environment, and uploads it as the
   artifact.
-- `.claude/settings.json` and a cloud-environment setup script (`scripts/cloud-setup.sh`), so
-  cloud sessions work from the repo alone.
+- A cloud-environment setup script (`scripts/cloud-setup.sh`), pasted into the cloud environment's
+  setup-script field and kept in the repo so changes are reviewed. `.claude/settings.json` for
+  laptop sessions only, since two-repository cloud sessions don't read it.
+- The CI summary step that writes failures into check-run output (see
+  [the cloud–CI loop](#the-cloudci-loop)), shared by `pr-checks.yml` and `acceptance.yml`.
 - README, AGENTS.md and `testing-strategy.md` rewritten from "placeholder".
 
 **`mootmaker-api`**
 
 - `deploy/terraform/cognito.tf`: an `android` app client (choice 4); flows per Q2.
-- SSM: publish `cognito-android-client-id` beside the existing parameters.
+- `published-config.tf`: publish `cognito/android-client-id` beside `cognito/webapp-client-id`.
 - `pr-checks.yml`: `graphql-inspector diff` against the last published schema, failing on breaking
   changes unless the PR carries an explicit override label (Decision 5).
 - A short deprecation rule in the README: a field is marked `@deprecated` and kept until no
@@ -603,6 +717,14 @@ The natural stopping points if spend runs short:
 - `tag` pushes `vX.Y.Z` to the android repo too.
 - New smoke jobs; see [Release pipeline](#release-pipeline).
 - `record-outcome` attaches `mootmaker-android-X.Y.Z.apk` and its SHA-256 to the GitHub Release.
+- New repository secrets for the release keystore and its passwords, passed to `build-android`
+  explicitly (Q3). `RELEASE_TAG_PAT`'s repository list gains `mootmaker-android`.
+
+**`mootmaker-bootstrap-aws-accounts`** (Q7, before M1's first acceptance run)
+
+- The pull-request role (Q7-B) and its trust policy for `mootmaker-android` (and
+  `mootmaker-webapp`, if pr-time-smoke-verification has not added it already), with `test` and
+  `production` denied explicitly.
 
 **`mootmaker-ephemeral-envs`:** no change. The name check (`^[a-z][a-z0-9-]{0,7}-[0-9]{6}-[a-z0-9]{4}$`)
 already accepts `and-acc` and `rel-and`. Environments are still created with API plus webapp.
@@ -653,8 +775,8 @@ this routine.
 **same key** as the installed app. Lose the key and every existing install has to be uninstalled and
 reinstalled. So:
 - Geoff generates the keystore locally;
-- it is stored as GitHub Actions secrets (base64 keystore plus passwords) on `mootmaker-android`
-  only;
+- it is stored as GitHub Actions secrets (base64 keystore plus passwords) on `mootmaker-release`
+  only, because that is the repository whose workflow calls the release build (see Q3);
 - it is backed up offline;
 - it **never** enters a cloud session, which only ever builds debug variants signed with a
   throwaway debug key.
@@ -672,11 +794,24 @@ Play installs.
   `build-tools` and `platform-tools`. Set `ANDROID_HOME`.
 - It must finish in **about 5 minutes or the snapshot isn't cached**. The snapshot is reused by
   every new session and rebuilt about every 7 days or whenever the script changes.
-- Gradle's dependency cache is warmed by an async SessionStart hook rather than the setup script, to
-  stay under the limit.
-- A cloud session clones **one repo**. The hub's designs are reachable as raw GitHub URLs, and
-  AGENTS.md already links that way. Work that also changes `mootmaker-api` or `mootmaker-webapp`
-  (M1's backend touch points) needs its own session in that repo, or a laptop session.
+- **Two repositories per session: `mootmaker-android` and `mootmaker`.** A milestone can't be
+  finished from `mootmaker-android` alone: its definition of done edits `use-cases.md` and this
+  doc's spend line, both here in the hub. Cloud sessions and Claude Code **Projects** can attach
+  several repositories, and each clone's `CLAUDE.md` loads. The docs advise adding only the one or
+  two repositories nearly every task touches. M1's backend touch points in `mootmaker-api`,
+  `mootmaker-webapp`, `mootmaker-release` and `mootmaker-bootstrap-aws-accounts` are separate
+  sessions or Project threads, one per repository, each with its own PR.
+- **With more than one repository, no repository's `.claude/settings.json` is read**: no hooks, no
+  permission rules, no `env`. So:
+  - Gradle's dependency cache is warmed by the **setup script**, not a SessionStart hook. If the
+    SDK install plus `./gradlew dependencies` doesn't fit in about 5 minutes, warm only the
+    largest dependencies there and accept a slower first build per session.
+  - Environment variables (`ANDROID_HOME`, `BASH_MAX_TIMEOUT_MS`, and so on) go in the **cloud
+    environment's** settings.
+  - Standing rules go in `mootmaker-android/AGENTS.md`, which loads either way, and in the
+    Project's instructions if a Project is used.
+- **Model and effort:** a Project runs every thread on Opus at high effort unless told otherwise,
+  which spends the credit fastest. Set the thread model per N6 in Project settings.
 
 **Files are not durable in a cloud session.** Anything not pushed is lost when the VM is reclaimed
 after idling. Sessions should commit and push at every green step, which is the project's normal
@@ -771,21 +906,27 @@ compute-version ★pins android SHA
 
 ## Using the cloud credit well
 
-- **One milestone at a time, started deliberately.** Start each cloud session with "read
-  `mootmaker/designs/android-app.md`, continue milestone MN". That is what this folder's design pattern is for,
-  and it keeps the context small.
+The credit applies only to cloud sessions and expires on 2026-11-05 (see Decision 1 and the
+[pacing summary](#pacing-summary)).
+
+- **One milestone at a time, started deliberately.** Start each cloud session, with both
+  `mootmaker-android` and `mootmaker` attached, with "read `mootmaker/designs/android-app.md`,
+  continue milestone MN". That is what this folder's design pattern is for, and it keeps the
+  context small.
 - **Push as you go.** See "Files are not durable" above.
 - **Cheaper model for scaffolding, stronger one for the tricky parts** (N6). Gradle setup and
   screen layouts are boilerplate-heavy; auth, caching and subscriptions are where a stronger model
-  earns its cost.
-- **Keep emulator debugging off the credit where possible.** When CI's emulator job fails in a way
-  the logs do not explain, a laptop session with a local emulator is a faster loop than a cloud
-  session reading CI logs, and it uses the Pro plan instead.
-- **Check spend after M0 and M1** on claude.ai's usage page before committing to the rest.
-  Setting up a new Android project uses a lot of tokens up front, so early spend overstates the
-  per-milestone rate.
-- Cloud sessions can **Auto-fix** a PR: watch CI and push fixes for failures. Useful for the
-  emulator job, which a cloud session cannot run itself.
+  earns its cost. In a Project, set this in Project settings, since threads default to Opus at
+  high effort.
+- **Let CI do the waiting.** `gh run watch` blocks in one command, so a 30-minute emulator run costs
+  almost no tokens. Turn on **auto-fix** for each PR so a failed check wakes the session.
+- **Read summaries, not logs.** The check-run summary ([the cloud–CI loop](#the-cloudci-loop))
+  costs a few hundred tokens. A raw Gradle or logcat dump can cost tens of thousands.
+- **Hands-on debugging stays on the laptop.** When CI's emulator job fails in a way the summary
+  does not explain, a laptop session with a local emulator is a faster loop, and it uses the Pro
+  plan rather than the credit. Before 5 November that means saving the credit for building; after
+  it, there is no difference in what pays.
+- **Check spend after M0 and M1** on claude.ai's Usage page and project it to 5 November.
 
 ## Testing impacts
 
@@ -868,9 +1009,14 @@ client, a JSON file) are additive and invisible to the webapp.
   Watch the first ten releases.
 - **Parity drift:** the webapp keeps moving while Android catches up. N3 decides whether that is
   acceptable.
-- **The credit runs out mid-way.** Every milestone ends published, so any boundary is a safe place
-  to stop. See the [pacing summary](#pacing-summary) for the natural ones. Work can also continue
-  in laptop sessions on the Pro plan.
+- **The credit runs out, or expires on 2026-11-05, mid-way.** Every milestone ends published, so
+  any boundary is a safe place to stop. See the [pacing summary](#pacing-summary) for the natural
+  ones. Work can continue on the Pro plan's regular limits, more slowly.
+- **Open decisions eat the credit's four weeks.** Each day Q1 and the cloud environment are
+  unsettled is a day of credit unused. Mitigated by M0 needing only Q1, and Q7 blocking only M1.
+- **The cloud–CI loop is weaker than assumed:** for example, logs and artifacts can't be read, or a
+  paused VM doesn't resume when a run finishes. M0 tests this before any feature work, and the
+  check-run summary means artifacts are optional.
 - **Developer verification** becomes mandatory for sideloading in NZ from 2027 (N4).
 - **Cloud environment assumptions change** (VM size, allowlist, the 5-minute setup cache). All
   are documented product behaviour as of 2026-10-05, not guarantees. The M0 probe re-checks
@@ -881,17 +1027,25 @@ client, a JSON file) are additive and invisible to the webapp.
 Sparse while Drafting. Each milestone's detailed tasks get written into its section above at
 the start of that milestone, so the checklist never runs far ahead of what is known.
 
-**Before M0**
-1. `[Geoff]` Answer Q1–Q6. Q5's email half can wait until M8.
-2. `[Geoff]` Install the Claude GitHub App on `mootmaker-android`, and create a cloud environment
-   with Custom network access (Trusted plus `dl.google.com`).
+**Before M0** (only these block it)
+1. `[Geoff]` Answer Q1.
+2. `[Geoff]` Install the Claude GitHub App on `mootmaker-android` and `mootmaker` (auto-fix and
+   Projects need it). Create a cloud environment with Custom network access (Trusted plus
+   `dl.google.com`), and `BASH_MAX_TIMEOUT_MS=600000` in its environment variables. Use a Project with
+   those two repositories if Projects has reached the account; otherwise attach both to each
+   session.
 
 **M0:** `[Claude]` as described in [M0](#m0--toolchain-spike--s--no-user-functionality).
 Record the probe results in this doc.
 
-**Before M1**
-3. `[Geoff]` Generate the release keystore locally, add it as `mootmaker-android` repo secrets, and
-   back it up offline.
+**Before M1** (while M0 runs)
+3. `[Geoff]` Answer Q2–Q7. Q5's email half can wait until M8.
+4. `[Geoff]` Generate the release keystore locally, add it as `mootmaker-release` repo secrets (Q3),
+   and back it up offline.
+5. `[Geoff]` Add `mootmaker-android` to `RELEASE_TAG_PAT`'s repository list.
+6. `[Claude]` Q7's pull-request role in `mootmaker-bootstrap-aws-accounts`, unless
+   pr-time-smoke-verification has already built it. `[Geoff]` applies it with that
+   repository's `deploy-stack.sh`, as for every stack there.
 
 **M1–M10:** `[Claude]` one milestone at a time, each started explicitly by Geoff, each finishing
 with the per-milestone checklist under [Milestones](#milestones). `[Geoff]` does the phone check
