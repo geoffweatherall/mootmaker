@@ -23,14 +23,14 @@ explains what has changed since then, and terms are explained where they first a
 
 ## Status
 
-**Drafting** — 2026-10-05. First draft. The blocking questions under "Open questions" need Geoff's
-answers before this can move to Ready.
+**Ready** — 2026-10-07. Approved by Geoff. All seven blocking questions (Q1–Q7) are answered, and
+N3 and N6 are decided. M0 starts once the GitHub and cloud-environment steps under "Before M0" in
+the [Implementation checklist](#implementation-checklist) are done.
 
-Revised 2026-10-07 after checking the draft against the code and the current cloud-session docs:
-AWS access from pull requests (new Q7), where the signing secrets have to live, the release tag
-token's scope, multi-repository cloud sessions, the credit's expiry date, and the cloud–CI loop.
-Q1–Q7, N3 and N6 answered by Geoff the same day. Left at Drafting for Geoff to re-read before
-moving it to Ready.
+History: first drafted 2026-10-05. Revised 2026-10-07 after checking the draft against the code
+and the current cloud-session docs: AWS access from pull requests (Q7), where the signing secrets
+have to live, the release tag token's scope, multi-repository cloud sessions, the credit's expiry
+date, and the cloud–CI loop.
 
 ## Scope / non-goals
 
@@ -253,7 +253,7 @@ None of these were worth blocking on. Each can be overridden cheaply.
 ### Blocking
 
 Each question lists options and a leaning. The leaning is a recommendation, not a decision. All seven
-were answered by Geoff on 2026-10-07, each matching its leaning; the answer is recorded above each
+were answered by Geoff on 2026-10-07, each matching its leaning. Each answer is recorded above its
 leaning, which is kept as the reasoning.
 
 #### Q1. What is the app built with?
