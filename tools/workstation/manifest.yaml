@@ -18,7 +18,7 @@
 
 tools:
   - name: git
-    why: Source control for all eleven repositories.
+    why: Source control for all twelve repositories.
     check: command -v git
     version: git --version
     install: sudo apt install -y git
@@ -203,3 +203,23 @@ tools:
       Pinned to the same google-java-format version as the poms, and must run in jar-file mode -
       the native binary cannot parse Java 25 module imports. Both are set in vscode-settings.json.
       See docs/process/java-code-style.md.
+
+  # Same "is this machine set up correctly?" question again. node_modules/ is gitignored, so every
+  # fresh clone needs `npm ci` once per package-lock.json. Skip it and nothing says so - VS Code
+  # just shows "Cannot find type definition file for 'node'" on the tsconfig, or a suite fails
+  # with "playwright: not found". Found that way on 2026-10-07 in mootmaker-release and
+  # mootmaker-email-testing.
+  - name: npm-dependencies
+    why: >-
+      Every checkout with a package-lock.json needs its dependencies installed before its
+      typecheck, tests or editor type information work.
+    check: >-
+      root="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../../.." && pwd)";
+      ! find "$root" -maxdepth 3 -name package-lock.json -not -path '*/node_modules/*'
+      -execdir test ! -d node_modules \; -print | grep -q .
+    install: >-
+      find .. -maxdepth 3 -name package-lock.json -not -path '*/node_modules/*'
+      -execdir test ! -d node_modules \; -execdir npm ci \;
+    notes: >-
+      Run the install from the mootmaker checkout. It only installs where node_modules is absent;
+      after a lockfile change, run `npm ci` in that directory yourself.
