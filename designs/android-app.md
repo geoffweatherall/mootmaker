@@ -29,6 +29,8 @@ answers before this can move to Ready.
 Revised 2026-10-07 after checking the draft against the code and the current cloud-session docs:
 AWS access from pull requests (new Q7), where the signing secrets have to live, the release tag
 token's scope, multi-repository cloud sessions, the credit's expiry date, and the cloud–CI loop.
+Q1–Q7, N3 and N6 answered by Geoff the same day. Left at Drafting for Geoff to re-read before
+moving it to Ready.
 
 ## Scope / non-goals
 
@@ -250,7 +252,9 @@ None of these were worth blocking on. Each can be overridden cheaply.
 
 ### Blocking
 
-Each question lists options and a leaning. The leaning is a recommendation, not a decision.
+Each question lists options and a leaning. The leaning is a recommendation, not a decision. All seven
+were answered by Geoff on 2026-10-07, each matching its leaning; the answer is recorded above each
+leaning, which is kept as the reasoning.
 
 #### Q1. What is the app built with?
 
@@ -260,6 +264,8 @@ Each question lists options and a leaning. The leaning is a recommendation, not 
 | **B** | Kotlin Multiplatform + Compose Multiplatform | Same as A, but with shared code in a module that could also target iOS later | iOS becomes possible without a rewrite | More build complexity now for an iOS app that is a non-goal. Thinner docs |
 | **C** | Trusted Web Activity (TWA) | The existing webapp, wrapped as an installable app running in Chrome without browser UI (Google's Bubblewrap tool generates it) | Parity on day one, for almost no work. The webapp is already mobile-first | Not really an Android app: no native UI, nothing new to show or learn. Needs `assetlinks.json` on the domain |
 | **D** | React Native or Capacitor | A JavaScript/React app compiled or wrapped for Android | Could reuse some React logic | A third UI toolkit to learn. MUI components do not carry over to React Native |
+
+**Answered 2026-10-07: A** (native Kotlin + Jetpack Compose).
 
 **Leaning: A.** The project exists to explore building real software with Claude Code, and a
 native app is the version of that worth showing. C is worth knowing about as a fallback that costs
@@ -277,6 +283,8 @@ client allows only `ALLOW_USER_SRP_AUTH` and `ALLOW_REFRESH_TOKEN_AUTH`.
 | **A** | AWS Amplify Android (Auth category) | AWS's own mobile library. Handles SRP, token storage and refresh | Same SRP flow as the webapp. Maintained by AWS | A large dependency that wants to own configuration (its own JSON format) and pulls in more of Amplify than needed. Runtime environment switching needs care |
 | **B** | **Call Cognito's API directly, with a thin Kotlin client** | Cognito's user-pool API is JSON over HTTPS (`InitiateAuth`, `SignUp`, `ConfirmSignUp`, `ForgotPassword`…). Call it with OkHttp or Ktor, implementing SRP, or enabling `USER_PASSWORD_AUTH` on the Android client only | Small and fully under our control. Screens match the webapp's flows exactly. Config switching is trivial | SRP is about 150 lines of careful maths to get right. `USER_PASSWORD_AUTH` avoids that but sends the password to Cognito (over TLS) |
 | **C** | Cognito managed login (hosted UI) in a Custom Tab | The app opens Cognito's own sign-in page in a Chrome Custom Tab, then receives tokens via an OAuth redirect (PKCE) back to the app | Least auth code. Makes Google sign-in nearly free later. The user pool already has a domain | Sign-up and reset screens are Cognito's, themed only lightly, so they would not match the webapp. Each environment's pool needs the app's redirect URI registered. Tests have to drive a browser page |
+
+**Answered 2026-10-07: B** (call Cognito's API directly). N1 is still open.
 
 **Leaning: B**, with the SRP versus `USER_PASSWORD_AUTH` choice made at implementation time
 (non-blocking N1). It mirrors what the webapp does, keeps the use-case catalogue's sign-up and
@@ -297,6 +305,8 @@ and an APK cannot be rolled back off people's phones.
 | **A** | **Fourth component in the bundle** | `build-android` joins the parallel builds; the android repo gets tagged; smoke jobs use the new APK; the APK is published only in `record-outcome`'s success branch | One version number means one thing everywhere. Every API release is proven against the current app. Fits the existing pattern | Emulator flakiness can now fail a whole release, and failed releases burn version numbers. Every API release waits on an Android build, though it runs in parallel |
 | **B** | Independent release | `mootmaker-android` has its own release workflow and version line; the bundle doesn't know it exists | Releases decouple. An app fix doesn't need an API release | API releases are no longer checked against the app at all except through the n-1 check, which would then need to live in `release.yml` anyway. Two version lines to explain |
 | **C** | Bundled testing, independent publishing | `release.yml` builds and smoke-tests the app every time (protecting it), but publishing an APK is a separate decision | Protects the app on every API change without forcing an app release | The most moving parts. Unclear what "the app's version" means |
+
+**Answered 2026-10-07: A** (fourth bundled component, from M1). M1 stays whole rather than splitting into M1a/M1b.
 
 **Leaning: A, from M1.** Decision 7 puts publishing in the first functional slice, so the app
 joins `release.yml` in M1, and every milestone after that ships through an ordinary release. If
@@ -330,6 +340,8 @@ option needs a **release signing key** (see Technical considerations).
 | **D** | Google Play | US$25 once | The normal way people install apps. Automatic updates. Play manages the signing key | New personal developer accounts must run a closed test with **12+ testers for 14 days** before any production listing. Identity verification. Store listing, privacy policy, data-safety form. Ongoing target-SDK deadlines |
 | **E** | F-Droid | Free | The open-source app store | The main repository needs reproducible builds and no proprietary dependencies, and reviews submissions slowly. A self-hosted F-Droid repo is possible but is yet more infrastructure |
 
+**Answered 2026-10-07: A + B** (GitHub Release asset, plus a download page on www.mootmaker.com).
+
 **Leaning: A + B.** Option A is the real distribution channel, and option B is a small page on the
 webapp linking to the latest release's APK. D is the right answer if the app ever needs to be
 "real" to a non-technical audience. The 12-tester rule is the main thing standing in the way.
@@ -362,6 +374,8 @@ Note that the email helper is only needed from **M8** (sign-up and forgot passwo
 with accounts created through the admin API, so they need no email, and this question can be
 answered for M1 without settling the email half.
 
+**Answered 2026-10-07: as leaning** (Compose/Espresso for acceptance, Maestro for release smoke).
+
 **Leaning: A for the acceptance suite, B for release smoke.** Acceptance is large and benefits from
 precision. Smoke is about five minutes of black-box clicking on **the exact published artifact**,
 which is what Maestro is for, and it is also how the n-1 check runs an *old* APK that has no
@@ -381,6 +395,8 @@ for the admin API.
 | **A** | Every PR push | Fastest | Highest. Every push creates and destroys an environment |
 | **B** | **On demand** (a `run-acceptance` PR label or `workflow_dispatch`), plus release time | Quick when wanted | Low |
 | **C** | Release time only, which is what the webapp does today | Slowest: breakage found mid-release | Lowest |
+
+**Answered 2026-10-07: B** (on demand by label or dispatch, plus release time).
 
 **Leaning: B.** PR checks always run the free layers (build, lint, unit, Robolectric, screenshot),
 so most mistakes are caught without AWS. The label is for PRs that change how the app talks to the
@@ -413,6 +429,8 @@ GitHub withholds OIDC tokens from fork PRs by default, so outside contributors g
 any option. Push access to these repositories is Geoff's alone (and the cloud sessions acting for
 him).
 
+**Answered 2026-10-07: B** (a new, narrower pull-request role, shared with pr-time-smoke-verification).
+
 **Leaning: B**, built once, in `mootmaker-bootstrap-aws-accounts`, by whichever of this design or
 pr-time-smoke-verification gets there first. It blocks M1, not M0. M0 needs no AWS.
 
@@ -426,13 +444,13 @@ pr-time-smoke-verification gets there first. It blocks M1, not M0. M0 needs no A
   [All frontends] cases describe browser behaviour (URLs as state, tab visibility) that needs an
   Android reading. Decide case by case as each milestone reaches them.
 - **N3.** A parity rule going forward: once Android has parity, does a new feature count as done
-  only when both frontends have it, or can Android lag? Leaning: allowed to lag, tracked as an issue
-  in `mootmaker-android` per feature.
+  only when both frontends have it, or can Android lag? **Decided 2026-10-07: Android may lag**,
+  tracked as an issue in `mootmaker-android` per feature.
 - **N4.** Developer verification before global enforcement in 2027 (see Q4).
 - **N5.** Android App Links: tapping `https://www.mootmaker.com/meetings/<id>` on a phone opens the
   app. Needs `/.well-known/assetlinks.json` on the webapp's domain. Nice later, not parity.
-- **N6.** Which cloud-session model per milestone (Sonnet for scaffolding and screens, Opus for auth,
-  caching and subscriptions), to make the credit last. See
+- **N6.** Which cloud-session model per milestone. **Decided 2026-10-07: Sonnet by default, Opus
+  for auth, caching and subscriptions**, to make the credit last. See
   [Using the cloud credit](#using-the-cloud-credit-well).
 
 ## Feature parity
@@ -1028,18 +1046,20 @@ Sparse while Drafting. Each milestone's detailed tasks get written into its sect
 the start of that milestone, so the checklist never runs far ahead of what is known.
 
 **Before M0** (only these block it)
-1. `[Geoff]` Answer Q1.
+1. ~~`[Geoff]` Answer Q1.~~ Done 2026-10-07.
 2. `[Geoff]` Install the Claude GitHub App on `mootmaker-android` and `mootmaker` (auto-fix and
    Projects need it). Create a cloud environment with Custom network access (Trusted plus
-   `dl.google.com`), and `BASH_MAX_TIMEOUT_MS=600000` in its environment variables. Use a Project with
-   those two repositories if Projects has reached the account; otherwise attach both to each
-   session.
+   `dl.google.com`), and `BASH_MAX_TIMEOUT_MS=600000` in its environment variables. Use a Claude
+   Code **Project** with those two repositories if Projects has reached the account; otherwise
+   attach both to each session. (Claude Code Projects are in the sidebar at claude.ai/code. They
+   are not the chat Projects in claude.ai's main menu, and per the docs they reach accounts
+   without chat projects first.)
 
 **M0:** `[Claude]` as described in [M0](#m0--toolchain-spike--s--no-user-functionality).
 Record the probe results in this doc.
 
 **Before M1** (while M0 runs)
-3. `[Geoff]` Answer Q2–Q7. Q5's email half can wait until M8.
+3. ~~`[Geoff]` Answer Q2–Q7.~~ Done 2026-10-07.
 4. `[Geoff]` Generate the release keystore locally, add it as `mootmaker-release` repo secrets (Q3),
    and back it up offline.
 5. `[Geoff]` Add `mootmaker-android` to `RELEASE_TAG_PAT`'s repository list.
