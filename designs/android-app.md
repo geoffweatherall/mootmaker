@@ -538,9 +538,12 @@ Actions approach works before spending on anything else.
 (draft, not yet merged). The exit criterion "green on `main`" is met when it merges. Nothing is
 published. Build job 3m32s, emulator job 4m22s on the last commit.
 
-**Spend:** not measurable from inside a session. *To be filled in from claude.ai's Usage page
-(Geoff), with the projection to 5 November the design asks for.* The M0 cloud sessions ran on
-Sonnet 5.5.
+**Spend:** read from claude.ai's Usage page on 2026-10-07 (Geoff). The $100 included cloud-session
+credit (expires 8:59 PM GMT+13 on 5 November) still showed **$100 of $100 left**, so M0 drew nothing
+from it. A separate **Project setup credit** showed **4% used** and expires on 2026-10-08; its size
+isn't shown, so 4% can't be converted to dollars. The M0 sessions ran on Sonnet 5.5. No projection to
+5 November is possible from this: M0 used none of the $100, and the first real rate comes after M1.
+The page may lag, and the 4% may include other use, so treat both figures as approximate.
 
 **Versions that worked:** AGP 8.10.1, Kotlin 2.1.21, Gradle 8.14.3, Compose BOM 2025.05.01, Apollo
 Kotlin 4.3.1, Robolectric 4.14.1, Roborazzi 1.43.0, compileSdk/targetSdk 35, minSdk 26. Apollo
