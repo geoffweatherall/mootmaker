@@ -1,7 +1,7 @@
 # Live updates in the webapp — a talk
 
-How one user's change reaches another user's screen without a reload, and what it took to make
-that look right rather than just end up right.
+How one user's change reaches another user's screen without a reload, and why the screen never
+shows anything false along the way.
 
 **Audience:** developers of mixed experience. Assumes you know roughly how a React component renders
 and what an API call is. Everything else (the Apollo cache, GraphQL subscriptions, AppSync) is
@@ -13,12 +13,16 @@ as-is with any Markdown slide tool (Marp, reveal-md, Slidev) or just scrolled. S
 quoted blocks under each slide. The diagrams are Mermaid, which GitHub renders directly; most slide
 tools need a Mermaid plugin.
 
+**Companions:** [the long write-up](live-updates-deep-dive.md), with primers and full detail, to
+hand out afterwards; and [suggested answers](live-updates-open-questions.md) to the open questions
+in 5.2.
+
 | Part | What | Time |
 |---|---|---|
 | 0 | The scenario | 2 min |
 | 1 | Primer: React renders, the Apollo cache, fetch policies, invalidation, subscriptions | 11 min |
-| 2 | How mootmaker does it: one broadcast, locked down, dates not data | 8 min |
-| 3 | What went wrong on screen, and the fixes | 10 min |
+| 2 | The server side: one broadcast, locked down, dates not data | 8 min |
+| 3 | The client side: what to evict, when to refetch, what to show meanwhile | 10 min |
 | 4 | Step by step: two users, one meeting, as diagrams | 7 min |
 | 5 | Takeaways, open questions | 2 min |
 
@@ -27,7 +31,7 @@ tools need a Mermaid plugin.
 ## 0. The scenario
 
 - **User A** has a meeting open in the webapp — the detail side panel, say.
-- **User B**, somewhere else, renames that meeting.
+- **User B**, somewhere else, changes that meeting.
 - **A's screen updates by itself**, within about a second. No reload, no polling.
 
 Questions this talk answers:
@@ -36,12 +40,12 @@ Questions this talk answers:
 2. How do we stop *anyone* from making every browser refresh?
 3. What does A's screen show **in between** "B saved" and "A has the new data"?
 
-Question 3 is where nearly all the bugs were.
+Question 3 is the one that takes the most care.
 
 > **Notes:** If you can, demo it live: two browser windows, signed in as two different users on an
-> ephemeral or test environment. Open a meeting in window A, rename it in window B. Then do the
-> sneaky one — in window A, switch to another tab and back. That also triggers a refresh, with no
-> second user at all, and it comes up again in Part 3.
+> ephemeral or test environment. Open a meeting in window A, rename it in window B. Then switch
+> window A to another tab and back. That triggers a refresh too, with no second user at all, and
+> 3.1 explains why.
 
 ---
 
@@ -99,14 +103,15 @@ flowchart LR
   screen showing it updates.
 - `Day` has no `id`, so we tell Apollo to key it by date: `Day: { keyFields: ['date'] }` in
   [apolloClient.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/apolloClient.ts).
-  That gives cache keys like `Day:2026-10-08`, which **the client can construct itself** from just a
-  date. That fact carries the whole live-update design.
+  The client can then **construct a day's cache key itself** from just a date. That fact carries
+  the whole live-update design.
 - Home, Person Calendar and Room Availability all read the *same* `Day` entities.
 
-> **Notes:** The day-keyed schema was its own design
-> ([graphql-schema-and-caching](../../designs/archive/graphql-schema-and-caching.md)). The one thing
-> to take from it here is that a day is the unit of storage, the unit of caching, *and* the unit of
-> invalidation. They're all the same thing, on purpose.
+> **Notes:** Apollo actually writes the key as `Day:{"date":"2026-10-08"}`. This talk shortens it.
+> The code never builds the string by hand; it asks `cache.identify(...)`. The day-keyed schema was
+> its own design ([graphql-schema-and-caching](../../designs/archive/graphql-schema-and-caching.md)).
+> The thing to take from it here is that a day is the unit of storage, the unit of caching, *and*
+> the unit of invalidation. They're all the same thing, on purpose.
 
 ---
 
@@ -133,9 +138,8 @@ const { data, complete } = useFragment({
 The open meeting panel uses `useFragment`, so it updates whenever `Meeting:<id>` changes in the
 cache, however that happens.
 
-> **Notes:** Remember `complete`. In Part 3, a component treated "my fragment went from complete to
-> incomplete" as meaning "the meeting was cancelled". That one assumption caused three of the four
-> bugs.
+> **Notes:** Remember `complete`. In 3.4, the question "my fragment just went incomplete — what
+> does that mean?" turns out to be the most important one in the client.
 
 ---
 
@@ -161,10 +165,9 @@ it, and replace it when the network answers.** See the
 [Progress indicators](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/README.md#progress-indicators)
 section of the webapp README.
 
-> **Notes:** There's a trap in render 1, which cost us
-> [webapp#111](https://github.com/geoffweatherall/mootmaker-webapp/issues/111). Cached data might say
-> "zero meetings". If you render "No meetings today" in render 1, you've said something confident
-> that render 2 might contradict. So there are three states, not two:
+> **Notes:** Render 1 has a trap. Cached data might say "zero meetings". Render "No meetings
+> today" in render 1 and you've said something confident that render 2 might contradict. So there
+> are three states, not two:
 >
 > ```tsx
 > const unknown    = loading && data === undefined  // nothing at all yet: spinner
@@ -192,7 +195,8 @@ The trade-off to keep in mind:
 - **Evict a day nobody is looking at** → costs nothing. It's fetched fresh if someone navigates
   there later.
 - **Evict a day somebody *is* looking at** → there is a **gap**: a moment when the cache doesn't
-  have it and the network hasn't answered yet. What the screen shows in that gap is Part 3.
+  have it and the network hasn't answered yet. What the screen shows in that gap is the subject of
+  Part 3.
 
 > **Notes:** "There are only two hard things in computer science: cache invalidation and naming
 > things." This talk is about the first one. You'll notice we only invalidate. We never try to patch
@@ -219,7 +223,7 @@ type Subscription {
 }
 ```
 
-The WebSocket conversation, which we wrote by hand in
+The WebSocket conversation, written by hand in
 [appsyncSocket.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/appsyncSocket.ts):
 
 ```
@@ -230,7 +234,8 @@ open wss://…/graphql/realtime?header=<base64 JWT>&payload=e30=
                            ← data {daysInvalidated: {dates: [...]}}
 ```
 
-Three facts we measured that shape everything after this:
+Three facts, measured against a real AppSync API before any code was written, shape everything
+after this:
 
 1. **No replay.** A message published while you're disconnected is gone for good.
 2. **Connections drop routinely.** Idle timeout, laptop lid, phone backgrounding the tab.
@@ -248,7 +253,7 @@ Three facts we measured that shape everything after this:
 
 ---
 
-# Part 2 — How mootmaker does it
+# Part 2 — The server side
 
 ---
 
@@ -282,11 +287,10 @@ Four design choices to unpack:
 3. **The broadcast carries dates, not data.**
 4. **The client assumes broadcasts get lost.**
 
-> **Notes:** This is the overview. 4.1 has the same flow in full, with every render on A's screen.
-> Point out that B also receives its own broadcast. That causes a problem, covered in
-> 2.5. Also note that the publish happens *inside* B's request, after the database write has
-> committed but before B gets a response. So A can hear about the change before B sees the
-> result of saving it.
+> **Notes:** This is the overview; 4.1 has the same flow in full, with every render on A's screen.
+> Point out that B also receives its own broadcast, which 3.1 deals with. And note that the publish
+> happens *inside* B's request, after the database write has committed but before B gets a
+> response. So A, and B's own tab, can hear about the change before B sees the result of saving it.
 
 ---
 
@@ -312,9 +316,9 @@ publishDaysInvalidated(dates: [String!]!): Invalidation @aws_iam
 Its resolver is a **NONE data source**. It runs no code and just echoes its arguments back, which
 gives AppSync something to broadcast.
 
-> **Notes:** Every write handler in the API finishes with one line, for example
+> **Notes:** Every meeting-writing handler in the API finishes with one line, for example
 > `broadcaster.publish(List.of(currentDate, requestedDate))` when a meeting moves day. Bulk creation
-> of 99 meetings on one date publishes *once*. Code:
+> of 99 meetings on one date publishes *once*. A rejected write publishes nothing. Code:
 > [DaysInvalidatedPublisher.java](https://github.com/geoffweatherall/mootmaker-api/blob/main/impl/src/main/java/com/mootmaker/realtime/DaysInvalidatedPublisher.java).
 
 ---
@@ -344,8 +348,6 @@ additional_authentication_provider {
 ```
 
 > **Notes:** Two independent locks, 2 and 3, and the design deliberately trusts neither on its own.
-> Context: an earlier `Mutation.reset` was removed for exactly this kind of exposure, a powerful
-> field any signed-in user could call.
 >
 > Two traps worth knowing about, both silent:
 > - The `Invalidation` type must carry **both** `@aws_iam @aws_cognito_user_pools`, because it's
@@ -364,8 +366,7 @@ The broadcast is literally `{ "dates": ["2026-10-08"] }`.
 
 - **Always tiny.** The largest possible broadcast, every day in the window, is about 2.9 KB, around
   1% of the cap.
-- **One channel for every kind of change**: create, bulk create, edit, cancel, RSVP, history
-  clean-up.
+- **One channel for every kind of change**: create, bulk create, edit, cancel, RSVP.
 - **Idempotent.** Getting "8 Oct changed" twice is harmless. Getting "add meeting m-9" twice needs
   de-duplication.
 - **Nothing to merge, no ordering to reason about.** The client doesn't apply changes. It throws
@@ -389,9 +390,13 @@ timeout, because B is waiting on it.
 
 ---
 
-## 2.5 The client side: four rules
+# Part 3 — The client side
 
-All in
+---
+
+## 3.1 Four rules for the socket
+
+In
 [useDaysInvalidated.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/useDaysInvalidated.ts)
 and
 [daysInvalidated.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/daysInvalidated.ts).
@@ -404,16 +409,16 @@ cached for other screens.
 
 ```ts
 onData: ({ dates }) => {
-  const evicted = dayInvalidations.invalidate(dates)        // Day:<date> + its Meetings
+  const evicted = dayInvalidations.invalidate(dates)   // the Day, its meetings, meetings dated that day
   if (evicted.length > 0) apolloClient.refetchQueries({ include: 'active' })
 }
 ```
 
-**3. Ignore broadcasts for my own recent writes.** B's tab gets its own broadcast. Without a guard
-it evicts the `Day` its own mutation response *just wrote*, and **the person who booked watches
-their own screen flicker, every time**. So a tab notes the dates it's about to write
-(`noteOwnWrite`), **before sending the request**, and ignores invalidations for them for 5 seconds.
-Why "before" matters is in 3.7.
+**3. Ignore broadcasts for my own writes, and say so before sending.** B's tab gets its own
+broadcast. Acting on it would throw away the authoritative state its own mutation response is about
+to write, for nothing. So a tab notes the dates it's about to write (`noteOwnWrite`) **before
+sending the request**, and ignores invalidations for them for 5 seconds. *Before*, because the
+server broadcasts before it responds, so the broadcast can arrive first.
 
 **4. Never trust the socket.** On reconnect *and* whenever the tab becomes visible again:
 
@@ -426,18 +431,15 @@ There's no replay, so we can't know what was missed. We only know to stop trusti
 **Correctness doesn't depend on the WebSocket staying up.**
 
 > **Notes:** Rule 3 has a stated cost. If someone *else* changes the same date within those 5
-> seconds, this tab misses it until the next navigation or tab return. It was accepted because the
-> alternative was a guaranteed flicker on every booking.
+> seconds, this tab misses it until the next broadcast or tab return. See 5.2.
 >
-> Rule 4 is why switching tabs triggers a refresh, and why it reproduced every Part 3 bug with no
-> second user at all.
+> Rule 4 is why the "switch tabs" part of the demo triggers a refresh.
 
 ---
 
-## 2.6 The surprise: eviction alone doesn't refetch
+## 3.2 Eviction alone doesn't refetch
 
-The design originally said *"evict `Day:<date>` and the ordinary gap fetch refills it"*. We
-measured it, and it doesn't:
+You might expect *"evict `Day:<date>` and Apollo notices the gap and fetches it"*. It doesn't:
 
 ```ts
 cache.evict({ id: 'Day:2026-09-14' })
@@ -447,90 +449,64 @@ cache.diff(WORKSPACE_QUERY)
 
 `workspace.days` still holds a reference to the evicted day. **Apollo quietly filters dangling
 references out of lists**, so the query reads back as *complete, with one fewer day*. No gap means
-no fetch, and the screen shows "No meetings" indefinitely.
+no fetch.
 
-Hence the explicit `refetchQueries({ include: 'active' })` in rule 2. A unit test pins the Apollo
-behaviour, and says so: if a future Apollo version makes that read incomplete, the test fails and
-the refetch can be deleted.
+Hence the explicit `refetchQueries` in rule 2. A unit test pins this Apollo behaviour, and says so:
+if a future Apollo version makes that read incomplete, the test fails and the refetch can be
+deleted.
 
-> **Notes:** Only a cross-client acceptance test against a real deployment could see this. Every
-> unit test passed: they asserted the eviction happened, and it did. The defect was in what eviction
-> *means* to a query watching that data. As the design puts it: "cache behaviour is the part of a
-> design most likely to be wrong, because it is the part you cannot check by reading." Remember
-> "complete, minus that day". It comes back in 3.5.
+> **Notes:** The general lesson: cache behaviour is the part of a design you can't check by
+> reading. Measure it, and pin it with a test that says why. Remember "complete, minus that day".
+> It comes back in 3.6.
 
 ---
 
-# Part 3 — What went wrong, and the fixes
+## 3.3 The in-flight race
 
----
+A query can already be **on its way** when a broadcast arrives:
 
-## 3.1 It worked, and it still looked broken
-
-This shipped on 11 September 2026
-([api#47](https://github.com/geoffweatherall/mootmaker-api/pull/47),
-[webapp#53](https://github.com/geoffweatherall/mootmaker-webapp/pull/53)), and the acceptance tests
-were green: *"user B books, and within 30 s user A sees it"*.
-
-On 1 October we ran a probe instead. Two real users, with user A watching five views. A
-**recorder** injected into A's page sampled the visible text **on every animation frame**, and
-flagged anything shown that was **true neither before nor after** the change.
-
-| Issue | What A saw | How often |
-|---|---|---|
-| [#132](https://github.com/geoffweatherall/mootmaker-webapp/issues/132) | open meeting **flashes "This meeting was cancelled."** for about 1 s on any change to any meeting that day | every time, including just switching tabs |
-| [#134](https://github.com/geoffweatherall/mootmaker-webapp/issues/134) | meeting **moved to another day** → "cancelled" **permanently** | 3/3 |
-| [#135](https://github.com/geoffweatherall/mootmaker-webapp/issues/135) | pop-out page `/meetings/:id` **never updates**, even after a cancel | 0/16 updated |
-| [#136](https://github.com/geoffweatherall/mootmaker-webapp/issues/136) | Home and Person Calendar **blank the day's meetings** for about 2 s | 29/29, plus every tab return |
-
-**Every one of these happens on the way to the right end state**, and the end-state tests passed
-straight through all of them.
-
-> **Notes:** The probe also compared driving user B through the API with driving B through a second
-> browser. Both found the same bugs at the same rates. What found them was the per-frame recorder
-> and the "transient" check, not the choice of how to drive B. That became
-> [webapp#137](https://github.com/geoffweatherall/mootmaker-webapp/issues/137) and the
-> `live-updates.spec.ts` acceptance suite.
-
----
-
-## 3.2 Bug: "This meeting was cancelled." flashes up (#132)
-
-The panel before the fix:
-
-```tsx
-const { data: live, complete } = useFragment({ fragment: MEETING_FIELDS, from: meetingRef })
-
-const wasEverComplete = useRef(false)
-if (complete) wasEverComplete.current = true
-const cancelledElsewhere = wasEverComplete.current && !complete      // ← the bug
-
-if (cancelledElsewhere) return <EmptyState message="This meeting was cancelled." />
-return <MeetingView meeting={live} />
+```mermaid
+sequenceDiagram
+  participant A as A: Apollo client
+  participant AS as AppSync and Lambda
+  participant B as B
+  A->>AS: t-1: query for 8 Oct leaves
+  B->>AS: t0: updateMeeting on 8 Oct
+  AS-->>A: t0: broadcast for 8 Oct
+  Note over A: evict 8 Oct, refetch active queries.<br/>The refetch can be deduplicated onto the query already in flight.
+  AS-->>A: t+1: response, read from the database BEFORE B's write
+  Note over A: reconcileLink: this query left before 8 Oct was invalidated,<br/>so its answer may be stale. Re-evict and refetch.
+  A->>AS: t+2: query for 8 Oct
+  AS-->>A: current data
 ```
 
-What happened, frame by frame:
+Without the last step, A would hold pre-change data with **nothing left to trigger a refetch**.
 
-| Time | Cache | `complete` | Screen |
-|---|---|---|---|
-| t0 | `Meeting:m-1` present | true | the meeting |
-| t0 + broadcast | day evicted **with its meetings** | **false** | **"This meeting was cancelled."** ✗ |
-| t0 + ~1 s | refetch writes `Meeting:m-1` back | true | the meeting (renamed) |
+[reconcileLink.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/reconcileLink.ts)
+is an Apollo link. For every query it records when the request left. Once Apollo has written the
+response, it asks: was any date in this response invalidated *after* the request left? If so, it
+re-evicts those days and refetches.
 
-Two pieces of code, each correct on its own terms, combined to tell the user something false.
-
-> **Notes:** Why do we evict the *meetings* and not just the day? A genuinely cancelled meeting's
-> entity otherwise stays in the cache, and stays complete, forever. Apollo's `gc()` doesn't reliably
-> collect an entity that an open `useFragment` is still watching. That was Decision 10 in the
-> [edit-and-cancel design](../../designs/archive/edit-and-cancel-meetings.md). So the eviction had to
-> stay, and the fix had to go in the component.
+> **Notes:** Mutations are skipped: a mutation's response is this tab's own write, the most
+> authoritative data there is. The test drives a real `ApolloClient`, because "after Apollo has
+> written the response" is exactly the kind of cache timing you can't safely assume.
 
 ---
 
-## 3.3 The fix: missing is not cancelled
+## 3.4 The meeting panel: missing is not cancelled
 
-"Missing from my cache" means **"I don't know"**, not "it doesn't exist". So ask the source of
-truth before saying anything negative.
+When A's day is evicted, the meeting's entity goes with it, and the panel's fragment goes
+**incomplete**. The tempting reading is "it was deleted":
+
+```tsx
+// Tempting, and wrong
+const cancelledElsewhere = wasEverComplete && !complete
+if (cancelledElsewhere) return <EmptyState message="This meeting was cancelled." />
+```
+
+But the fragment goes incomplete on **every** eviction: an edit to any meeting that day, an RSVP, a
+tab return, or the meeting moving to a day nobody is watching. **"Missing from my cache" means "I
+don't know", not "it doesn't exist".** So the panel asks the source of truth:
 
 ```tsx
 const { data: live, complete } = useFragment({ fragment: MEETING_FIELDS, from: meetingRef })
@@ -570,49 +546,41 @@ return (
 >   `missing` goes false) before the lookup answers, the cleanup runs and the late answer is
 >   ignored.
 > - **`network-only` still writes to the cache.** If the meeting exists, writing it makes the
->   fragment complete again, so the panel updates by itself with no extra code.
+>   fragment complete again, so the panel updates by itself, **including when the meeting has moved
+>   to another day**. No special case needed.
 > - For the more experienced: writing a ref during render is something React's docs discourage in
 >   general, because a render can be thrown away. It's tolerable here because the value written is
 >   always real cache data, but it's a fair thing to question.
 
 ---
 
-## 3.4 One question fixes three bugs
+## 3.5 Meetings held without their day
 
-"Ask the API about this meeting" also fixes:
+The pop-out page `/meetings/:id` is usually opened cold, from a shared link. It holds the `Meeting`
+through `meeting(id)`, but **no `Day`**. Evicting `Day:<date>` alone wouldn't touch it.
 
-**#134, moved to another day.** The old day's refetch correctly doesn't contain the meeting, and
-nothing is watching the new day. Waiting for the refetch to settle would still say "cancelled". But
-`meeting(id)` returns the meeting with its **new date**, writing it to the cache brings the
-fragment back, and the panel shows the new date.
-
-**#135, the pop-out page never updates.** `/meetings/:id` is usually opened cold from a shared
-link. It holds the `Meeting` but **no `Day`**, so a broadcast for that date evicted nothing, and
-"nothing evicted" meant no refetch. Fix: when a date is invalidated, also evict every cached meeting
-**dated on it**, wherever it came from:
+So invalidating a date also evicts **every cached meeting dated on it**, wherever it came from:
 
 ```ts
 for (const [id, entity] of Object.entries(cache.extract()))
   if (entity.__typename === 'Meeting' && entity.startTime?.startsWith(date)) cache.evict({ id })
 ```
 
-Then the pop-out page goes down the same "missing → ask → refresh or confirm gone" path as the
-panel. Both render the same `MeetingDetailContent` component, so they now **behave** the same, not
+The pop-out page then goes down exactly the same "missing → ask → refresh or confirm gone" path as
+the panel. Both render the same `MeetingDetailContent` component, so they **behave** the same, not
 just look the same.
+
+> **Notes:** The general rule: invalidation has to reach the data however it got into the cache,
+> not just via the path the common screens use.
 
 ---
 
-## 3.5 Bug: Home and Calendar blank a day for ~2 s (#136)
+## 3.6 Multi-day lists keep a day while it reloads
 
-Remember 2.6: after eviction, a **multi-day** query reads back *complete, minus that day*. So in
-the gap, Home's agenda and "Needs your response" list simply lost that day's meetings.
+Remember 3.2: after an eviction, a **multi-day** query reads back *complete, minus that day*. Left
+alone, Home's agenda and Person Calendar would drop that day's meetings until the refetch lands.
 
-Room Availability was fine: it reads **one** day, and when the only requested day is missing, our
-`read` policy reports `days` as *missing* rather than *empty*. The query is then incomplete, not
-"complete and empty".
-
-The fix keeps the previous render's days for any requested day that's temporarily absent, **only
-while loading**:
+So while a query is loading, any requested day missing from `data` is kept from `previousData`:
 
 ```tsx
 const { data, previousData, loading } = useQuery(PAGE_LOAD, {
@@ -629,20 +597,25 @@ function keepDaysWhileRefreshing(data, previousData, loading, requested) {
 }
 ```
 
+Room Availability, which reads **one** day, doesn't need this. When the only requested day is
+missing, our `read` policy reports `days` as *missing* rather than *empty*, so the read is
+incomplete rather than "complete and empty".
+
 > **Notes:** `previousData` is Apollo's: the last result this `useQuery` returned before the
-> current one. It's the same rule as everywhere else, applied per day: keep the last-known content up
+> current one. This is the same rule as 1.4 and 3.4, applied per day: keep the last-known content up
 > with a bar over it, and only believe an absence once loading has settled. Code:
 > [keepDaysWhileRefreshing.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/graphql/keepDaysWhileRefreshing.ts).
-> All four fixes shipped together in
-> [webapp#142](https://github.com/geoffweatherall/mootmaker-webapp/pull/142).
 
 ---
 
-## 3.6 Testing the journey, not just the destination
+## 3.7 Testing the journey, not just the destination
 
-`live-updates.spec.ts` now does, against a real deployment:
+A test that waits for "the new title appears within 30 s" **polls until it's true**. It can't see
+something false that was on screen for one second along the way.
 
-1. Sign in user A and open the view under test, with the
+So `live-updates.spec.ts` does this, against a real deployment:
+
+1. Sign in user A and open the view under test, with a
    [recorder](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/tests/support/liveRecorder.ts)
    injected before any app code runs.
 2. Trigger a refresh: user B changes something over the API (or in a second browser, where B's own
@@ -652,66 +625,13 @@ function keepDaysWhileRefreshing(data, previousData, loading, requested) {
    - **the watched content never disappears** on the way
    - **the end state is right**
 
-The recorder samples on every `requestAnimationFrame`, so if a state was seen, it was on screen
-to within a frame. It also logs every AppSync message, so you can line up "broadcast arrived" against
-"screen changed".
+The recorder samples the visible text on every `requestAnimationFrame`, so if a state was seen, it
+was on screen to within a frame. It also logs every AppSync message, so you can line up "broadcast
+arrived" against "screen changed".
 
-> **Notes:** The general lesson for UI testing: `expect(...).toBeVisible()` with a 30 s timeout
-> *polls until it's true*, so it can't see something false that was there for one second along the
-> way. If the journey matters, you have to record it.
-
----
-
-## 3.7 Two more, found while preparing this talk
-
-Checking every claim in this talk against the code turned up two gaps, fixed in
-[webapp#162](https://github.com/geoffweatherall/mootmaker-webapp/issues/162).
-
-**The own-write guard was set too late.** The API publishes *inside* the request: after the write
-commits, but before it responds. So a tab's own broadcast can arrive **before its own response**:
-
-```mermaid
-sequenceDiagram
-  participant T as B's tab
-  participant AS as AppSync
-  participant L as Lambda
-  T->>AS: cancelMeeting(m-1)
-  AS->>L: invoke resolver
-  L->>L: write committed
-  L->>AS: publishDaysInvalidated(dates)
-  AS-->>T: broadcast over the WebSocket
-  Note over T: guard not set yet, so B's tab evicts its own meeting.<br/>The open panel can look it up and say "cancelled" to B.
-  L-->>AS: CancelMeetingResult
-  AS-->>T: HTTP response
-  Note over T: Before: noteOwnWrite was called here, too late.<br/>Now: called before the request is sent.
-```
-
-**The in-flight race guard was never connected.** `reconcileAfterFetch` existed and was
-unit-tested, but nothing called it:
-
-```mermaid
-sequenceDiagram
-  participant A as A: Apollo client
-  participant AS as AppSync and Lambda
-  participant B as B
-  A->>AS: t-1: query for 8 Oct leaves
-  B->>AS: t0: updateMeeting on 8 Oct
-  AS-->>A: t0: broadcast for 8 Oct
-  Note over A: evict 8 Oct, refetch active queries.<br/>The refetch can be deduplicated onto the query already in flight.
-  AS-->>A: t+1: response, read from the database BEFORE B's write
-  Note over A: Before: stale day written to the cache, and nothing refetches it until a tab return or another broadcast.<br/>Now: reconcileLink sees it was issued before the invalidation, re-evicts, refetches.
-  A->>AS: t+2: query for 8 Oct
-  AS-->>A: current data
-```
-
-> **Notes:** Both are good examples of the theme of Part 3. Neither one throws an error, and both
-> only show up as wrong content on a screen. The second was written, documented and unit-tested, so
-> everything *looked* finished. The fix is an Apollo link,
-> [reconcileLink.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/reconcileLink.ts).
-> For each query it records when the request left. Once Apollo has written the response, it checks
-> whether any of the response's dates were invalidated after that time. Its test drives a real
-> `ApolloClient`, because "after Apollo has written the response" is exactly the kind of cache
-> behaviour you can't safely assume.
+> **Notes:** Unit tests cover the pieces with fake clocks: which days are evicted, the own-write
+> guard, the race. Some of them drive a real `ApolloClient`, because Apollo's own behaviour is part
+> of what's under test. But only a real deployment has a real AppSync broadcast.
 
 ---
 
@@ -721,8 +641,8 @@ sequenceDiagram
 
 ## 4.1 B edits a meeting while A is looking at it
 
-The full flow, after all the fixes. A has meeting `m-1` ("Standup", 8 October) open in the side
-panel. B is in the edit form and changes the start time.
+The full flow. A has meeting `m-1` ("Standup", 8 October) open in the side panel. B is in the edit
+form and changes the start time.
 
 ```mermaid
 sequenceDiagram
@@ -769,11 +689,11 @@ A's panel renders three times: the old meeting, the old meeting with a progress 
 meeting. It never shows anything that's false.
 
 > **Notes:** Walk it left to right, top to bottom. Things to point at:
-> - Step 1 happens **before** step 2, which is the 3.7 fix.
+> - Step 1 happens **before** step 2: rule 3 from 3.1.
 > - Steps 6 and 7 happen in parallel, and both happen **before** B gets a response (step 14).
 > - A's React code never sees the broadcast. It only sees the cache change (step 10), and re-renders
 >   because `useFragment` is watching `Meeting:m-1`.
-> - Render 2 is the fix from 3.3. Before it, render 2 was "This meeting was cancelled."
+> - Render 2 is 3.4 in action: last-seen content and a bar, never "cancelled".
 > - Steps 11 and 12 are two independent requests. Whichever lands first makes the fragment complete
 >   again, and the other one is a harmless rewrite.
 
@@ -802,21 +722,17 @@ stateDiagram-v2
 | **Gone** | "This meeting was cancelled." | the lookup returned `null`: cancelled, or aged out of retention |
 
 From Refreshing, "meeting written back" can come from the day's refetch or from the lookup, and it
-may carry a new date if the meeting moved (#134).
-
-The bug in 3.2 was a missing state. The component went straight from **Showing** to **Gone**
-whenever the fragment went incomplete.
+may carry a new date if the meeting moved.
 
 > **Notes:** Mapping to the code: `missing` is "in Refreshing or Gone", `confirmedGone` separates
-> the two, and `lastSeen` is what Refreshing displays. The "evicted" trigger covers a broadcast for
-> that day, a tab return and a socket reconnect, all three.
+> the two, and `lastSeen` is what Refreshing displays. The tempting version in 3.4 has no
+> Refreshing state at all: it goes straight from Showing to Gone.
 
 ---
 
 ## 4.3 What one tab does with each trigger
 
-Everything from 2.5, 2.6, 3.4 and 3.7 in one picture: three triggers, one cache, and React
-re-rendering at the end.
+Part 3 in one picture: three triggers, one cache, and React re-rendering at the end.
 
 ```mermaid
 flowchart TD
@@ -839,7 +755,7 @@ flowchart TD
 ```
 
 > **Notes:** The left branch is the normal case. The middle one exists because the socket can't be
-> trusted (no replay, idle timeouts, frozen background tabs). The bottom loop is the race from 3.7.
+> trusted (no replay, idle timeouts, frozen background tabs). The bottom loop is the race from 3.3.
 > It terminates because each refetch leaves after the invalidation that caused it. The
 > "Nothing to do" box is deliberate: a broadcast for a day this tab has never fetched costs nothing.
 
@@ -847,10 +763,9 @@ flowchart TD
 
 ## 4.4 A and B both editing the same meeting
 
-Live updates keep A's *view* current. They don't protect A's *edits*. Before
-[api#96](https://github.com/geoffweatherall/mootmaker-api/issues/96), `updateMeeting` replaced
-every field with whatever the form sent, so an edit made from a stale copy silently undid someone
-else's change. Now:
+Live updates keep A's *view* current. They don't, on their own, protect A's *edits*: if
+`updateMeeting` just replaced every field, saving a stale form would silently undo someone else's
+change. So edits carry the version they were made against:
 
 ```mermaid
 sequenceDiagram
@@ -875,13 +790,11 @@ sequenceDiagram
   Note over AF: Render: "Someone else changed this meeting after you opened it...".<br/>A reloads, sees Chris removed, and makes their change again.
 ```
 
-Before the version check, step 10 was "write", and Chris was silently back on the meeting.
-
 > **Notes:** `v7` and `v8` are illustrative. The real version is an opaque string the API derives
 > from the meeting's fields. Points to draw out:
 > - **Two deliberate choices meet here.** The form never changes under someone who is typing
->   (changing a form mid-edit is its own bug class), so it holds the version it was seeded with,
->   not whatever a refetch brings back.
+>   (changing a form mid-edit is disorienting and loses input), so it holds the version it was
+>   seeded with, not whatever a refetch brings back.
 > - **The API checks twice**: once up front, and again inside the read-modify-write of the day, so
 >   a change landing between the two is still caught.
 > - A rejected save publishes nothing, so nobody else's screen refreshes for a change that never
@@ -914,13 +827,17 @@ Before the version check, step 10 was "write", and Chris was silently back on th
 
 ## 5.2 Open questions, for discussion
 
-- **The own-write window.** For 5 s after saving, a tab ignores broadcasts for those dates, including
-  a genuine change by someone else. Is 5 s right?
-- **Every signed-in client receives every broadcast.** That's fine at our scale. The cost grows as
-  writes × connected clients.
-- **`refetchQueries({ include: 'active' })` is broad.** It refetches everything on screen, not just
-  the invalidated days. It's simple and correct, but is it worth narrowing?
-- **Our acceptance tests found the display bugs, but not the two in 3.7.** What would have?
+1. **The own-write window.** For 5 s after saving, a tab ignores broadcasts for those dates,
+   including a genuine change by someone else. Is 5 s right?
+2. **Every signed-in client receives every broadcast.** Is that OK, on privacy and on cost?
+3. **`refetchQueries({ include: 'active' })` is broad.** It refetches everything on screen, not
+   just what read the invalidated days. Should it be narrower?
+4. **Rooms and people aren't broadcast.** An admin's new room doesn't appear on other screens until
+   they refresh. Should it?
+
+> **Notes:** Suggested answers, with the reasoning and numbers, are in
+> [live-updates-open-questions.md](live-updates-open-questions.md). Try to get the room's view
+> before showing them.
 
 ---
 
@@ -928,13 +845,13 @@ Before the version check, step 10 was "write", and Chris was silently back on th
 
 | What | Where |
 |---|---|
-| The design, including "Verified: AppSync subscription behaviour" and "Corrections from implementation" | [graphql-schema-and-caching.md](../../designs/archive/graphql-schema-and-caching.md) |
-| Why meetings are evicted with their day (Decision 10) | [edit-and-cancel-meetings.md](../../designs/archive/edit-and-cancel-meetings.md) |
+| The long write-up, with primers | [live-updates-deep-dive.md](live-updates-deep-dive.md) |
+| The design, including "Verified: AppSync subscription behaviour" | [graphql-schema-and-caching.md](../../designs/archive/graphql-schema-and-caching.md) |
+| Why meetings are evicted along with their day | [edit-and-cancel-meetings.md](../../designs/archive/edit-and-cancel-meetings.md), Decision 10 |
 | Client: socket, evictions, hook, race guard | [appsyncSocket.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/appsyncSocket.ts), [daysInvalidated.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/daysInvalidated.ts), [useDaysInvalidated.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/useDaysInvalidated.ts), [reconcileLink.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/reconcileLink.ts) |
 | Cache policies | [apolloClient.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/apolloClient.ts) |
 | The meeting panel | [MeetingDetailContent.tsx](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/components/MeetingDetailContent.tsx) |
 | Server: schema, publisher, auth | [mootmaker.graphql](https://github.com/geoffweatherall/mootmaker-api/blob/main/api/mootmaker.graphql), [DaysInvalidatedPublisher.java](https://github.com/geoffweatherall/mootmaker-api/blob/main/impl/src/main/java/com/mootmaker/realtime/DaysInvalidatedPublisher.java), [appsync.tf](https://github.com/geoffweatherall/mootmaker-api/blob/main/deploy/terraform/appsync.tf), [iam.tf](https://github.com/geoffweatherall/mootmaker-api/blob/main/deploy/terraform/iam.tf) |
-| The bugs and the fixes | webapp [#132](https://github.com/geoffweatherall/mootmaker-webapp/issues/132), [#134](https://github.com/geoffweatherall/mootmaker-webapp/issues/134), [#135](https://github.com/geoffweatherall/mootmaker-webapp/issues/135), [#136](https://github.com/geoffweatherall/mootmaker-webapp/issues/136), [#137](https://github.com/geoffweatherall/mootmaker-webapp/issues/137), PR [#142](https://github.com/geoffweatherall/mootmaker-webapp/pull/142); [#162](https://github.com/geoffweatherall/mootmaker-webapp/issues/162) and PR [#163](https://github.com/geoffweatherall/mootmaker-webapp/pull/163); concurrent edits [api#96](https://github.com/geoffweatherall/mootmaker-api/issues/96) |
 | The acceptance tests | [live-updates.spec.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/tests/live-updates.spec.ts) |
 
 **Questions?**
