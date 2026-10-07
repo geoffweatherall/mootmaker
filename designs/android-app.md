@@ -27,9 +27,10 @@ explains what has changed since then, and terms are explained where they first a
 N3 and N6 are decided. M0 starts once the GitHub and cloud-environment steps under "Before M0" in
 the [Implementation checklist](#implementation-checklist) are done.
 
-**Milestone progress:** M0 is built and its CI is green on
-[mootmaker-android PR #5](https://github.com/geoffweatherall/mootmaker-android/pull/5), pending
-merge. Its results are under [M0 results](#m0-results-2026-10-06). M1 has not started.
+**Milestone progress:** M0 is done: [mootmaker-android PR #5](https://github.com/geoffweatherall/mootmaker-android/pull/5)
+is merged and green on `main`. Its results are under [M0 results](#m0-results-2026-10-06). M1 is
+built and green, with a real sign-in proven against an ephemeral environment. It is not finished:
+the release keystore and the first published APK are Geoff's. See [M1 results](#m1-results-2026-10-07).
 
 History: first drafted 2026-10-05. Revised 2026-10-07 after checking the draft against the code
 and the current cloud-session docs: AWS access from pull requests (Q7), where the signing secrets
@@ -441,7 +442,7 @@ pr-time-smoke-verification gets there first. It blocks M1, not M0. M0 needs no A
 
 ### Non-blocking
 
-- **N1.** SRP versus `USER_PASSWORD_AUTH` on the Android client, if Q2 is B.
+- **N1.** ~~SRP versus `USER_PASSWORD_AUTH` on the Android client, if Q2 is B.~~ **Decided in M1: SRP.**
 - **N2.** ~~Per-frontend tags in `use-cases.md`~~ **Already done.** Every case is tagged
   **[All frontends]** (119) or **[Webapp-specific]** (18), and carries an "android: not yet
   automated" slot for its Android test-case link. `mootmaker-android/AGENTS.md`'s note that this
@@ -534,9 +535,8 @@ Actions approach works before spending on anything else.
 
 ### M0 results (2026-10-06)
 
-**Status:** built and green on [mootmaker-android PR #5](https://github.com/geoffweatherall/mootmaker-android/pull/5)
-(draft, not yet merged). The exit criterion "green on `main`" is met when it merges. Nothing is
-published. Build job 3m32s, emulator job 4m22s on the last commit.
+**Status:** done. [mootmaker-android PR #5](https://github.com/geoffweatherall/mootmaker-android/pull/5)
+merged and is green on `main`. Nothing is published. Build job 3m32s, emulator job 4m22s on the last commit.
 
 **Spend:** read from claude.ai's Usage page on 2026-10-07 (Geoff). The $100 included cloud-session
 credit (expires 8:59 PM GMT+13 on 5 November) still showed **$100 of $100 left**, so M0 drew nothing
@@ -611,6 +611,62 @@ and skips the warm-up.
 - **Paused-VM resume** after `gh run watch` returns.
 - **The `run-acceptance` label and `gh workflow run`**: there is no acceptance workflow yet.
 
+### M1 results (2026-10-07)
+
+**Status:** built and green; **not yet exited.** The exit criterion also needs the first APK on a GitHub
+Release and Geoff signed in on his phone, which waits on Geoff creating the release keystore.
+[mootmaker-android PR #6](https://github.com/geoffweatherall/mootmaker-android/pull/6) is merged (CI: build 3m15s,
+emulator 5m07s, 3 emulator tests, 43 data and 24 app JVM tests, none skipped). Pipeline changes are in
+mootmaker-release PRs #76 and #77. The backend touch points (api#106, webapp#161) are merged and went out in release v5.10.x.
+
+**Proven against a real environment:** an ephemeral environment signed in through the Android Cognito client after reading
+its own `mobile-config.json` (3 emulator tests, 0 failed). The acceptance suite (B.7, B.9, B.10, B.13, D.22, D.23, D.24;
+B.14 and B.15 are web routes, so not automated) passed 6/6 on the release build against a second ephemeral environment.
+Both were torn down.
+
+**Left for Geoff:** create the keystore and add it as four secrets on mootmaker-release (`ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`), back it up offline, add mootmaker-android to
+`RELEASE_TAG_PAT`, run a release, and sign in on his phone. Until the secret exists every Android release stage skips, so
+releases still ship the backend.
+
+**Spend:** unknown. Geoff was away, so the Usage page wasn't read. M1 ran on Opus (approved by Geoff), which spends credit
+faster than Sonnet. To fill in: read the $100 credit (expires 5 November) and the project setup credit from the Usage page,
+then project to 5 November as the checklist asks.
+
+**Decisions taken while building**
+
+- **N1 decided: SRP** (`USER_SRP_AUTH`), as the webapp does. The Android client needs only `ALLOW_USER_SRP_AUTH` and
+  `ALLOW_REFRESH_TOKEN_AUTH`. `SrpTest` pins values produced by `amazon-cognito-identity-js` 6.x, and a real SRP sign-in to
+  production's pool passed.
+- **Application id is `com.mootmaker.android`** (`.debug` on debug builds), per choice 2. M0 had used `com.mootmaker.app`;
+  the Kotlin namespace stays `com.mootmaker.app`.
+- **Modules `app`, `data`, `testing`.** `testing` holds `FakeBackend`, an OkHttp interceptor serving mobile-config.json,
+  Cognito and GraphQL to Robolectric and the emulator alike. The host-side email helper (Q5-A) isn't built; M8 needs it.
+- **No custom scalar adapter.** Schema 6.2.0 types `startTime`/`endTime` as `String`; times are parsed as `LocalDateTime`
+  where formatted, never as Instant.
+- **Acceptance and release pipeline.** `acceptance.yml` runs on a PR labelled `run-acceptance` (it must be a `pull_request`
+  event, since the ephemeral AWS role trusts only that). It calls `release-build.yml`, which builds and signs the release APK
+  once (versionCode = major*1e6 + minor*1e3 + patch), creates an environment, resets its database to create fixture users,
+  runs the suite against the release build, tears down, and uploads the APK with its SHA-256. `smoke.yml` runs a Maestro demo
+  sign-in.
+- **Screenshots are verified in CI** (`verifyRoborazziDebug`); PNGs rendered in the cloud matched CI's first time.
+- **Demo-user e2e** reads `https://www.<env>.mootmaker.com/mobile-config.json`, falling back to `env-config.js`, and
+  annotates which it used. Switching environment now refills that environment's demo login.
+- **Android 12+ doesn't finish a root activity on Back**, so tests check "no longer resumed".
+- CI writes compile errors and Gradle failures as annotations and counts skipped tests, so green can't hide a skip.
+
+**`mobile-config.json` contract:** `GRAPHQL_API_URL`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` (webapp),
+`COGNITO_ANDROID_CLIENT_ID`, and optional `DEMO_USER_EMAIL` / `DEMO_USER_PASSWORD`. The app requires the GraphQL URL (https),
+the pool id and the Android client id, and ignores unknown keys.
+
+**Cloud loop findings**
+
+- The setup script took 8m46s (Maven Central 429s forced five Gradle warm-up attempts), over the 5-minute snapshot target.
+  M0 measured 3m56s.
+- `www.mootmaker.com` isn't reachable from the cloud session (proxy 403), so config fetches are exercised only in CI or on a phone.
+- `get_job_logs` with `job_id`, `return_content` and `tail_lines=120` returns a passing job's tail too. `gh run watch` blocks
+  about 5 minutes and returns cleanly.
+
 ### M1 — Sign in and see your day · L · use cases B, D.22–D.24
 
 The walking skeleton: thin on features, but every layer of the build/test/publish path exists by
@@ -624,7 +680,7 @@ the end of it.
   - An About screen with the version and the hidden environment switcher.
   - "Create an account" and other unbuilt entry points open the webapp (choice 10).
 - **App:** config loader (`mobile-config.json`, cached, switchable), Cognito client (Q2), encrypted
-  token storage and refresh, Apollo client with the naive-`LocalDateTime` scalar adapter, the
+  token storage and refresh, Apollo client (the schema types times as `String`, so there is no scalar adapter; see [M1 results](#m1-results-2026-10-07)), the
   `workspace { me days }` query, navigation, Material 3 theme in mootmaker's colours.
 - **Backend (separate sessions in those repos):**
   - `mootmaker-api`: Android Cognito client plus SSM parameter, and the `graphql-inspector` PR check.
