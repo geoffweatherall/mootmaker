@@ -13,8 +13,8 @@ The [companion write-up](live-updates-deep-dive.md) explains every mechanism men
 | [3. Is `refetchQueries({ include: 'active' })` too broad?](#3-is-refetchqueries-include-active--too-broad) | For broadcasts, yes, and Apollo can narrow it with no new bookkeeping (verified). Keep it broad for reconnects and tab returns |
 | [4. Should room and people changes be broadcast too?](#4-should-room-and-people-changes-be-broadcast-too) | Yes, cheaply, using the extension point the `Invalidation` type was designed with |
 
-Answering them also turned up one gap that isn't a matter of opinion: deleting a person changes
-meetings without broadcasting. See [Found while answering](#found-while-answering).
+Answering them also turned up one gap that wasn't a matter of opinion, now fixed: deleting a person
+changed meetings without broadcasting. See [Found while answering](#found-while-answering).
 
 ---
 
@@ -250,16 +250,18 @@ safe, because reference data would then have a refresh trigger of its own.
 
 ## Found while answering
 
-Question 4 meant listing which handlers broadcast. Only five do: `createMeeting`,
+Question 4 meant listing which handlers broadcast. At the time, only five did: `createMeeting`,
 `createMeetings`, `updateMeeting`, `cancelMeeting` and `respondToMeeting`.
 
-**`deletePerson` and `deleteMyAccount` change meetings without broadcasting.** Both cancel every
+**`deletePerson` and `deleteMyAccount` changed meetings without broadcasting.** Both cancel every
 upcoming meeting the person organises, and remove them from every upcoming meeting they attend,
-through `UpcomingMeetings.cancelUpcomingMeetingsFor`, which never publishes. Other clients keep
-showing those meetings until something else refreshes the day. `deleteRoom` is fine: it refuses to
+through `UpcomingMeetings.cancelUpcomingMeetingsFor`, which never published. Other clients kept
+showing those meetings until something else refreshed the day. `deleteRoom` was fine: it refuses to
 delete a room with upcoming meetings rather than cascading.
 
-This is a gap, not a design choice, so it's an issue rather than an open question:
-[mootmaker-api#107](https://github.com/geoffweatherall/mootmaker-api/issues/107). The fix is
-small, because the function already computes the affected dates. It needs fixing before the room and
-person flags in question 4 are added, because the person handlers will need to publish anyway.
+That was a gap, not a design choice, so it was filed as
+[mootmaker-api#107](https://github.com/geoffweatherall/mootmaker-api/issues/107) and fixed in
+[mootmaker-api#108](https://github.com/geoffweatherall/mootmaker-api/pull/108). The cascade now
+returns the dates it changed, and both handlers publish them straight after the meeting writes.
+That also means the person handlers already publish, which question 4's room and person flags would
+build on.

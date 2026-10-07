@@ -540,6 +540,9 @@ if (movingDay) {
 - **Once per call, not once per meeting.** `createMeetings` creates up to 99 meetings on one date
   and publishes that one date once.
 - **Both dates for a move**, because both days changed.
+- **Every affected date for a person's deletion.** `deletePerson` and `deleteMyAccount` cancel the
+  person's upcoming meetings and remove them from others, so they publish every date that changed,
+  straight after those writes.
 
 `broadcaster` is a small interface, `DayBroadcaster`, with a do-nothing implementation used wherever
 broadcasting isn't configured (the admin tools share the same jar), and a recording implementation
@@ -1210,6 +1213,7 @@ sequenceDiagram
 | `updateMeeting`, moved | **both** dates | the response's `Meeting` |
 | `cancelMeeting` | the meeting's date | the response's `Day` |
 | `respondToMeeting` | the meeting's date | the response's `Meeting` |
+| `deletePerson`, `deleteMyAccount` | every date whose upcoming meetings changed, once | no own-write note, so it evicts and refetches like any other client |
 | any of the above, rejected | **nothing** | unchanged, and errors shown |
 
 ---
