@@ -885,6 +885,31 @@ The largest functional slice: the most use cases, and the first write.
   `confirmAvatarUpload`). Removing your avatar.
 - **Notes:** avatars mean image loading and caching appear for the first time (Coil, Compose's
   usual image library). They show up in the agenda, details and calendar retroactively.
+- **Built (2026-10-07), as it differs from the plan:**
+  - Settings opens from Home's overflow menu. It has three sections: photo, name, and date and time
+    format. The two formats save together in one call, as the API replaces the pair. `weekStart` is not
+    offered (nothing in the app uses it yet) and is sent back unchanged so a save never resets it.
+  - **Avatars:** Coil 3 with the app's own OkHttp client, so a test's fake backend plays the avatar host
+    too. `Avatar` shows initials until the photo has loaded and whenever there is none or it fails, so a
+    missing image never leaves a hole. It replaces the initials circles on meeting details (organiser and
+    attendees) and adds a photo to Home's greeting when the caller has one. Calendar's person picker is
+    still names only.
+  - **Upload:** the Photo Picker's result is decoded, scaled to at most 1024 pixels a side and re-encoded
+    as a JPEG under 2 MiB before it is sent, whatever format it was in (the picker also offers WebP and
+    HEIC, which the API refuses). The PUT to the presigned URL carries exactly the declared Content-Type
+    and length and no Authorization header. The API still validates and normalises the bytes.
+  - Accounts with no linked Person get disabled controls with the webapp's explanation.
+  - Verified: pr-checks and the labelled acceptance run are green on mootmaker-android#14. Acceptance
+    (`SettingsAcceptanceTest`) covers I.74 to I.76, N.100 to N.102, N.105 and Q.143's display and removal,
+    against an ephemeral environment. The fixture users are shared and the app cannot sign up until M8, so
+    each test that changes one puts it back in a `finally`. Not covered: choosing a photo through the Photo
+    Picker itself (the upload is exercised through the repository's tests and the API in acceptance
+    setup), N.103 (Add Meeting parsing input in your own format: the app uses pickers, not typed input),
+    N.104 and N.106.
+  - **Find-and-fix:** none needed on the pipeline. Locally, the existing meeting-details screenshots were
+    re-recorded for sub-pixel circle edge changes, and Coil's decoder is pinned to BitmapFactory because
+    Robolectric's ImageDecoder cannot decode files.
+  - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Sonnet.
 
 ### M8 — Account lifecycle · M · use cases A (6), C (5), delete account
 
