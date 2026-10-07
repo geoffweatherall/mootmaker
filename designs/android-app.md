@@ -27,6 +27,10 @@ explains what has changed since then, and terms are explained where they first a
 N3 and N6 are decided. M0 starts once the GitHub and cloud-environment steps under "Before M0" in
 the [Implementation checklist](#implementation-checklist) are done.
 
+**Milestone progress:** M0 is built and its CI is green on
+[mootmaker-android PR #5](https://github.com/geoffweatherall/mootmaker-android/pull/5), pending
+merge. Its results are under [M0 results](#m0-results-2026-10-06). M1 has not started.
+
 History: first drafted 2026-10-05. Revised 2026-10-07 after checking the draft against the code
 and the current cloud-session docs: AWS access from pull requests (Q7), where the signing secrets
 have to live, the release tag token's scope, multi-repository cloud sessions, the credit's expiry
@@ -106,7 +110,7 @@ This is how a cloud session works on anything it cannot run itself:
    failed check also arrives as an event that wakes the session if it has gone idle.
 3. The session reads why it failed, fixes it, pushes, and goes back to step 2.
 
-What the session can actually read back has to be checked in M0. `gh run view` and the
+What the session can actually read back was checked in M0; see [M0 results](#m0-results-2026-10-06). `gh run view` and the
 check-runs API go through `api.github.com`, which the GitHub proxy serves. But the **full job log
 and uploaded artifacts** (screenshots, test reports, logcat) are served from GitHub's blob storage
 hosts. Those are not on the cloud environment's Trusted allowlist, which includes only `raw.`,
@@ -115,8 +119,9 @@ that nothing depends on downloading logs or artifacts:
 
 - **Failures are summarised where the API serves them directly.** A final step parses the JUnit
   XML and writes failing test names, assertion messages and the relevant logcat lines into the
-  check run's output and annotations. `gh api repos/{owner}/{repo}/check-runs/{id}` returns those
-  as JSON, and they are short enough to read without filling context.
+  check run's annotations (M0 found the output title and summary come back empty, so annotations
+  carry it). `gh api repos/{owner}/{repo}/check-runs/{id}/annotations` returns them as JSON, and
+  they are short enough to read without filling context.
 - **Artifacts stay for Geoff and for later.** The full reports, screenshots of failures and logcat
   are still uploaded as normal Actions artifacts.
 - **If M0 shows the session needs more than the summary,** add the artifact host M0 finds
@@ -526,6 +531,85 @@ Actions approach works before spending on anything else.
 - **Docs:** fix `mootmaker-android`'s README and AGENTS.md (the placeholder text and the stale N2
   note).
 - **Exit:** PR checks and the emulator job are green on `main`. Nothing is published.
+
+### M0 results (2026-10-06)
+
+**Status:** built and green on [mootmaker-android PR #5](https://github.com/geoffweatherall/mootmaker-android/pull/5)
+(draft, not yet merged). The exit criterion "green on `main`" is met when it merges. Nothing is
+published. Build job 3m32s, emulator job 4m22s on the last commit.
+
+**Spend:** read from claude.ai's Usage page on 2026-10-07 (Geoff). The $100 included cloud-session
+credit (expires 8:59 PM GMT+13 on 5 November) still showed **$100 of $100 left**, so M0 drew nothing
+from it. A separate **Project setup credit** showed **4% used** and expires on 2026-10-08; its size
+isn't shown, so 4% can't be converted to dollars. The M0 sessions ran on Sonnet 5.5. No projection to
+5 November is possible from this: M0 used none of the $100, and the first real rate comes after M1.
+The page may lag, and the 4% may include other use, so treat both figures as approximate.
+
+**Versions that worked:** AGP 8.10.1, Kotlin 2.1.21, Gradle 8.14.3, Compose BOM 2025.05.01, Apollo
+Kotlin 4.3.1, Robolectric 4.14.1, Roborazzi 1.43.0, compileSdk/targetSdk 35, minSdk 26. Apollo
+codegen runs from the `@mootmaker/schema@6.2.0` npm tarball through a small `fetchSchema` Gradle
+task. Gradle needs JDK 21 in the cloud session (a `jvmToolchain(17)` fails: no toolchain download
+repository); CI uses Temurin 21.
+
+**Cloud session probe**
+
+| | |
+|---|---|
+| `/dev/kvm` | absent, as expected: emulators run only in Actions |
+| `nproc` | 4 |
+| Memory | 15 GB, no swap |
+| Disk | 252 GB volume, about 30 GB free |
+| Preinstalled | JDK 21, Gradle 8.14.3, Node 22, gh 2.89.0. No Android SDK, `ANDROID_HOME` unset |
+
+**Host reachability from the session**
+
+| Host | Result |
+|---|---|
+| `dl.google.com` | reachable (cmdline-tools, SDK packages) |
+| `registry.npmjs.org` | reachable |
+| `services.gradle.org`, `plugins.gradle.org` | reachable |
+| `maven.google.com` | 301, works for Gradle |
+| `repo.maven.apache.org` | reachable, but **intermittent 429 Too Many Requests** under parallel resolution on a cold cache |
+| `api.github.com` | reachable via `gh api` |
+
+The 429s failed the first build four times running. With `--max-workers=1` and retries it
+resolves, because Gradle caches what it has already fetched. The setup script retries its warm-up
+up to five times.
+
+**Setup-script timing** (`scripts/cloud-setup.sh` in mootmaker-android): SDK install alone 13 s. A
+cold run including the Gradle warm-up (`assembleDebug assembleDebugUnitTest lintDebug`, single
+worker, empty Gradle home) **3m56s**, under the 5-minute target. Caveat: timed inside an
+already-running session, not as the environment's setup-script phase. The warm-up runs only if
+`gradlew` sits next to the script, so pasted into the environment's setup field it installs the SDK
+and skips the warm-up.
+
+**What the cloud–CI loop could and could not read**
+
+| Works | Refused |
+|---|---|
+| `git push` triggering `pr-checks.yml` | `gh run view --log`, `--log-failed`: Forbidden from `results-receiver.actions.githubusercontent.com` |
+| `gh run list`, `gh run watch <id> --exit-status`, `gh run view <id>` | `gh api .../actions/jobs/{id}/logs`: Forbidden from `productionresultssa9.blob.core.windows.net` |
+| `gh api repos/{o}/{r}/commits/{sha}/check-runs` and `.../check-runs/{id}/annotations` | `gh run download`: Forbidden, same blob host (the artifacts API lists them fine) |
+| GitHub MCP `get_job_logs` (see below) | |
+
+- **A failure summary reaches the session through annotations.** Deliberately breaking
+  `GreetingTest` produced a `failure` annotation reading
+  `com.mootmaker.app.GreetingTest.greetingNamesTheApp: org.junit.ComparisonFailure: expected:<Moot[]> but was:<Moot[maker]>`,
+  written by `.github/scripts/summarise-failures.py` (JUnit XML to `::error` annotations). The
+  check run's `output.title` and summary are empty; **the annotations carry the content**, and the
+  [loop description](#the-cloudci-loop) above now says so.
+- **`get_job_logs` is a workaround**, not a verified one: it returned log content for a failed run
+  with `failed_only` and a tail, but was tried only with `tail_lines=5`, so its size limits are
+  unknown.
+- **Blob-storage hosts are not allowlisted.** The two refused hosts above are what to add to the
+  environment's Custom allowlist if annotations prove not enough. M0 did not need them.
+- `gh auth status` reports the token invalid, yet `gh api` and `gh run` work through the proxy.
+
+**Not proven in M0**, so still open for M1:
+- **Auto-fix wake.** The session was blocked inside `gh run watch` during the deliberate failure,
+  so whether a failed check wakes an idle session is untested.
+- **Paused-VM resume** after `gh run watch` returns.
+- **The `run-acceptance` label and `gh workflow run`**: there is no acceptance workflow yet.
 
 ### M1 — Sign in and see your day · L · use cases B, D.22–D.24
 
@@ -1056,7 +1140,8 @@ the start of that milestone, so the checklist never runs far ahead of what is kn
    without chat projects first.)
 
 **M0:** `[Claude]` as described in [M0](#m0--toolchain-spike--s--no-user-functionality).
-Record the probe results in this doc.
+Probe results recorded in
+[M0 results](#m0-results-2026-10-06). Done pending the merge of mootmaker-android PR #5.
 
 **Before M1** (while M0 runs)
 3. ~~`[Geoff]` Answer Q2–Q7.~~ Done 2026-10-07.
