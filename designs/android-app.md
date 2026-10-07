@@ -783,6 +783,36 @@ The largest functional slice: the most use cases, and the first write.
   smoke stays read-only.
 - **Could split** into M4a (create with a manually picked room) and M4b (room suggestion and the
   rest of F's edge cases) if spend needs pacing.
+- **Built (2026-10-07), as it differs from the plan:**
+  - No API or webapp change, so no release. New operations: `MeetingForm` (`workspace { me people
+    rooms }`), `SuggestRoom` and the `CreateMeeting` mutation. A rejected booking is a successful
+    response with `errors`, and the app words each `MeetingError` as the webapp does, all in one banner.
+  - Add meeting opens the native form from home and from room availability (which passes the viewed
+    date, E.37); the webapp link is gone. The form: subject, organiser (defaults to you), attendees,
+    date (Material 3 date picker), start and end, room, and Suggest a room. Saving replaces the form with
+    the new meeting's details, so Back returns to where Add was opened, and shows a toast.
+  - **Times are chosen from a menu of the 96 quarter hours**, not a clock dial. That makes F.41 true by
+    construction and avoids the webapp's snapping workaround; the cost is a long list. Start and end
+    default as the webapp does (next boundary, an hour, clamped before midnight).
+  - The form's logic is ported from `addMeetingLogic.ts` into `data` (organiser/attendee exclusivity,
+    the suggested-room cache and its key, default times). Edit mode, same-room priority and
+    `excludingMeetingId` are M5.
+  - Verified: pr-checks and the labelled acceptance run are green on mootmaker-android#10 (merged
+    854cf49), against an ephemeral environment the run created and tore down. Acceptance covers F.38,
+    F.39, F.44, F.46, F.47, F.49, F.50, F.51, F.53 and F.55. Unit-tested only: F.40, F.41, F.54, F.56.
+    Robolectric flow: F.52. Not covered: F.45 (the form can't pick the organiser as an attendee) and
+    F.42 (the API rule exists, so it is shown as the server words it). Webapp-specific: F.57, F.58.
+  - **Find-and-fix:** the first acceptance run failed because the form is taller than an emulator
+    screen and the cases tapped controls below the fold (use `performScrollTo`), and because the rooms
+    these cases created sorted ahead of the `A-` rooms other cases look for, pushing them off the lazy
+    list (name new rooms `Z-`). Separately, `AppFlowTest` and the availability order acceptance case
+    booked meetings at fixed hours and failed whenever the suite ran during that hour; both now avoid
+    the current hour.
+  - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Sonnet, three
+    rounds of find-and-fix.
+  - Still to do: the `test`-stage smoke step that creates a meeting and reads it back needs a
+    mootmaker-release change (a room created over the admin API, as mootmaker-release#64 does for the
+    webapp); production smoke stays read-only. Deferred, with the other smoke work.
 
 ### M5 — Edit, cancel and respond · M · use cases O (12), D.107, attendee response
 
