@@ -720,6 +720,18 @@ the end of it.
   first release where a previous APK exists.
 - **Publish extra:** the download page on www.mootmaker.com (Q4-B), if chosen. It's small and worth
   having before the app is shown to anyone.
+- **Built (2026-10-07), as it differs from the plan:**
+  - No backend change: one `workspace { me rooms days boundaries }` query for one day. The day
+    navigation is bounded by `boundaries` (earliest retained to latest bookable), as the webapp's is.
+  - The status, timeline and room-colour logic is a Kotlin port of `roomAvailabilityLogic.ts`, with
+    its test cases ported alongside. Times stay naive `LocalDateTime` strings.
+  - Date jump uses the Material 3 date picker; Add meeting still opens the webapp until M4, and
+    booking rows are not tappable until M3 (E.32's navigation half moves to M3).
+  - Acceptance covers D.25, E.26–E.28 and E.31–E.34 (passed against an ephemeral environment; the run's one failure was M1's D.22 order check, a test bug fixed in mootmaker-android#8). E.29 (the picker) and E.30 (no rooms, which an
+    environment with other cases' rooms can't show) are Robolectric-only. E.35 and E.36 are
+    webapp-specific.
+  - Still to do: the smoke flow's "availability renders" step and the n-1 smoke check, which need
+    the first published APK (the keystore).
 
 ### M3 — Meeting details and person calendar · M · use cases H (6), G (7)
 
