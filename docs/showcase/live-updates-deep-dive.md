@@ -295,6 +295,13 @@ response is the new state.*
 | `cache.evict({ id })` | removes an entity. References to it become **dangling** |
 | `cache.gc()` | removes entities nothing references any more |
 | `client.refetchQueries({ include: 'active' })` | re-runs, over the network, every query a mounted component is watching |
+| `client.refetchQueries({ updateCache, onQueryUpdated })` | runs `updateCache` (an eviction, say), then calls `onQueryUpdated` for **only the watched queries whose results it changed**, which can then be refetched |
+
+**A refetch overwrites by default.** When a watched query is *refetched*, Apollo writes the response
+in overwrite mode: any `merge` function on the way is called with no `existing` value, so it can't
+keep anything that was there. Normal fetches merge. The client option
+`defaultOptions.watchQuery.refetchWritePolicy: 'merge'` makes refetches merge too. mootmaker needs
+it ([3.7](#37-the-cache-configuration-that-makes-this-work)).
 
 Apollo also **deduplicates** identical queries in flight: if a query is already on its way, asking
 again joins the existing request rather than sending a second one. That's normally helpful, but it
@@ -691,8 +698,7 @@ On each message:
 onData: (payload) => {
   const dates = payload.data?.daysInvalidated?.dates
   if (!dates?.length) return
-  const evicted = dayInvalidations.invalidate(dates)
-  if (evicted.length > 0) void apolloClient.refetchQueries({ include: 'active' })
+  evictAndRefetch(apolloClient, () => dayInvalidations.invalidate(dates))
 },
 ```
 
@@ -709,8 +715,27 @@ Invalidating a date evicts three things:
    meeting page holds its meeting through `meeting(id)`, with no `Day` around it at all
    ([4.4](#44-a-meeting-held-without-its-day)).
 
-Then `cache.gc()` tidies up. A broadcast for a day this client never fetched evicts nothing and
-triggers nothing. **That's intended:** the day will be fetched fresh if anyone navigates to it.
+Then `cache.gc()` tidies up.
+
+[evictAndRefetch.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/evictAndRefetch.ts)
+runs that eviction inside `refetchQueries`' `updateCache`, so Apollo can report exactly which watched
+queries it changed, and only those are refetched:
+
+```ts
+export function evictAndRefetch(client: ApolloClient, evict: () => unknown): void {
+  void client.refetchQueries({
+    updateCache() { evict() },
+    onQueryUpdated(observableQuery) { return observableQuery.refetch() },
+  })
+}
+```
+
+On Room Availability, a broadcast for the day on screen refetches `DAYS` alone, not the
+`BOUNDARIES` and `REFERENCE_DATA` queries mounted beside it. A broadcast for a day this client never
+fetched evicts nothing, changes nothing and refetches nothing. **That's intended:** the day will be
+fetched fresh if anyone navigates to it. Apollo's dependency tracking sees through the `workspace`
+`read` policy ([3.7](#37-the-cache-configuration-that-makes-this-work)); a test with a real client
+and the real policies pins that.
 
 ## 3.3 Eviction alone doesn't refetch
 
@@ -727,8 +752,8 @@ The query's `days` list still holds a reference to the evicted day, and Apollo *
 references out of lists** when reading. So the read is *complete, with one day fewer*. A complete
 read gives Apollo no reason to fetch, and the screen would show "no meetings" indefinitely.
 
-That's why `useDaysInvalidated` explicitly refetches active queries after an eviction that removed
-something. A unit test in `daysInvalidated.test.ts` pins this Apollo behaviour, and its comment
+That's why the eviction goes through `evictAndRefetch`, which explicitly refetches the queries it
+changed. A unit test in `daysInvalidated.test.ts` pins this Apollo behaviour, and its comment
 says what to do if it ever changes: if a future Apollo makes that read incomplete, the test fails,
 and the explicit refetch can be removed rather than lingering unexplained.
 
@@ -768,7 +793,7 @@ events make a tab discard **everything** it holds:
 // A reconnect: the subscription is live again after a drop.
 onResubscribed: () => {
   dayInvalidations.invalidateEverything()
-  void apolloClient.refetchQueries({ include: 'active' })
+  void apolloClient.refetchQueries({ include: 'active' })   // everything on screen, deliberately
 },
 
 // The tab coming back to the foreground. A frozen background tab may still hold a socket that
@@ -779,6 +804,9 @@ document.addEventListener('visibilitychange', () => {
   void apolloClient.refetchQueries({ include: 'active' })
 })
 ```
+
+Here every active query is refetched, not just the ones the eviction changed. Everything held is
+suspect, and rooms and people aren't broadcast, so this is one of the few things that refreshes them.
 
 The client never works out *what* it missed. It only stops trusting what it holds. No sequence
 numbers, no replay requests. `invalidateEverything` deliberately ignores the own-write memory: while
@@ -799,7 +827,7 @@ sequenceDiagram
   A->>AS: t-1: query for 8 Oct leaves
   B->>AS: t0: updateMeeting on 8 Oct
   AS-->>A: t0: broadcast for 8 Oct
-  Note over A: evict 8 Oct, refetch active queries.<br/>The refetch can be deduplicated onto the query already in flight.
+  Note over A: evict 8 Oct, refetch the query showing it.<br/>The refetch can be deduplicated onto the query already in flight.
   AS-->>A: t+1: response, read from the database BEFORE B's write
   Note over A: reconcileLink: this query left before 8 Oct was invalidated,<br/>so its answer may be stale. Re-evict and refetch.
   A->>AS: t+2: query for 8 Oct
@@ -815,7 +843,7 @@ that left before it.
 closes it:
 
 ```ts
-export function reconcileLink(invalidations, onReEvicted, now = Date.now): ApolloLink {
+export function reconcileLink(reconcile: (dates: string[], issuedAt: number) => void, now = Date.now) {
   return new ApolloLink((operation, forward) => {
     if (operation.operationType !== OperationTypeNode.QUERY) return forward(operation)
     const issuedAt = now()                       // when the request leaves
@@ -825,9 +853,7 @@ export function reconcileLink(invalidations, onReEvicted, now = Date.now): Apoll
           observer.next(result)                  // Apollo writes the result to the cache here
           const dates = datesIn(result.data)     // every Day.date and Meeting.startTime date
           if (dates.length === 0) return
-          setTimeout(() => {                     // after the write, never before it
-            if (invalidations.reconcileAfterFetch(dates, issuedAt).length > 0) onReEvicted()
-          }, 0)
+          setTimeout(() => reconcile(dates, issuedAt), 0)   // after the write, never before it
         },
         error: (error) => observer.error(error),
         complete: () => observer.complete(),
@@ -838,9 +864,12 @@ export function reconcileLink(invalidations, onReEvicted, now = Date.now): Apoll
 }
 ```
 
+- `apolloClient.ts` wires `reconcile` to
+  `evictAndRefetch(apolloClient, () => dayInvalidations.reconcileAfterFetch(dates, issuedAt))`.
 - `DayInvalidations` records when each date was last invalidated. `reconcileAfterFetch` re-evicts
   any date in the response that was invalidated **after** the request left.
-- `onReEvicted` refetches active queries, because of [3.3](#33-eviction-alone-doesnt-refetch).
+- `evictAndRefetch` then refetches the queries that re-eviction changed, because of
+  [3.3](#33-eviction-alone-doesnt-refetch).
 - **Mutations are excluded.** A mutation response is this tab's own write: the most authoritative
   data there is.
 - **It terminates.** Each refetch leaves after the invalidation that caused it, so it isn't
@@ -852,8 +881,9 @@ it runs before Apollo's cache write instead of after, or if mutations are includ
 
 ## 3.7 The cache configuration that makes this work
 
-Three type policies in [apolloClient.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/apolloClient.ts),
-each with a comment explaining why:
+Three type policies and one client default, in
+[cachePolicies.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/cachePolicies.ts),
+each with a comment explaining why (simplified here):
 
 ```ts
 new InMemoryCache({
@@ -880,6 +910,9 @@ new InMemoryCache({
     },
   },
 })
+
+// …and on the ApolloClient:
+defaultOptions: { watchQuery: { refetchWritePolicy: 'merge' } }
 ```
 
 - **`Day` keyed by date** gives every page the same day entity, and lets a client compute the key
@@ -890,6 +923,13 @@ new InMemoryCache({
 - **The `read` policy rebuilds `days` from the requested dates** every time, as references to
   `Day` entities. Overlapping windows (this week, and Home's today-and-tomorrow) are served from the
   same entities, and a day not yet fetched simply has no data.
+- **Refetches merge rather than overwrite** (`refetchWritePolicy: 'merge'`, set as a client default
+  beside the policies). Every `workspace` query shares the one stored `workspace` object: `DAYS`
+  writes `days`, `REFERENCE_DATA` writes `rooms` and `people`, `BOUNDARIES` writes `boundaries`.
+  Under Apollo's default, a refetch of `DAYS`, which every live update causes, would replace the
+  object with just `{ days }`. Every other workspace query on the page would go incomplete and back
+  to the network, `cache-first` or not. A test pins Apollo's default, so the override can go if it
+  ever changes.
 - **"Missing" is kept distinct from "empty".** A `Day` present with no meetings means "genuinely
   empty". A `Day` absent means "nobody has looked". When none of the requested days is known, the
   policy omits `days` entirely rather than returning `[]`, so the read is *incomplete* (go to the
@@ -1131,7 +1171,7 @@ sequenceDiagram
   AC->>AC: evict Day:2026-10-08, its meetings, then gc()
   AC-->>AR: Meeting:m-1 fragment is now incomplete
   Note over AR: Render 2: last-seen "Standup 09:00" plus progress bar
-  AC->>AS: refetchQueries(active)
+  AC->>AS: refetch the queries that read 8 Oct
   AR->>AS: effect: meeting(m-1), network-only
   L-->>AS: UpdateMeetingResult
   AS-->>BC: mutation response
@@ -1164,14 +1204,15 @@ flowchart TD
   OWN -- no --> EV["Evict the Day, its meetings,<br/>and any meeting dated that day"]
   EV --> ANY{"Was anything<br/>actually evicted?"}
   ANY -- no --> NOOP["Nothing to do:<br/>nobody here holds that day"]
-  ANY -- yes --> RF["refetchQueries active"]
+  ANY -- yes --> RFA["Refetch the queries<br/>the eviction changed"]
 
   RV["Socket reconnected,<br/>or tab visible again"] --> ALL["Evict every cached day,<br/>own writes included"]
-  ALL --> RF
+  ALL --> RF["Refetch every active query"]
 
-  RF --> RS["A query response lands"]
+  RFA --> RS["A query response lands"]
+  RF --> RS
   RS --> RACE{"Any of its dates invalidated<br/>after the query left?"}
-  RACE -- yes --> EV2["Re-evict those days"] --> RF
+  RACE -- yes --> EV2["Re-evict those days"] --> RFA
   RACE -- no --> W["Written to the cache"]
   W --> R["useQuery and useFragment watchers re-render"]
 ```
@@ -1193,7 +1234,7 @@ sequenceDiagram
   BF->>API: updateMeeting(expectedVersion v7): remove attendee Chris
   API->>API: v7 matches, so write. Version is now v8
   API-->>AC: broadcast for that date
-  AC->>API: refetch active queries, including the form's own
+  AC->>API: refetch the queries that read it, including the form's own
   Note over AF: Fields NOT re-seeded and editedVersion stays v7.<br/>Nothing moves under A's cursor.
   AF->>API: updateMeeting(expectedVersion v7): new subject
   API->>API: v7 does not match v8, so reject. Nothing written, nothing broadcast
@@ -1294,8 +1335,8 @@ lost.
 | **One subscription per page** | Reconnects on every navigation, and days cached for other pages would stop being maintained |
 | **Trusting the socket** | No replay means any gap loses messages silently. Resyncing on reconnect and tab return is what makes it correct |
 
-Open questions, such as the 5-second window, broadcasting to everyone, the breadth of
-`refetchQueries`, and rooms and people, are discussed with suggested answers in
+Open questions, such as the 5-second window, broadcasting to everyone, and rooms and people, are
+discussed with suggested answers in
 [live-updates-open-questions.md](live-updates-open-questions.md).
 
 ---

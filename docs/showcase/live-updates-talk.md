@@ -189,6 +189,7 @@ knows.
 | `cache.evict({ id: 'Day:2026-10-08' })` | removes that entity. Anything referencing it now has a **dangling reference** |
 | `cache.gc()` | garbage-collects entities nothing references any more |
 | `client.refetchQueries({ include: 'active' })` | re-runs every query a mounted component is currently watching, over the network |
+| `client.refetchQueries({ updateCache, onQueryUpdated })` | runs a cache change, then calls back for **just the watched queries it affected**, so you can refetch only those |
 
 The trade-off to keep in mind:
 
@@ -276,7 +277,7 @@ sequenceDiagram
   L-->>AS: UpdateMeetingResult
   AS-->>B: response: B writes it straight into its cache
   A->>A: evict Day:2026-10-08 and its meetings
-  A->>AS: refetch active queries
+  A->>AS: refetch the queries showing that day
   AS-->>A: fresh Day → cache write → React re-renders
 ```
 
@@ -405,14 +406,23 @@ and
 per page. A per-page subscription would reconnect on every navigation and stop maintaining days
 cached for other screens.
 
-**2. On a broadcast: evict, then refetch what's on screen.**
+**2. On a broadcast: evict, then refetch exactly what that changed.**
 
 ```ts
 onData: ({ dates }) => {
-  const evicted = dayInvalidations.invalidate(dates)   // the Day, its meetings, meetings dated that day
-  if (evicted.length > 0) apolloClient.refetchQueries({ include: 'active' })
+  // the Day, its meetings, and meetings dated that day - then refetch the queries that read them
+  evictAndRefetch(apolloClient, () => dayInvalidations.invalidate(dates))
+}
+
+function evictAndRefetch(client, evict) {
+  client.refetchQueries({
+    updateCache: () => evict(),                     // Apollo notes which watched queries this changes…
+    onQueryUpdated: (query) => query.refetch(),     // …and calls back for exactly those
+  })
 }
 ```
+
+A day nobody here holds, or this tab's own write, changes nothing, so it refetches nothing.
 
 **3. Ignore broadcasts for my own writes, and say so before sending.** B's tab gets its own
 broadcast. Acting on it would throw away the authoritative state its own mutation response is about
@@ -423,8 +433,8 @@ server broadcasts before it responds, so the broadcast can arrive first.
 **4. Never trust the socket.** On reconnect *and* whenever the tab becomes visible again:
 
 ```ts
-dayInvalidations.invalidateEverything()   // every held day, own writes included
-apolloClient.refetchQueries({ include: 'active' })
+dayInvalidations.invalidateEverything()              // every held day, own writes included
+apolloClient.refetchQueries({ include: 'active' })   // everything on screen, deliberately
 ```
 
 There's no replay, so we can't know what was missed. We only know to stop trusting what we hold.
@@ -437,7 +447,7 @@ There's no replay, so we can't know what was missed. We only know to stop trusti
 
 ---
 
-## 3.2 Eviction alone doesn't refetch
+## 3.2 Two Apollo subtleties: eviction doesn't refetch, and a refetch overwrites
 
 You might expect *"evict `Day:<date>` and Apollo notices the gap and fetches it"*. It doesn't:
 
@@ -451,9 +461,18 @@ cache.diff(WORKSPACE_QUERY)
 references out of lists**, so the query reads back as *complete, with one fewer day*. No gap means
 no fetch.
 
-Hence the explicit `refetchQueries` in rule 2. A unit test pins this Apollo behaviour, and says so:
-if a future Apollo version makes that read incomplete, the test fails and the refetch can be
-deleted.
+Hence the explicit refetch in rule 2. A unit test pins this Apollo behaviour, and says so: if a
+future Apollo version makes that read incomplete, the test fails and the refetch can be deleted.
+
+**A second subtlety: a refetch overwrites by default.** Every `workspace` query (days, rooms and
+people, the bookable window) shares one stored `workspace` object. Apollo writes a *refetch* in
+overwrite mode unless told otherwise, so refetching the days would replace that object with just
+`{ days }`, wiping the rooms and people that other queries on the page are showing. They'd all go
+back to the network. One client option fixes it:
+
+```ts
+new ApolloClient({ cache, link, defaultOptions: { watchQuery: { refetchWritePolicy: 'merge' } } })
+```
 
 > **Notes:** The general lesson: cache behaviour is the part of a design you can't check by
 > reading. Measure it, and pin it with a test that says why. Remember "complete, minus that day".
@@ -473,7 +492,7 @@ sequenceDiagram
   A->>AS: t-1: query for 8 Oct leaves
   B->>AS: t0: updateMeeting on 8 Oct
   AS-->>A: t0: broadcast for 8 Oct
-  Note over A: evict 8 Oct, refetch active queries.<br/>The refetch can be deduplicated onto the query already in flight.
+  Note over A: evict 8 Oct, refetch the query showing it.<br/>The refetch can be deduplicated onto the query already in flight.
   AS-->>A: t+1: response, read from the database BEFORE B's write
   Note over A: reconcileLink: this query left before 8 Oct was invalidated,<br/>so its answer may be stale. Re-evict and refetch.
   A->>AS: t+2: query for 8 Oct
@@ -673,7 +692,7 @@ sequenceDiagram
   AC->>AC: evict Day:2026-10-08, its meetings, then gc()
   AC-->>AR: Meeting:m-1 fragment is now incomplete
   Note over AR: Render 2: last-seen "Standup 09:00" plus progress bar
-  AC->>AS: refetchQueries(active)
+  AC->>AS: refetch the queries that read 8 Oct
   AR->>AS: effect: meeting(m-1), network-only
   L-->>AS: UpdateMeetingResult
   AS-->>BC: mutation response
@@ -742,14 +761,15 @@ flowchart TD
   OWN -- no --> EV["Evict the Day, its meetings,<br/>and any meeting dated that day"]
   EV --> ANY{"Was anything<br/>actually evicted?"}
   ANY -- no --> NOOP["Nothing to do:<br/>nobody here holds that day"]
-  ANY -- yes --> RF["refetchQueries active"]
+  ANY -- yes --> RFA["Refetch the queries<br/>the eviction changed"]
 
   RV["Socket reconnected,<br/>or tab visible again"] --> ALL["Evict every cached day,<br/>own writes included"]
-  ALL --> RF
+  ALL --> RF["Refetch every active query"]
 
-  RF --> RS["A query response lands"]
+  RFA --> RS["A query response lands"]
+  RF --> RS
   RS --> RACE{"Any of its dates invalidated<br/>after the query left?"}
-  RACE -- yes --> EV2["Re-evict those days"] --> RF
+  RACE -- yes --> EV2["Re-evict those days"] --> RFA
   RACE -- no --> W["Written to the cache"]
   W --> R["useQuery and useFragment watchers re-render"]
 ```
@@ -782,7 +802,7 @@ sequenceDiagram
   BF->>API: updateMeeting(expectedVersion v7): remove attendee Chris
   API->>API: v7 matches, so write. Version is now v8
   API-->>AC: broadcast for that date
-  AC->>API: refetch active queries, including the form's own
+  AC->>API: refetch the queries that read it, including the form's own
   Note over AF: Fields NOT re-seeded and editedVersion stays v7.<br/>Nothing moves under A's cursor.
   AF->>API: updateMeeting(expectedVersion v7): new subject
   API->>API: v7 does not match v8, so reject. Nothing written, nothing broadcast
@@ -830,9 +850,7 @@ sequenceDiagram
 1. **The own-write window.** For 5 s after saving, a tab ignores broadcasts for those dates,
    including a genuine change by someone else. Is 5 s right?
 2. **Every signed-in client receives every broadcast.** Is that OK, on privacy and on cost?
-3. **`refetchQueries({ include: 'active' })` is broad.** It refetches everything on screen, not
-   just what read the invalidated days. Should it be narrower?
-4. **Rooms and people aren't broadcast.** An admin's new room doesn't appear on other screens until
+3. **Rooms and people aren't broadcast.** An admin's new room doesn't appear on other screens until
    they refresh. Should it?
 
 > **Notes:** Suggested answers, with the reasoning and numbers, are in

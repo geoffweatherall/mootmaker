@@ -1,8 +1,11 @@
 # Live updates: answers to the open questions
 
-The [live-updates talk](live-updates-talk.md) ends with four questions for discussion. These are
+The [live-updates talk](live-updates-talk.md) ends with three questions for discussion. These are
 suggested answers, with the reasoning and evidence behind each, to bring to that discussion. They are
 recommendations, not decisions: none of them has been agreed or built.
+
+A fourth question, whether refetching every active query after a live update was too broad, has
+already been acted on. See [Already done](#already-done-refetch-only-what-a-live-update-changed).
 
 The [companion write-up](live-updates-deep-dive.md) explains every mechanism mentioned here.
 
@@ -10,8 +13,7 @@ The [companion write-up](live-updates-deep-dive.md) explains every mechanism men
 |---|---|
 | [1. Is 5 seconds the right own-write window?](#1-is-5-seconds-the-right-own-write-window) | It's a reasonable heuristic. Its failure modes are mild. Replace it with an origin id when the schema next changes |
 | [2. Is it OK that every signed-in client receives every broadcast?](#2-is-it-ok-that-every-signed-in-client-receives-every-broadcast) | Yes, on privacy and on cost, for the foreseeable future. Partition by organisation if that ever exists |
-| [3. Is `refetchQueries({ include: 'active' })` too broad?](#3-is-refetchqueries-include-active--too-broad) | For broadcasts, yes, and Apollo can narrow it with no new bookkeeping (verified). Keep it broad for reconnects and tab returns |
-| [4. Should room and people changes be broadcast too?](#4-should-room-and-people-changes-be-broadcast-too) | Yes, cheaply, using the extension point the `Invalidation` type was designed with |
+| [3. Should room and people changes be broadcast too?](#3-should-room-and-people-changes-be-broadcast-too) | Yes, cheaply, using the extension point the `Invalidation` type was designed with |
 
 Answering them also turned up one gap that wasn't a matter of opinion, now fixed: deleting a person
 changed meetings without broadcasting. See [Found while answering](#found-while-answering).
@@ -113,7 +115,7 @@ connected all working day, making 2,000 meeting changes a day**, over 22 working
 - **Deliveries:** 2,000 × 100 × 22 = 4.4 million real-time updates, or **US$8.80 a month**.
 - **Refetches:** suppose a fifth of tabs hold the changed day. 4.4 M × 0.2 = 0.88 million
   refetches, or about **US$3.50 a month** if each refetch is a single query. Narrowing the refetch
-  (question 3) matters here, because a broad refetch multiplies this by the number of active
+  ([now done](#already-done-refetch-only-what-a-live-update-changed)) matters here, because a broad refetch multiplies this by the number of active
   queries.
 - **Connections:** 100 × 8 h × 60 × 22 = 1.06 million minutes, about **US$0.08**.
 
@@ -140,72 +142,7 @@ what.
 
 ---
 
-## 3. Is `refetchQueries({ include: 'active' })` too broad?
-
-**The question.** After a broadcast evicts something, `useDaysInvalidated` refetches **every
-active query** on the page, not only the ones that read the evicted day.
-
-**Answer: for broadcasts, yes, and Apollo can do the narrowing itself, with no new bookkeeping.
-After a reconnect or tab return, keep it broad, deliberately.**
-
-### What "broad" costs today
-
-Every query a mounted component is watching goes back to the server, whether or not it read the
-evicted day. On Room Availability that's three queries, `BOUNDARIES`, `REFERENCE_DATA` and `DAYS`,
-when only `DAYS` reads a day. Across a page's life that is two wasted requests per broadcast, in
-every tab holding the day. That multiplier is what drives the refetch line in question 2's costs.
-
-### The narrow version is built into Apollo
-
-Apollo's `refetchQueries` can evict and refetch in one step, and it calls you back only for queries
-**whose cached result the eviction actually changed**:
-
-```ts
-await apolloClient.refetchQueries({
-  updateCache(cache) {
-    dayInvalidations.invalidate(dates)          // the same evictions as today
-  },
-  onQueryUpdated(observableQuery) {
-    return observableQuery.refetch()            // only reached for queries that read evicted data
-  },
-})
-```
-
-**Verified, not assumed.** Our `workspace` field reads days through a custom `read` policy, using
-`toReference` and `canRead`, so it was worth checking that Apollo's dependency tracking sees through
-it. A script ran Apollo 4.2.5 with the webapp's real type policies and three watched queries: a
-two-day `DAYS` query, a `REFERENCE_DATA`-style rooms query, and a `meeting(id)` query.
-
-| Evicted | `onQueryUpdated` called for | `include: 'active'` refetches |
-|---|---|---|
-| one of the two days, and its meeting | **the days query only** | all three |
-| a day nobody holds | **nothing** | all three |
-| the meeting held by `meeting(id)` | **the `meeting(id)` query only** | all three |
-
-It picks out exactly the right queries, including the "complete minus one day" case (where the
-query reads back complete but with one day fewer), which is the reason we refetch at all.
-
-### Keep it broad after a reconnect or a tab return
-
-There, `invalidateEverything()` evicts every day, so most day-reading queries would be selected
-anyway. More importantly, **rooms and people aren't broadcast** (question 4). Today a tab return
-is one of the few things that refreshes an active `REFERENCE_DATA` query. Narrowing that path would
-quietly remove that until question 4 is done.
-
-### One thing to keep
-
-`reconcileLink`'s re-eviction (the in-flight race) also calls `refetchQueries`. That can be
-narrowed the same way, since it evicts specific dates.
-
-**Recommendation:** narrow the broadcast and race paths with
-`updateCache` + `onQueryUpdated`. Keep `include: 'active'` for reconnect and tab return. Add a test
-like the experiment above, which drives a real `ApolloClient` with the real type policies, so a
-future Apollo version that tracks dependencies differently fails a test instead of silently
-over- or under-fetching.
-
----
-
-## 4. Should room and people changes be broadcast too?
+## 3. Should room and people changes be broadcast too?
 
 **The question.** Only meeting changes are broadcast. When an admin creates, renames or deletes a
 room or a person, other clients don't find out.
@@ -220,8 +157,7 @@ only after:
 
 - a full page reload, or
 - a tab return or reconnect, *if* a component watching `REFERENCE_DATA` happens to be mounted,
-  because the broad refetch includes it, or
-- a broadcast for some held day, for the same reason.
+  because that refetch deliberately includes every active query.
 
 The visible effects are: a new room missing from the booking form's room list and from Room
 Availability, a renamed room or person showing the old name, and a deleted person still offered as
@@ -243,14 +179,77 @@ be added later without breaking a deployed client."*
 
 Admin changes are rare, so this adds almost nothing to the costs in question 2.
 
-**Recommendation:** do it. It is also what makes question 3's "narrow the broadcast path"
-safe, because reference data would then have a refresh trigger of its own.
+**Recommendation:** do it. Reference data would then have a refresh trigger of its own, rather than
+relying on tab returns.
+
+---
+
+## Already done: refetch only what a live update changed
+
+**The question was:** after a broadcast evicts something, `useDaysInvalidated` refetched **every
+active query** on the page, not only the ones that read the evicted day. Was that too broad?
+
+**Yes, and it's now narrowed**, in
+[mootmaker-webapp#165](https://github.com/geoffweatherall/mootmaker-webapp/pull/165).
+
+### What "broad" cost
+
+On Room Availability, three queries are mounted: `BOUNDARIES`, `REFERENCE_DATA` and `DAYS`. Only
+`DAYS` reads a day, so a broad refetch made two wasted requests per broadcast, in every tab holding
+the day. That multiplier drove the refetch line in question 2's costs.
+
+### The narrow version is built into Apollo
+
+`refetchQueries` can run an eviction and call back only for watched queries **whose cached result
+it changed**:
+
+```ts
+apolloClient.refetchQueries({
+  updateCache() { dayInvalidations.invalidate(dates) },
+  onQueryUpdated(observableQuery) { return observableQuery.refetch() },
+})
+```
+
+Our `workspace` field reads days through a custom `read` policy, using `toReference` and
+`canRead`, so it was worth checking that Apollo's dependency tracking sees through it. A script ran
+Apollo 4.2.5 with the webapp's real type policies and three watched queries: a two-day `DAYS`
+query, a rooms query, and a `meeting(id)` query.
+
+| Evicted | `onQueryUpdated` called for | `include: 'active'` refetched |
+|---|---|---|
+| one of the two days, and its meeting | **the days query only** | all three |
+| a day nobody holds | **nothing** | all three |
+| the meeting held by `meeting(id)` | **the `meeting(id)` query only** | all three |
+
+### What building it uncovered
+
+Counting actual network requests, rather than `onQueryUpdated` calls, showed the rooms query
+*still* being refetched, even after a plain refetch of `DAYS` with no eviction at all. The cause:
+**Apollo writes a watched query's refetch in overwrite mode** by default. Every workspace query shares
+one stored `workspace` object, so refetching `DAYS` replaced it with just `{ days }`, wiping the
+rooms, people and boundaries the other queries were showing. They then went back to the network,
+`cache-first` or not.
+
+That had been happening on every live update all along, hidden because the broad refetch was
+refetching those queries anyway. The client now sets `refetchWritePolicy: 'merge'` as a default,
+which is safe because `Query.workspace`'s shallow spread is the only merge function that keeps
+anything. Without it, the narrowing would have saved nothing.
+
+### What was kept broad
+
+A reconnect or tab return still refetches every active query. There, everything held is suspect,
+and rooms and people aren't broadcast (question 3), so it's one of the few things that refreshes
+them.
+
+The tests drive a real `ApolloClient` with the real type policies and client defaults, and count
+requests. A future Apollo that tracks dependencies differently, or that changes its refetch write
+default, fails a test rather than silently over- or under-fetching.
 
 ---
 
 ## Found while answering
 
-Question 4 meant listing which handlers broadcast. At the time, only five did: `createMeeting`,
+Question 3 meant listing which handlers broadcast. At the time, only five did: `createMeeting`,
 `createMeetings`, `updateMeeting`, `cancelMeeting` and `respondToMeeting`.
 
 **`deletePerson` and `deleteMyAccount` changed meetings without broadcasting.** Both cancel every
@@ -263,5 +262,5 @@ That was a gap, not a design choice, so it was filed as
 [mootmaker-api#107](https://github.com/geoffweatherall/mootmaker-api/issues/107) and fixed in
 [mootmaker-api#108](https://github.com/geoffweatherall/mootmaker-api/pull/108). The cascade now
 returns the dates it changed, and both handlers publish them straight after the meeting writes.
-That also means the person handlers already publish, which question 4's room and person flags would
+That also means the person handlers already publish, which question 3's room and person flags would
 build on.
