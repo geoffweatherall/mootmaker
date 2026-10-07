@@ -31,6 +31,8 @@ the [Implementation checklist](#implementation-checklist) are done.
 is merged and green on `main`. Its results are under [M0 results](#m0-results-2026-10-06). M1 is
 built and green, with a real sign-in proven against an ephemeral environment. It is not finished:
 the release keystore and the first published APK are Geoff's. See [M1 results](#m1-results-2026-10-07).
+M2 (room availability) and M3 (meeting details and person calendar) are built, green against an
+ephemeral environment, and merged; they ship with the first release that carries the APK.
 
 History: first drafted 2026-10-05. Revised 2026-10-07 after checking the draft against the code
 and the current cloud-session docs: AWS access from pull requests (Q7), where the signing secrets
@@ -739,6 +741,33 @@ the end of it.
   calendar opens from meeting details or the menu ("my calendar").
 - **Notes:** the first real navigation graph with arguments. Back-stack behaviour gets an Android
   reading of the use cases about URL state.
+- **Built (2026-10-07), as it differs from the plan:**
+  - No backend change. Two new queries: `MeetingDetails` (`meeting(id)` plus `workspace { me rooms }`,
+    the rooms only for the room's colour) and `PersonCalendar` (`workspace(dates)` for the five
+    working days, with `people`, `rooms` and `boundaries`). Meetings are filtered to the person on the
+    device, as the webapp does.
+  - Agenda rows and room-card bookings open meeting details. "Calendar" on home opens your own week
+    (the webapp link is gone). A person's name on a meeting opens that person's calendar.
+  - The calendar is Monday to Friday of one week, with a person dropdown, Previous/Next/This week
+    bounded by `workspace.boundaries`, and rows that open the meeting. Switching person stays on the
+    same screen, so Back leaves the calendar rather than stepping through people.
+  - Meeting details shows the room (with its colour), the date once in the viewer's format, the time as
+    a range, the organiser and each attendee's response, with "You" on the caller's own row, and a
+    Share action that hands the system share sheet the webapp's meeting link. Avatars are initials
+    until M7. The attendee response control, Edit and Cancel are M5.
+  - Verified: pr-checks and the labelled acceptance run are green on mootmaker-android#9 (merged
+    2e06191), against an ephemeral environment that the run created and tore down. The first
+    acceptance run's two failures were one test-ordering mistake in the new H.70 case (another case's
+    room sorted ahead of its room) and M2's D.22 order check, already fixed by #8. Covered by
+    acceptance: G.59, G.60, G.62, G.63, G.65, G.67, H.68 to H.71. Robolectric-only: G.64 and H.73
+    (no way to stage them against a real environment). Webapp-specific: G.61, G.66, H.72.
+  - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Sonnet, and
+    one cycle of find-and-fix, so about the same as M2.
+  - Still to do: the smoke flow's "meeting details open" step, with the rest of the smoke work that
+    waits on the first published APK.
+  - Back-stack: details and calendars are plain pushed destinations, so Back retraces the path taken
+    (home, calendar, meeting, calendar of the organiser, and so on). There is no URL state to
+    reproduce, so the use cases about browser history have no Android counterpart.
 
 ### M4 — Add a meeting · L · use cases F (19)
 
