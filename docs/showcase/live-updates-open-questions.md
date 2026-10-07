@@ -4,6 +4,10 @@ The [live-updates talk](live-updates-talk.md) ends with three questions for disc
 suggested answers, with the reasoning and evidence behind each, to bring to that discussion. They are
 recommendations, not decisions: none of them has been agreed or built.
 
+Questions 1 and 3 are taken further in a draft design,
+[live-update-origin-and-reference-data.md](../../designs/live-update-origin-and-reference-data.md)
+(Drafting, not yet reviewed).
+
 A fourth question, whether refetching every active query after a live update was too broad, has
 already been acted on. See [Already done](#already-done-refetch-only-what-a-live-update-changed).
 
