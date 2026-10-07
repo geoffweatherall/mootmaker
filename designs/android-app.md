@@ -820,6 +820,28 @@ The largest functional slice: the most use cases, and the first write.
   to; the home screen's "Needs your response" section.
 - **Notes:** reuses M4's form for editing. The meeting-version conflict handling
   (`meetingVersion.ts` in the webapp) needs the same behaviour here.
+- **Built (2026-10-07), as it differs from the plan:**
+  - No backend or webapp change, so no release. New operations: `EditMeeting` (the meeting with its
+    `version`), `UpdateMeeting`, `CancelMeeting`, `RespondToMeeting`; `SuggestRoom` now sends
+    `excludingMeetingId` when editing. Home asks for three days and its agenda rows gain the viewer's
+    own response.
+  - Edit is M4's form, opened on the meeting. It sends `expectedVersion`, so a save from a stale copy
+    comes back `MeetingChanged` and the form shows the server's words. Edit and Cancel are icons on the
+    details, shown to the organiser or an admin (`custom:class` in the ID token); the API enforces it
+    regardless. Cancel asks first, naming the meeting; a meeting already gone shows "no longer exists".
+  - An attendee answers Going / Maybe / Not going on the details ("Your response") and from home's
+    "Needs your response" cards, which name the range they cover and can "Search further ahead" in steps
+    of three days. The organiser has no control.
+  - Verified: pr-checks and the labelled acceptance run are green on mootmaker-android#12 (merged
+    b621b7a), against an ephemeral environment the run created and tore down. Acceptance covers D.107,
+    H.108, O.112 to O.115, O.117 to O.119. Robolectric flows (`EditCancelRespondFlowTest`) cover the same
+    plus the stale-version refusal. Not automated: O.116 (the app cannot send that request), O.120 (no
+    timing rule exists to test), O.121 (date change) and O.113's suggest-a-room half (unit-tested).
+  - **Find-and-fix:** home became a longer lazy list, so older acceptance cases that tap an agenda row
+    or check the entry points broke twice: rows below the fold are not composed (use
+    `scrollHomeTo`), and home keeps its scroll position after Back. Two rounds, Sonnet.
+  - **Spend:** not visible from inside a session; read it from claude.ai's Usage page.
+  - Still to do: live responses on an open details screen (O/M.111) arrive with M6.
 
 ### M6 — Live updates · M · use cases M (live-update cases)
 
