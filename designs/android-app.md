@@ -852,6 +852,31 @@ The largest functional slice: the most use cases, and the first write.
 - **Tests:** acceptance makes a change over the API and asserts the app shows it without user
   action. That's the Android counterpart of `live-updates.spec.ts`.
 - **Can move** anywhere after M4. Before M4 there is little in the app that changes.
+- **Built (2026-10-07), as it differs from the plan:**
+  - No backend or webapp change. A hand-rolled AppSync realtime client (`AppSyncRealtime`, the twin of
+    `appsyncSocket.ts`: AppSync refuses `graphql-transport-ws`, so Apollo cannot carry it) feeds
+    `AppContainer.liveEvents`. It runs only while the app is signed in and STARTED, so leaving the
+    foreground closes the socket. It reconnects with backoff and a fresh ID token each time.
+  - **Decision: no normalized cache.** Every screen already refetches when it becomes visible, so the
+    Android form of the webapp's evict-and-refetch is "refetch the open screen". Home, availability,
+    calendar and meeting details refetch on a `daysInvalidated` broadcast and on every `start_ack`.
+    The `start_ack` refetch is sent on the first connection too, because a screen loads a moment before
+    the socket is up and AppSync does not replay. Broadcast dates are not used to filter: the refetch is
+    cheap, and a filter is where the webapp's own-write and date-matching bugs lived.
+  - The in-flight race is handled on home and meeting details: a broadcast during a load queues exactly
+    one more load, so stale data landing after the broadcast is never left standing.
+  - Verified: pr-checks and the labelled acceptance run are green on mootmaker-android#13 (merged
+    6515d76), against an ephemeral environment the run created and tore down. Acceptance
+    (`LiveUpdatesAcceptanceTest`) makes each change through the API as a second user and touches nothing
+    in the app afterwards: a booking appearing on home, an edit then a cancellation reaching an open
+    meeting (O.122, O.123), an attendee's response reaching an open meeting (M.111). Unit tests run the
+    protocol against MockWebServer; Robolectric flows use a fake channel.
+  - **Find-and-fix:** one round. The instrumented app-flow test uses a fake HTTP backend that cannot play
+    a WebSocket upgrade, so the real channel crashed it; it now runs with the channel off.
+  - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Sonnet.
+  - Not covered: the no-flash checks of the webapp's recorder-based `live-updates.spec.ts` (no
+    "cancelled" or empty state flashing mid-update). Android keeps stale data on screen during a refetch,
+    so there is no equivalent frame to record.
 
 ### M7 — Settings · M · use cases I (3), N (7), avatars
 
