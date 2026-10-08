@@ -99,9 +99,9 @@ device's own writes do to them.
    person changes, and changes to your own name, preferences and avatar, invalidate the reference
    data. The broadcast would do most of this anyway; doing it directly means the device's own
    change never depends on the socket.
-10. **Bounded.** Days more than 60 days from today that no screen is watching are dropped first,
-    then the least recently used unwatched ones beyond 200 days held. Meetings fetched by id are
-    held for at most 50 ids, least recently used first.
+10. **Bounded.** Days more than 60 days from today that no screen is watching are dropped, so at
+    most 121 unwatched days are ever held; watched days are bounded by what the screens show.
+    Meetings looked up by id are held for at most 50 ids, least recently used first.
 
 ## Choices you had me make
 
@@ -201,7 +201,7 @@ exhaustively, with a fake `WorkspaceApi` whose every response the test releases 
 - a failed fetch keeps held data and reports the error; with no data it reports the error alone; a
   retry after a failure fetches again;
 - `clear()` empties everything and drops a response that lands after it (the epoch);
-- bounds: unwatched days are dropped in the stated order, watched ones never;
+- bounds: unwatched days far from today are dropped, watched ones never;
 - meetings: found from a loaded day; fetched by id when no loaded day holds them; a meeting gone
   from its refetched day triggers the by-id fetch, and null reads as cancelled, another date as
   moved;
