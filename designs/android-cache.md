@@ -294,7 +294,8 @@ the first launch of the new version starts with an empty store, as every cold st
    acceptance run (and-acc-261008-d0qz, torn down).
 3. [Claude] Use cases 144 to 149 (this PR) and the documentation above (README and
    testing-strategy in #34, architecture.md here).
-4. [Claude] A release.
+4. [Claude] A release: v5.10.9 (mootmaker-release run 94, 2026-10-08), every stage green, the n-1
+   check passing with v5.10.8's APK.
 5. [Geoff] Try it on the phone: in and out of a meeting, week and date changes, the share sheet.
 
 ## Definition of done
