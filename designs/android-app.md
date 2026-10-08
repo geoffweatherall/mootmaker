@@ -32,8 +32,7 @@ is merged and green on `main`. Its results are under [M0 results](#m0-results-20
 built and green, with a real sign-in proven against an ephemeral environment; the release keystore
 is in place and releases publish the APK (v5.10.4 was the first). See [M1 results](#m1-results-2026-10-07).
 M2 to M8 are built, green against an ephemeral environment, and merged; each milestone's results are
-under it in [Milestones](#milestones). v5.10.6 publishes the APK with M1 to M7; M8's release is
-recorded under M8.
+under it in [Milestones](#milestones). v5.10.6 published the APK with M1 to M7, and v5.10.7 adds M8.
 
 History: first drafted 2026-10-05. Revised 2026-10-07 after checking the draft against the code
 and the current cloud-session docs: AWS access from pull requests (Q7), where the signing secrets
@@ -954,8 +953,13 @@ The largest functional slice: the most use cases, and the first write.
     tests never saw it); and it covered Maestro's "Switch environment" button too. Separately,
     `main` failed O.119 after M6 (a live update can beat the cancel click); M7 fixed that in
     mootmaker-android#15 and this PR carried the identical change until it merged.
-  - **Release:** dispatched 2026-10-07 as a patch bump (mootmaker-release run 90), after M7's v5.10.6 had
-    published its APK. Its result is recorded here when it finishes.
+  - **Release:** v5.10.7 (mootmaker-release run 91, 2026-10-08), with the APK attached and every
+    stage green, including the new sign-up smoke on `test` and the read-only smoke on production.
+    The first attempt (run 90, 2026-10-07 at about 23:30 UTC) failed in `build-android`: the
+    lifecycle acceptance case booked through Add Meeting, whose latest default slot (23:30) had
+    started by the time the account was deleted, and the API cancels only meetings from now on
+    (mootmaker-android#17, fixed in #18). That fix's run also hit a race in `FakeBackend`'s request
+    log (read by a test while OkHttp appended), now a copy-on-write list.
   - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Opus.
   - Not covered: a meeting created in the `test` smoke (above); an unconfirmed account resuming its
     sign-up later (the app, like the webapp, has no "resend code" path, and sign-in now just says
