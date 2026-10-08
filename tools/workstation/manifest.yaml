@@ -128,6 +128,18 @@ tools:
       Only needed when actually splitting a repository. `git subtree split` is the fallback if it
       cannot be installed, but filter-repo is the better tool.
 
+  - name: android-sdk
+    why: >-
+      Building mootmaker-android and running its JVM, Robolectric and screenshot tests. Only needed
+      for Android work; its emulator tests run in GitHub Actions.
+    check: test -x "${ANDROID_HOME:-$HOME/android-sdk}/cmdline-tools/latest/bin/sdkmanager"
+    install: ../mootmaker-android/scripts/cloud-setup.sh
+    notes: >-
+      The script installs the command-line tools, platform 35 and build-tools 35 under
+      $ANDROID_HOME (default ~/android-sdk) and adds ANDROID_HOME to ~/.bashrc. The Gradle build
+      also wants JDK 21 (sudo apt install -y openjdk-21-jdk), alongside the JDK 25 the API needs.
+    optional: true
+
   - name: nvidia-gpu
     why: >-
       Runs mootmaker-demo-data/photorealistic-avatar-generator/, which regenerates the committed

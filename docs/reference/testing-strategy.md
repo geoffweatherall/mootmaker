@@ -113,9 +113,14 @@ actually need to be real to fail the way you're worried it might fail?
 | Integration tests | mootmaker-webapp (Playwright + MSW) | none (mocked GraphQL, mocked auth) | seconds | fully deterministic | page-level wiring: right query fires, validation errors render, success navigates, `RequireAuth` gates correctly |
 | e2e | mootmaker-webapp (`e2e/`) | real deployed AWS, ephemeral | minutes | least deterministic, especially the real-email cases | real Cognito email delivery, DNS/certs, CloudFront/S3 serving, cross-service integration nothing else can see |
 | Acceptance tests | mootmaker-webapp (`acceptance/`) | real deployed AWS, ephemeral | minutes | least deterministic, especially the real-email cases | use cases in [use-cases.md](use-cases.md) actually being satisfied end to end through the real UI, not just that the infrastructure behind them works |
+| Lint, unit, Robolectric flow and screenshot tests | mootmaker-android (`data/src/test`, `app/src/test`) | none (`FakeBackend` plays config, Cognito and GraphQL) | minutes | fully deterministic | screen wiring, navigation, error wording, a slow, unreachable or refusing backend, light/dark and large-font rendering |
+| Instrumented | mootmaker-android (`app/src/androidTest`, outside `acceptance/`) | emulator; a deployed environment for the read-only demo sign-in | minutes | mostly deterministic | the real Keystore, the app on a real Android runtime |
+| Acceptance tests | mootmaker-android (`app/src/androidTest/.../acceptance/`) | the release APK on an emulator, real deployed AWS, ephemeral (`and-acc`, `rel-and`) | tens of minutes | least deterministic, especially the real-email cases | the same use cases through the app's real UI |
+| Smoke (Maestro) | mootmaker-android (`smoke/`), run by mootmaker-release | the signed APK against `test` and `production`, and the previous release's APK against `test` (n-1) | minutes | mostly deterministic | a release that doesn't install, sign in or book; an API change that breaks installed apps |
 
-Each frontend (`mootmaker-webapp`, later `mootmaker-android`) owns its own `e2e`/`acceptance` pair
-in its own repo, using whatever's idiomatic for that platform — nothing here is shared *test code*
+Each frontend (`mootmaker-webapp`, `mootmaker-android`) owns its own test layers in its own repo,
+the Android ones described in
+[mootmaker-android/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-android/blob/main/testing-strategy.md), using whatever's idiomatic for that platform — nothing here is shared *test code*
 across frontends, only the infrastructure in
 [mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs) (ephemeral-env
 lifecycle) and [mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing)
@@ -211,8 +216,9 @@ mechanism — this section only adds the policy on top of it):
     `claude-260815-x7q2`), reused for a whole session rather than per-task.
   - `<frontend>-<tier>-<YYMMDD>-<rand4>` — an automated test suite's own run, e.g.
     `web-e2e-<YYMMDD>-<rand4>` / `web-acc-<YYMMDD>-<rand4>` for `mootmaker-webapp`'s `e2e/run.sh` /
-    `acceptance/run.sh`. `and-e2e-*`/`and-acc-*` expected once `mootmaker-android` gains the same
-    pattern. **Changed 2026-08-19** — previously a single generic `e2e-<YYMMDD>-<rand4>` covered
+    `acceptance/run.sh`; `and-acc-<YYMMDD>-<rand4>` for `mootmaker-android`'s acceptance run on a
+    pull request labelled `run-acceptance`, and `rel-and-<YYMMDD>-<rand4>` for the same suite inside
+    a release. **Changed 2026-08-19** — previously a single generic `e2e-<YYMMDD>-<rand4>` covered
     every automated run regardless of which frontend or test tier created it; that stopped being
     distinguishable the moment a second frontend needed the same pattern. See
     [mootmaker-ephemeral-envs/testing-strategy.md#naming-convention](https://github.com/geoffweatherall/mootmaker-ephemeral-envs/blob/main/testing-strategy.md#naming-convention)

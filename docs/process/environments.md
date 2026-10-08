@@ -57,6 +57,8 @@ hard safety rail: it refuses any name that does not match, so a typo can never r
 |---|---|
 | `claude` | An AI session's working environment |
 | `e2e`, `web-e2e`, `web-acc` | An automated test run |
+| `and-acc` | `mootmaker-android`'s acceptance run on a pull request labelled `run-acceptance` |
+| `rel-and` | The same Android acceptance run inside a release (`build-android`) |
 | `<name>` | A person's own manual testing, e.g. `geoff-260829-a1b2` |
 
 ### Tearing them down

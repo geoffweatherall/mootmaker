@@ -4,7 +4,9 @@ A meeting-room booking system, built almost entirely with [Claude Code](https://
 to find out what AI-assisted development actually changes about the craft.
 
 **[Try it →  www.mootmaker.com](https://www.mootmaker.com)** — a live, public demo. Sign-in details
-for a shared demo account are shown on the home page, so there's nothing to set up.
+for a shared demo account are shown on the home page, so there's nothing to set up. There is also a
+native **[Android app](https://github.com/geoffweatherall/mootmaker-release/releases/latest)** (an
+APK to sideload, attached to each release).
 
 ## Why this exists
 
@@ -71,11 +73,11 @@ is a satellite.
 | **mootmaker** (here) | The hub: designs, process, reference docs, and this write-up |
 | [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api) | GraphQL API — AppSync, Java 25 Lambdas, DynamoDB |
 | [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) | React SPA — TypeScript, MUI, Apollo Client, Vite |
-| [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) | Native Android app, a second frontend on the same API (not yet started) |
+| [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) | Native Android app — Kotlin, Jetpack Compose, Apollo Kotlin; a second frontend on the same API |
 | [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data) | Per-environment Lambda that keeps the demo populated — ships as part of the product |
 | [mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs) | Ephemeral-environment lifecycle scripts |
 | [mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing) | The persistent SES email-reading pipeline |
-| [mootmaker-release](https://github.com/geoffweatherall/mootmaker-release) | Release pipeline that ships `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data` to `test` and `production` |
+| [mootmaker-release](https://github.com/geoffweatherall/mootmaker-release) | Release pipeline that ships `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data` to `test` and `production`, and publishes the Android APK |
 | [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) | DNS and mail identity for `mootmaker.com` |
 | [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) | The shared S3 bucket holding Terraform remote state |
 | [mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts) | AWS account guardrails — SCPs, IAM Identity Center, billing alerts |
