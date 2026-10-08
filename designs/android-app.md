@@ -974,6 +974,29 @@ The largest functional slice: the most use cases, and the first write.
   what the server refuses.
 - **Smoke:** unchanged. The smoke account is a standard user, and admin flows are not part of the
   five minutes.
+- **Built (2026-10-08), as it differs from the plan:**
+  - Admins get Rooms and Persons in Home's overflow menu, offered from the ID token's `custom:class`
+    as the webapp's `RequireAdmin` does; a standard user sees neither. Both mirror the webapp's
+    `/rooms` and `/persons`, with its wording for every refusal (`ROOM_ERROR_MESSAGES`,
+    `PERSON_ERROR_MESSAGES`).
+  - **Rooms:** colour, name and capacity; add and edit (name, capacity, the 8-colour palette or none);
+    remove, refused for a room with a meeting from today on. A room's dot uses the same colour slot
+    as room availability. **Persons:** a filter on name or email, the Admin badge, linked emails or
+    "Not signed up yet"; add (name only); edit (rename, and the admin switch, off with the webapp's
+    reason for a guest and for yourself); the Retry prompt when admin access saved but did not reach
+    the sign-in account (`cognitoSyncFailed`); remove, with the cascade warning, and refused for
+    yourself with a pointer to Delete account.
+  - **Decision: forms are full-screen pages, not dialogs.** On a phone a form with a keyboard fits a
+    page better, and Robolectric never goes idle with a focused text field inside a dialog window.
+    Confirmations stay dialogs.
+  - Verified: VERIFIED
+  - **Find-and-fix:** FINDFIX
+  - **Release:** RELEASE
+  - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Opus.
+  - Not covered: an admin's own access changing while they have the screens open (the app reads
+    `custom:class` from the ID token, which refreshes within the hour, as on the webapp); the
+    `cognitoSyncFailed` path against a real environment, which needs Cognito to fail on demand
+    (covered by Robolectric against `FakeBackend`).
 
 ### M10 — Parity close-out · S
 
