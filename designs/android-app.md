@@ -29,10 +29,10 @@ the [Implementation checklist](#implementation-checklist) are done.
 
 **Milestone progress:** M0 is done: [mootmaker-android PR #5](https://github.com/geoffweatherall/mootmaker-android/pull/5)
 is merged and green on `main`. Its results are under [M0 results](#m0-results-2026-10-06). M1 is
-built and green, with a real sign-in proven against an ephemeral environment. It is not finished:
-the release keystore and the first published APK are Geoff's. See [M1 results](#m1-results-2026-10-07).
-M2 (room availability) and M3 (meeting details and person calendar) are built, green against an
-ephemeral environment, and merged; they ship with the first release that carries the APK.
+built and green, with a real sign-in proven against an ephemeral environment; the release keystore
+is in place and releases publish the APK (v5.10.4 was the first). See [M1 results](#m1-results-2026-10-07).
+M2 to M8 are built, green against an ephemeral environment, and merged; each milestone's results are
+under it in [Milestones](#milestones). v5.10.6 published the APK with M1 to M7, and v5.10.7 adds M8.
 
 History: first drafted 2026-10-05. Revised 2026-10-07 after checking the draft against the code
 and the current cloud-session docs: AWS access from pull requests (Q7), where the signing secrets
@@ -920,6 +920,50 @@ The largest functional slice: the most use cases, and the first write.
 - **Pipeline:** the `test`-stage smoke flow switches to the full **sign up with a real code → use →
   delete account** shape, matching `test-stage.spec.ts`. That makes it the most valuable smoke
   assertion, as on the web.
+- **Built (2026-10-07), as it differs from the plan:**
+  - Sign-up and forgot password are native two-step screens, as on the webapp, calling Cognito's
+    `SignUp`, `ConfirmSignUp`, `ForgotPassword` and `ConfirmForgotPassword` directly (Q2-B). Both
+    sign in when they finish. Cognito's messages are shown as the webapp shows them, and a PreSignUp
+    name-collision rejection loses Cognito's wrapper, like `readableSignUpError`. The two choice-10
+    web links are gone, and so is the Custom Tabs dependency: nothing in the app opens the webapp now.
+  - Delete account is a section of Settings with the webapp's confirmation wording, then
+    `deleteMyAccount` and sign-out. A refusal (the demo user is reserved) shows in the dialog.
+  - **The email helper (Q5-A, Decision 6)** is `email-helper/` in mootmaker-android: a small Node
+    server the workflows start on the runner, wrapping `mootmaker-email-testing@v1.0.0`'s own client.
+    The emulator reaches it on `localhost:8787` through `adb reverse`; Maestro calls it directly.
+    Both poll it, because neither can hold a request open for the queue's long polls. The device
+    side reads it over a plain socket, so the shipped app's cleartext policy is untouched. No IAM
+    change was needed: the ephemeral and release roles could already read the queue.
+  - **Smoke:** `test` now runs `smoke/sign-up-lifecycle.yaml` (sign up with a real code, home, room
+    availability, delete account, the old password refused); production keeps the read-only demo
+    sign-in. `release-build.yml` also runs the lifecycle flow against its own ephemeral environment
+    after the acceptance suite, so a labelled PR proves it before a release depends on it. It does
+    not create a meeting as `test-stage.spec.ts` does: acceptance A.6 covers that. `smoke.yml` now
+    asks for `id-token: write`, granted by mootmaker-release#84.
+  - Verified: pr-checks, the labelled acceptance run (environment `and-acc-261007-id65`, created and
+    torn down by the run) and the production smoke are green on mootmaker-android#16 (merged
+    e142078). `AccountAcceptanceTest` covers A.1 to A.6, C.16 to C.20 and delete account with real
+    emailed codes; every case uses a fresh identity and deletes any account it creates. The
+    catalogue has no use case for deleting your own account, so that test is linked from nowhere.
+    Before the PR, the real Cognito wording each test waits for was checked by hand against a
+    `claude-*` ephemeral environment, then torn down.
+  - **Find-and-fix:** three rounds, all in the new test harness, none in the app. Node chunked the
+    helper's replies, which a bare socket read as broken JSON; the keyboard covered the sign-up and
+    reset forms' submit buttons, so taps landed on it (Robolectric has no keyboard, so the flow
+    tests never saw it); and it covered Maestro's "Switch environment" button too. Separately,
+    `main` failed O.119 after M6 (a live update can beat the cancel click); M7 fixed that in
+    mootmaker-android#15 and this PR carried the identical change until it merged.
+  - **Release:** v5.10.7 (mootmaker-release run 91, 2026-10-08), with the APK attached and every
+    stage green, including the new sign-up smoke on `test` and the read-only smoke on production.
+    The first attempt (run 90, 2026-10-07 at about 23:30 UTC) failed in `build-android`: the
+    lifecycle acceptance case booked through Add Meeting, whose latest default slot (23:30) had
+    started by the time the account was deleted, and the API cancels only meetings from now on
+    (mootmaker-android#17, fixed in #18). That fix's run also hit a race in `FakeBackend`'s request
+    log (read by a test while OkHttp appended), now a copy-on-write list.
+  - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Opus.
+  - Not covered: a meeting created in the `test` smoke (above); an unconfirmed account resuming its
+    sign-up later (the app, like the webapp, has no "resend code" path, and sign-in now just says
+    the account isn't confirmed); a code that has expired.
 
 ### M9 — Admin: rooms and people · L · use cases P (8), Q (12), L (3)
 
