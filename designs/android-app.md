@@ -33,7 +33,7 @@ built and green, with a real sign-in proven against an ephemeral environment; th
 is in place and releases publish the APK (v5.10.4 was the first). See [M1 results](#m1-results-2026-10-07).
 M2 to M10 are built, green against an ephemeral environment, and merged; each milestone's results are
 under it in [Milestones](#milestones). v5.10.6 published the APK with M1 to M7, v5.10.7 added M8,
-and RELEASE10 adds M9 and M10. Everything in the [Definition of done](#definition-of-done) that Claude
+and v5.10.8 adds M9 and M10. Everything in the [Definition of done](#definition-of-done) that Claude
 can do is done; what is left is Geoff's: installing the published APK on a phone and signing in to
 production, then moving this design to Shipped and archiving it.
 
@@ -1007,7 +1007,7 @@ The largest functional slice: the most use cases, and the first write.
     an acceptance timeout now names what it waited for and lists the screen's text, and the failure
     annotation adds the test's own line. In Robolectric, a text field focused inside a dialog never
     went idle, which decided the full-screen forms above.
-  - **Release:** shipped with M10 in RELEASE10. Its own release attempt (mootmaker-release run 92,
+  - **Release:** shipped with M10 in v5.10.8. Its own release attempt (mootmaker-release run 92,
     2026-10-08) failed before tagging, so it claimed no version (mootmaker-release#87): M.111's
     acceptance case saw no live update for 30 seconds on an open meeting. The case now proves the
     live channel delivers before making the change it measures (see M10's find-and-fix).
@@ -1052,7 +1052,7 @@ The largest functional slice: the most use cases, and the first write.
     (mootmaker-release#86, which also built the n-1 smoke check, below).
   - **The n-1 smoke check, deferred since M2, is built** (mootmaker-release#86): each release runs
     the previous release's APK, with its own tag's Maestro flow, against the new `test`, and
-    production waits for it. RELEASE10 was its first run: N1RESULT.
+    production waits for it. v5.10.8 was its first run: v5.10.7's APK passed its own sign-up flow against the new `test`.
   - **Documentation impacts done:** architecture.md, testing-strategy.md (hub and Android),
     environments.md, running-costs.md (unmeasured), the README's "Get the Android app" link, the
     workstation manifest, the release README's stage table and "four components", the API README's
@@ -1075,7 +1075,10 @@ The largest functional slice: the most use cases, and the first write.
     was cancelled by hand, which cut its teardown short and left `and-acc-261008-ap88` up; it was torn
     down through mootmaker-ephemeral-envs' `ephemeral-env.yml` (run 37741365330) the same morning.
     Acceptance runs are no longer cancelled.
-  - **Release:** RELEASE10DETAIL
+  - **Release:** v5.10.8 (mootmaker-release run 93, 2026-10-08), with M9 and M10 together, the APK
+    attached and every stage green: the Android acceptance run against `rel-and-261008-3is0` (torn
+    down by the run, its state prefix confirmed empty), both smokes on `test` including the n-1
+    check, then the read-only smokes on production. No rollback ran.
   - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Opus.
 
 ### Pacing summary
