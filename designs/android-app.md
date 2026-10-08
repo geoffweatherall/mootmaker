@@ -1058,8 +1058,10 @@ The largest functional slice: the most use cases, and the first write.
     workstation manifest, the release README's stage table and "four components", the API README's
     schema-consumer table (mootmaker-api#109), and the webapp test-case catalog's per-case Android
     lines, now pointers to use-cases.md (mootmaker-webapp#166).
-  - Verified: VERIFIED10
-  - **Find-and-fix:** five acceptance rounds, all in the test harness. A row scrolled to by
+  - Verified: pr-checks, the emulator job, the labelled acceptance run (environment
+    `and-acc-261008-n1j2`, created and torn down by the run, its state prefix confirmed empty) and the
+    production smoke are green on mootmaker-android#20 (merged 935b7f9).
+  - **Find-and-fix:** seven failed acceptance rounds before the green one, all in the test harness. A row scrolled to by
     performScrollToNode can stop at the bottom edge, under the Rooms Add button (so Remove opened
     Add room) or partly outside home's list (so tapping a meeting opened nothing):
     `scrollClearOfTheBottom` now scrolls a row into the list's upper two thirds first. N.106's room,
@@ -1067,7 +1069,12 @@ The largest functional slice: the most use cases, and the first write.
     releases since M6, failed in run 92 with no live change arriving in 30 seconds; it now renames the
     meeting through the API until the open screen shows it before measuring. And M.98 left home's
     Rooms today chip uncomposed after scrolling down to the agenda. Along the way, acceptance
-    timeouts and missing rows now report the text on screen first in the failure annotation.
+    timeouts and missing rows now report the text on screen first in the failure annotation. The
+    last round's failure was a tap on Reset password landing on the keyboard or on the Sign in link
+    below it, so the account forms close the keyboard before pressing their button. One further run
+    was cancelled by hand, which cut its teardown short and left `and-acc-261008-ap88` up; it was torn
+    down through mootmaker-ephemeral-envs' `ephemeral-env.yml` (run 37741365330) the same morning.
+    Acceptance runs are no longer cancelled.
   - **Release:** RELEASE10DETAIL
   - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Opus.
 
