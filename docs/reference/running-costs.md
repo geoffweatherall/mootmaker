@@ -17,6 +17,12 @@ All figures below are from AWS Cost Explorer for the workload account (`43107185
 monthly cost  ≈  $0.60  +  $0.10 × (number of full acceptance runs)
 ```
 
+**What counts as an acceptance run** grew with the Android app (October 2026): each release now
+creates one more ephemeral environment (`rel-and`, for `build-android`'s acceptance suite), and each
+`mootmaker-android` pull request labelled `run-acceptance` creates one (`and-acc`). Each is torn
+down by the run that made it, so each is one more term in the formula above, not a standing cost.
+Their actual cost has not been measured against Cost Explorer yet; the figures below predate them.
+
 The important property is what's *absent* from that model: no term for elapsed time, stored data
 volume, or accumulated history. Cost is a function of how much the system is *used*, not of how long
 it has existed. That is the whole point of scale-to-zero, and the numbers below are what confirm it
