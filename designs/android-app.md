@@ -989,8 +989,21 @@ The largest functional slice: the most use cases, and the first write.
   - **Decision: forms are full-screen pages, not dialogs.** On a phone a form with a keyboard fits a
     page better, and Robolectric never goes idle with a focused text field inside a dialog window.
     Confirmations stay dialogs.
-  - Verified: VERIFIED
-  - **Find-and-fix:** FINDFIX
+  - Verified: pr-checks, the labelled acceptance run (environment `and-acc-261008-2uee`, created and
+    torn down by the run) and the production smoke are green on mootmaker-android#19 (merged
+    e94b5bf). `AdminAcceptanceTest` covers L.89 to L.91, P.124 to P.131 and Q.132 to Q.142 with the
+    admin fixture, plus one freshly signed-up account (deleted afterwards) for the linked-account
+    cases; every room and person it makes is named uniquely for the run. Robolectric covers the same
+    screens against `FakeBackend`, including the `cognitoSyncFailed` Retry prompt.
+  - **Find-and-fix:** four acceptance rounds, all in the test harness, none in the app. The first
+    input after choosing Rooms or Persons failed while Home's overflow menu (a focusable popup) was
+    still closing, so `openAdmin` waits for the menu to go and the list to load; then, after filtering
+    by email, a long address overflowed the Filter field and made it scrollable too, so the row
+    lookup now finds the list by its scroll-to-index action. One round also failed M8's
+    no-account reset case with a bare timeout, which passed before and after; it is unexplained, so
+    an acceptance timeout now names what it waited for and lists the screen's text, and the failure
+    annotation adds the test's own line. In Robolectric, a text field focused inside a dialog never
+    went idle, which decided the full-screen forms above.
   - **Release:** RELEASE
   - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Opus.
   - Not covered: an admin's own access changing while they have the screens open (the app reads
