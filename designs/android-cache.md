@@ -286,16 +286,15 @@ the first launch of the new version starts with an empty store, as every cold st
 
 ## Implementation checklist
 
-1. [Claude] The store, `WorkspaceApi` and the three queries, with the unit tests above. PR, merged.
-2. [Claude] Home and Meeting Details on the store, with their flow tests; refresh on reconnect and
-   the 5-minute net replace refresh on resume for them. PR with acceptance, merged.
-3. [Claude] Calendar and Availability on the store, with their flow tests (#24, #25). PR with
-   acceptance, merged.
-4. [Claude] The writes' invalidation (Decision 9), the old queries removed, and the new acceptance
-   cases. PR with acceptance, merged.
-5. [Claude] Use cases 144 to 149 and the documentation above.
-6. [Claude] A release.
-7. [Geoff] Try it on the phone: in and out of a meeting, week and date changes, the share sheet.
+1. [Claude] The store, `WorkspaceApi` and the three queries, with the unit tests above.
+   mootmaker-android#32, merged.
+2. [Claude] All four read screens on the store, the writes' invalidation (Decision 9), the old
+   queries removed, the flow tests and the new acceptance cases. Stages 2 and 3 of the first draft,
+   done as one PR to save an acceptance cycle: mootmaker-android#34.
+3. [Claude] Use cases 144 to 149 (this PR) and the documentation above (README and
+   testing-strategy in #34; architecture.md still to do).
+4. [Claude] A release.
+5. [Geoff] Try it on the phone: in and out of a meeting, week and date changes, the share sheet.
 
 ## Definition of done
 
