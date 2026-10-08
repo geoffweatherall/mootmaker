@@ -292,7 +292,7 @@ the first launch of the new version starts with an empty store, as every cold st
    queries removed, the flow tests and the new acceptance cases. Stages 2 and 3 of the first draft,
    done as one PR to save an acceptance cycle: mootmaker-android#34.
 3. [Claude] Use cases 144 to 149 (this PR) and the documentation above (README and
-   testing-strategy in #34; architecture.md still to do).
+   testing-strategy in #34, architecture.md here).
 4. [Claude] A release.
 5. [Geoff] Try it on the phone: in and out of a meeting, week and date changes, the share sheet.
 
