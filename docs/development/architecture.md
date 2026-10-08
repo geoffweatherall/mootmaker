@@ -99,6 +99,14 @@ phones until people update. `mootmaker-api`'s `schema-compatible` PR check and i
 installed apps, and each release's n-1 smoke check runs the previous release's APK against the new
 API.
 
+Both frontends keep what they have fetched and are told, never sent, what changed. The API's
+`daysInvalidated` subscription names dates, never data. The webapp evicts those days from Apollo's
+`InMemoryCache`; the Android app marks them stale in its own `WorkspaceStore`, which keeps them on
+screen while it refetches. Both refetch what is shown, distrust everything after a reconnect, and
+fetch again a response that was in flight when its date changed. See
+`../../designs/android-cache.md` for why the Android app has its own store rather than Apollo's
+normalized cache.
+
 `mootmaker-demo-data` and `mootmaker-api/verify` still build GraphQL operations as hand-written
 strings; converting them is deliberately later work. See
 `../../designs/graphql-schema-sharing.md`.
