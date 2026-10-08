@@ -31,8 +31,11 @@ the [Implementation checklist](#implementation-checklist) are done.
 is merged and green on `main`. Its results are under [M0 results](#m0-results-2026-10-06). M1 is
 built and green, with a real sign-in proven against an ephemeral environment; the release keystore
 is in place and releases publish the APK (v5.10.4 was the first). See [M1 results](#m1-results-2026-10-07).
-M2 to M8 are built, green against an ephemeral environment, and merged; each milestone's results are
-under it in [Milestones](#milestones). v5.10.6 published the APK with M1 to M7, and v5.10.7 adds M8.
+M2 to M10 are built, green against an ephemeral environment, and merged; each milestone's results are
+under it in [Milestones](#milestones). v5.10.6 published the APK with M1 to M7, v5.10.7 added M8,
+and RELEASE10 adds M9 and M10. Everything in the [Definition of done](#definition-of-done) that Claude
+can do is done; what is left is Geoff's: installing the published APK on a phone and signing in to
+production, then moving this design to Shipped and archiving it.
 
 History: first drafted 2026-10-05. Revised 2026-10-07 after checking the draft against the code
 and the current cloud-session docs: AWS access from pull requests (Q7), where the signing secrets
@@ -1004,7 +1007,10 @@ The largest functional slice: the most use cases, and the first write.
     an acceptance timeout now names what it waited for and lists the screen's text, and the failure
     annotation adds the test's own line. In Robolectric, a text field focused inside a dialog never
     went idle, which decided the full-screen forms above.
-  - **Release:** RELEASE
+  - **Release:** shipped with M10 in RELEASE10. Its own release attempt (mootmaker-release run 92,
+    2026-10-08) failed before tagging, so it claimed no version (mootmaker-release#87): M.111's
+    acceptance case saw no live update for 30 seconds on an open meeting. The case now proves the
+    live channel delivers before making the change it measures (see M10's find-and-fix).
   - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Opus.
   - Not covered: an admin's own access changing while they have the screens open (the app reads
     `custom:class` from the ID token, which refreshes within the hour, as on the webapp); the
@@ -1018,6 +1024,52 @@ The largest functional slice: the most use cases, and the first write.
   "not yet automated" for Android.
 - Remove the "preview" label. Do the outstanding [Documentation impacts](#documentation-impacts).
   Move this design to Shipped and archive it.
+- **Built (2026-10-08), as it differs from the plan:**
+  - **Every [All frontends] case now has an `android:` link** in
+    [use-cases.md](../docs/reference/use-cases.md). The 18 still open became acceptance cases
+    (B.15, E.37, F.42, F.43, F.45, F.48, M.98, M.109, M.110, N.103, N.104, N.106, O.121) or, where a
+    real environment can't stage the condition, Robolectric flow cases in `CrossCuttingFlowTest`
+    (M.92 a slow backend, M.93 an unreachable one, M.94 a refused refresh, M.96 the system's dark
+    setting). B.14 has no Android counterpart: nothing outside the app can open one of its screens.
+    F.43's midnight-spanning pair reaches the API as an end before the start, since the form books
+    one date; SpansMultipleDays itself can't be asked for from the form. M.109 and M.110 race an
+    answer from the app against one sent through the API, the closest the app can come to the
+    webapp's two simultaneous API calls.
+  - **App changes the cases called for:** a centred spinner on a screen's first load, with a reload
+    keeping the old content under the slim bar (M.92; availability used to show the bar over an
+    empty screen), and sign-in saying "Your session has expired. Sign in again." after a refused
+    refresh (M.94).
+  - **Accessibility pass:** screenshots at Android's largest font (200%) of sign-in, home,
+    availability, meeting details and Add meeting found three faults, all fixed: Not going cut to
+    "Not" on the response buttons, home's needs-response heading squeezing its date range into a
+    sliver, and avatar initials spilling out of their circle. Icon-only controls already carried
+    content descriptions (the tests find them by those). Compose's automated accessibility checks
+    were tried and dropped: under Robolectric they passed a deliberately bad 10dp tap target, so
+    they check nothing there. No TalkBack walk-through has been done.
+  - **Dark screenshots for every screen:** sign-in, About and both admin editors were the ones
+    missing.
+  - **"Preview" is gone** from About and from the release notes and APK label
+    (mootmaker-release#86, which also built the n-1 smoke check, below).
+  - **The n-1 smoke check, deferred since M2, is built** (mootmaker-release#86): each release runs
+    the previous release's APK, with its own tag's Maestro flow, against the new `test`, and
+    production waits for it. RELEASE10 was its first run: N1RESULT.
+  - **Documentation impacts done:** architecture.md, testing-strategy.md (hub and Android),
+    environments.md, running-costs.md (unmeasured), the README's "Get the Android app" link, the
+    workstation manifest, the release README's stage table and "four components", the API README's
+    schema-consumer table (mootmaker-api#109), and the webapp test-case catalog's per-case Android
+    lines, now pointers to use-cases.md (mootmaker-webapp#166).
+  - Verified: VERIFIED10
+  - **Find-and-fix:** five acceptance rounds, all in the test harness. A row scrolled to by
+    performScrollToNode can stop at the bottom edge, under the Rooms Add button (so Remove opened
+    Add room) or partly outside home's list (so tapping a meeting opened nothing):
+    `scrollClearOfTheBottom` now scrolls a row into the list's upper two thirds first. N.106's room,
+    named to sort first, pushed E.26's rooms off screen. M.111 (M6's), which had passed in the
+    releases since M6, failed in run 92 with no live change arriving in 30 seconds; it now renames the
+    meeting through the API until the open screen shows it before measuring. And M.98 left home's
+    Rooms today chip uncomposed after scrolling down to the agenda. Along the way, acceptance
+    timeouts and missing rows now report the text on screen first in the failure annotation.
+  - **Release:** RELEASE10DETAIL
+  - **Spend:** not visible from inside a session; read it from claude.ai's Usage page. Opus.
 
 ### Pacing summary
 
