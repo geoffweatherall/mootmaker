@@ -13,7 +13,9 @@ writes it down as a rule in the Android README.
 ## Status
 
 **Building**: 2026-10-09. Geoff chose the pinned banner (option B) and asked for it to be the app-wide
-standard and documented as a rule. It need not match the webapp. Not yet moved to Ready by Geoff.
+standard and documented as a rule. It need not match the webapp. Not yet moved to Ready by Geoff. Built (mootmaker-android#37) and released in
+[v5.10.10](https://github.com/geoffweatherall/mootmaker-release/releases/tag/v5.10.10) on 2026-10-10 NZDT,
+with the other fixes Geoff approved as a group; waiting on Geoff trying it on his phone.
 
 ## Scope / non-goals
 
@@ -121,7 +123,8 @@ N/A: display only.
 
 ## Rollout & migration
 
-Ordinary; nothing persists. Not released until Geoff says: it accumulates with other fixes.
+Ordinary; nothing persists. Held back to go out with other fixes, then released with them in v5.10.10
+once Geoff approved the group.
 
 ## Risks
 
@@ -131,7 +134,7 @@ Ordinary; nothing persists. Not released until Geoff says: it accumulates with o
 ## Implementation checklist
 
 1. [Claude] `Errors.kt`, the screens above, the tests, the README rule. One PR with acceptance.
-2. [Claude] Merge once green; no release until Geoff says.
+2. [Claude] Merge once green; release with the group of fixes (done: v5.10.10).
 3. [Geoff] Try it on the phone.
 
 ## Definition of done
