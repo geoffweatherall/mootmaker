@@ -11,7 +11,9 @@ option 3.
 ## Status
 
 **Building**: 2026-10-09. Drafted by Claude after Geoff chose option 3, having tried option 2
-(mootmaker-android#33) on his phone. Not yet moved to Ready by Geoff.
+(mootmaker-android#33) on his phone. Not yet moved to Ready by Geoff. Built (mootmaker-android#36) and released in
+[v5.10.10](https://github.com/geoffweatherall/mootmaker-release/releases/tag/v5.10.10) on 2026-10-10 NZDT,
+with the other fixes Geoff approved as a group; waiting on Geoff trying it on his phone.
 
 ## Scope / non-goals
 
