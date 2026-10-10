@@ -7,14 +7,13 @@ Almost all of it is driven by releases and ephemeral environments, not by produc
 design collects the measures that cut it, one section per measure. Measure 1 stops ephemeral
 environments from publishing their hostnames to the public certificate logs, which is what drives
 the growth in Route 53 query charges. Measure 2, moving SES to à-la-carte pricing, is done.
-Measure 3 stops parallel release builds once one has failed, and is built. Later measures are listed
+Measure 3 stops parallel release builds once one has failed, and has shipped. Later measures are listed
 but not yet designed.
 
 ## Status
 
 **Drafting** — 2026-10-11. This covers the document as a whole, and Measure 1 in particular.
-Measure 2 is done. Measure 3 was built on 2026-10-11 at Geoff's request and is in review; its own section gives
-its state.
+Measure 2 is done. Measure 3 shipped in v5.10.12 on 2026-10-11; its own section gives its state.
 
 ## Where the money goes
 
@@ -176,12 +175,13 @@ somewhere other than `mail.mootmaker.com`. The apex has no MX record, so mail to
 `demo@mootmaker.com` would bounce, and bounces count against the account's sending reputation.
 Worth identifying, though it costs nothing.
 
-## Measure 3: stop parallel release builds once one fails (built)
+## Measure 3: stop parallel release builds once one fails (done)
 
-**State:** built 2026-10-11 and proven in a real Actions run without a release (see
-"Verification"). In review: mootmaker-release#89 first, then mootmaker-api#110, mootmaker-webapp#169,
-mootmaker-demo-data#53 and mootmaker-android#47, which use its action at `@main`. The first release
-with a failing build after that will be its first use in anger.
+**State:** released in v5.10.12 on 2026-10-11 (release run 38087864625, 10:30–11:24 NZDT). All
+four builds installed the action, passed every `fail-fast check` gate and ran their wrapped
+acceptance suites to success, so the normal path is proven in a real release. The stopping path is
+proven in a real Actions run (see "Verification"). The first release with a failing build will be
+its first use in anger.
 
 ### The problem
 
@@ -273,9 +273,8 @@ leaves. This is display only: every decision still uses the raw job results.
   - A third build that finished before the failure passed through as success.
   - `record-outcome`'s helper reported the stopped build as "stopped early (another build
     failed)".
-- **Not yet seen:** a real release with a failing build. The component changes are the action
-  install, a gate line before each deploy and the wrapper on each test command. The next release
-  exercises the happy path, and the first failing one exercises the rest.
+- **In a real release:** v5.10.12 passed with every build gated and wrapped. A real release with a
+  failing build has not happened yet.
 
 ### Changes
 
