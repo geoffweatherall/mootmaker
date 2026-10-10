@@ -6,12 +6,15 @@ The AWS bill went from US$1.26 in August to US$6.11 in September and US$7.52 for
 Almost all of it is driven by releases and ephemeral environments, not by production use. This
 design collects the measures that cut it, one section per measure. Measure 1 stops ephemeral
 environments from publishing their hostnames to the public certificate logs, which is what drives
-the growth in Route 53 query charges. Measure 2, moving SES to à-la-carte pricing, is done. Later
-measures are listed but not yet designed.
+the growth in Route 53 query charges. Measure 2, moving SES to à-la-carte pricing, is done.
+Measure 3 stops parallel release builds once one has failed, and is built. Later measures are listed
+but not yet designed.
 
 ## Status
 
-**Drafting** — 2026-10-11.
+**Drafting** — 2026-10-11. This covers the document as a whole, and Measure 1 in particular.
+Measure 2 is done. Measure 3 was built on 2026-10-11 at Geoff's request; its own section gives its
+state.
 
 ## Where the money goes
 
@@ -173,17 +176,138 @@ somewhere other than `mail.mootmaker.com`. The apex has no MX record, so mail to
 `demo@mootmaker.com` would bounce, and bounces count against the account's sending reputation.
 Worth identifying, though it costs nothing.
 
+## Measure 3: stop parallel release builds once one fails (built)
+
+**State:** built and merged 2026-10-11, and proven in a real Actions run without a release (see
+"Verification"). The first release that has a build failure will be its first use in anger.
+
+### The problem
+
+A release's four component builds (`build-api`, `build-webapp`, `build-demo-data`,
+`build-android`) run in parallel. Each deploys its own ephemeral environment and runs an acceptance
+suite against real AWS. `tag` only runs if all four pass, so once one fails the release is lost,
+but nothing told the others. They ran to the end, spending time and AWS cost on a result nobody
+could use.
+
+On 7–8 October, 7 release runs failed in a build. After the first failing step in each run, the
+other builds kept running for 154 minutes between them, mostly `build-webapp`'s 35-minute suite.
+That figure includes their teardowns, which still have to happen. In the worst case (run
+37599925866), `build-android` failed after two minutes and `build-webapp` ran for another 31.
+
+### What was built
+
+A composite action, `mootmaker-release/.github/actions/fail-fast`, that each component's
+`release-build.yml` installs. It provides one command with two forms:
+
+- **`fail-fast check`** exits 1 if another job in this run attempt has failed. It is the first
+  line of every deploy step, so a build that has not deployed yet never starts to.
+- **`fail-fast run -- CMD`** runs the acceptance-test command in its own process group, checks
+  the run's jobs every 60 seconds, and stops the whole group if another job has failed. That means
+  SIGTERM first, then SIGKILL after 60 seconds. Teardown then runs as normal, because it is
+  `if: always()`.
+
+It reads `GET /actions/runs/{id}/attempts/{n}/jobs`. Inside a called workflow, the run id and
+attempt are the caller's, and it ignores its own job by matching `runner_name`. A job counts as
+failed when any of its **steps** has failed, not just when the job has concluded. A failing build
+runs its teardown, about 10 minutes for Android, before its job concludes, and waiting for the job
+would give most of the saving away.
+
+`record-outcome` reports a build that was stopped this way as "stopped early (another build
+failed)" rather than `failure`. It finds them by the "Stopped early" annotation the stopped step
+leaves. This is display only: every decision still uses the raw job results.
+
+### Decisions
+
+- **Cooperative stopping, not cancelling the run.** `gh run cancel` would be simpler, but it
+  interrupts whatever is running, including `terraform apply`. A Terraform process killed mid-apply
+  can leave its state lock held, and then the `if: always()` teardown fails and strands the
+  environment until the 48-hour sweep. So only test commands are ever interrupted. Deploys are
+  only ever gated before they start. A run that fails also still concludes `failure`, not
+  `cancelled`, which keeps "did someone cancel this?" a meaningful question.
+- **Any failed job in the attempt stops the others**, not only the build jobs. During the build
+  stage only builds are running, and the rule needs no list of job names to keep in step with
+  `release.yml`.
+- **The watcher never fails a build on its own account.** If the GitHub API cannot be read, the
+  command carries on as if the watcher were not there.
+- **A 60-second poll interval.** Four builds polling cost about 240 API requests an hour, well
+  inside `GITHUB_TOKEN`'s 1,000 per hour per repository, and a minute's delay is noise against
+  10–30-minute savings.
+
+### Choices you had me make
+
+- **Which item this was.** The request was to "add 2 to the design and then do it". The list it
+  referred to numbered its rows 1, 3, 4, 5…, because SES had been item 2, so I took the second
+  row, "fail releases earlier".
+- **The mechanism**: the cooperative check-and-wrap above, not cancelling the run, not running
+  the builds in sequence (which would make every release slower), and not reordering them.
+- **Android's PR acceptance run uses it too**, because it calls the same `release-build.yml`. In
+  that workflow the only other job runs after the build, so in practice it never triggers there.
+
+### Effect
+
+- **AWS:** stopping roughly 100 minutes of acceptance testing across those 7 failed runs would have
+  saved about US$0.30. At October's failure rate that is a few tens of cents a month: it is
+  proportional to how often releases fail.
+- **Time, the bigger win:** a failed release now ends about when the failing build's teardown
+  ends, not when the slowest sibling's suite does. That is typically 10–30 minutes sooner, so a
+  fix-and-retry loop is shorter.
+- **No effect on a release that passes.**
+
+### Verification
+
+- **Script tests:** `.github/actions/fail-fast/test.sh` in mootmaker-release has 15 cases, all
+  passing. They cover pass-through of exit status and output, a failed sibling step or job, a
+  timed-out sibling, ignoring its own job, refusing to start after a failure, stopping a running
+  command and its child processes, killing a command that ignores SIGTERM, and carrying on when
+  the API cannot be read.
+- **Against real past runs:** `fail-fast check` run as run 37599925866's webapp job reports
+  `build-android / build: Build and sign`. Against an unreadable run it carries on.
+- **A real Actions run, without a release** (mootmaker-release PR #88, closed unmerged; run
+  38084556227):
+  - A job failed its step at 60 seconds, then spent 3 minutes in its own teardown.
+  - A called workflow shaped like a component build, using the action remotely as the components
+    do, had its 10-minute command stopped 62 seconds after that failure. That was three minutes
+    before the failing job concluded, and its `always()` teardown still ran.
+  - A third build that finished before the failure passed through as success.
+  - `record-outcome`'s helper reported the stopped build as "stopped early (another build
+    failed)".
+- **Not yet seen:** a real release with a failing build. The component changes are the action
+  install, a gate line before each deploy and the wrapper on each test command. The next release
+  exercises the happy path, and the first failing one exercises the rest.
+
+### Changes
+
+- **mootmaker-release:**
+  - `.github/actions/fail-fast/` (the action, its script and its tests).
+  - `release.yml`: `actions: read` on the four build jobs, because a called workflow gets no more
+    than its caller grants. `record-outcome` gains `actions: read`, `checks: read` and the
+    stopped-early display.
+  - The README.
+- **mootmaker-api, mootmaker-webapp, mootmaker-demo-data, mootmaker-android:**
+  `release-build.yml` gets `actions: read`, installs the action, adds `fail-fast check` before
+  each deploy or create, and wraps the test commands. Android's emulator script has two: Gradle's
+  connected tests and Maestro.
+- **mootmaker-android `acceptance.yml`:** `actions: read`, for the same caller rule.
+
 ## Further measures (not yet designed)
 
 To be written up as later sections, each with its own numbers:
 
-3. **Fail releases earlier.** A failed run costs nearly what a successful one does.
 4. **SOA negative-cache TTL.** It is 900 seconds. A longer value could reduce repeated NXDOMAIN
    queries, but public resolvers may not respect it.
 5. **Hourly cost data.** Enable it in the management account if daily resolution proves too
    coarse.
+6. **Watch Cognito MAU.** Both standing pools are on Cognito's Essentials tier, and every fresh
+   test account in every environment counts against the account-wide 10,000-MAU free allowance.
+   September was 3,469. Above the allowance, Essentials costs US$0.015 per MAU and Lite
+   US$0.0055, so check whether any Essentials-only feature is in use before it matters.
+7. **Longer TTLs on the mail records** (MX, DKIM, SES verification; 600 seconds now). Worth cents,
+   probably not worth doing.
 
 ## Scope / non-goals
+
+The template sections from here on are for Measure 1. Measures 2 and 3 record their own decisions,
+choices and verification in their sections above.
 
 - Measure 1 changes non-production hostnames only. Production keeps `www`, `api` and `avatars`
   under `mootmaker.com`, with their existing certificates.
