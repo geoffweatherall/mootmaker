@@ -13,8 +13,8 @@ but not yet designed.
 ## Status
 
 **Drafting** — 2026-10-11. This covers the document as a whole, and Measure 1 in particular.
-Measure 2 is done. Measure 3 was built on 2026-10-11 at Geoff's request; its own section gives its
-state.
+Measure 2 is done. Measure 3 was built on 2026-10-11 at Geoff's request and is in review; its own section gives
+its state.
 
 ## Where the money goes
 
@@ -178,8 +178,10 @@ Worth identifying, though it costs nothing.
 
 ## Measure 3: stop parallel release builds once one fails (built)
 
-**State:** built and merged 2026-10-11, and proven in a real Actions run without a release (see
-"Verification"). The first release that has a build failure will be its first use in anger.
+**State:** built 2026-10-11 and proven in a real Actions run without a release (see
+"Verification"). In review: mootmaker-release#89 first, then mootmaker-api#110, mootmaker-webapp#169,
+mootmaker-demo-data#53 and mootmaker-android#47, which use its action at `@main`. The first release
+with a failing build after that will be its first use in anger.
 
 ### The problem
 
