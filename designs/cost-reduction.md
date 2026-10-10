@@ -6,7 +6,8 @@ The AWS bill went from US$1.26 in August to US$6.11 in September and US$7.52 for
 Almost all of it is driven by releases and ephemeral environments, not by production use. This
 design collects the measures that cut it, one section per measure. Measure 1 stops ephemeral
 environments from publishing their hostnames to the public certificate logs, which is what drives
-the growth in Route 53 query charges. Later measures are listed but not yet designed.
+the growth in Route 53 query charges. Measure 2, moving SES to à-la-carte pricing, is done. Later
+measures are listed but not yet designed.
 
 ## Status
 
@@ -21,7 +22,7 @@ management account was US$0.01 in October). Days are UTC.
 |---|---|---|
 | Cognito M2M token requests | 3.71 | US$2.25 per 1,000 tokens; 1,030 on 1 October alone |
 | Tax | 0.98 | GST, booked on the 1st for the month |
-| SES (outbound plus Essentials plan surcharge) | 0.73 | Acceptance-test email |
+| SES (outbound at the Essentials rate, plus inbound) | 0.73 | Acceptance-test email; see Measure 2 |
 | AppSync | 0.60 | Acceptance-test GraphQL |
 | Route 53 hosted zone | 0.50 | Fixed, monthly |
 | Route 53 DNS queries | 0.39 | See Measure 1 |
@@ -135,12 +136,48 @@ measure.
 - **No effect on the hosted-zone charge, Cognito, SES, AppSync or DynamoDB**, which are most of
   the bill.
 
+## Measure 2: SES on à-la-carte pricing (done)
+
+**Done 2026-10-11 09:23 NZDT** with `aws sesv2 put-account-pricing-attributes --plan NONE`. Check
+it with `aws sesv2 get-account --query PricingAttributes`, which should report
+`"CurrentPlan": "NONE"`. The setting is account-wide. It is not in Terraform, because nothing here
+manages it, so this section is the record of it.
+
+**Why.** The account was on SES's Essentials plan. That is the default for accounts since
+2026-07-21, not something we chose. Essentials charges US$0.16 per 1,000 outbound emails, while
+à-la-carte charges US$0.10. Neither has a monthly fee. We use nothing that Essentials bundles:
+
+- **Virtual Deliverability Manager:** not enabled (`VdmAttributes` is null).
+- **Mail Manager:** not used. Inbound mail goes through a classic receipt rule (`catch-all` on
+  `mail.mootmaker.com` → SNS), which is billed at the à-la-carte inbound rate either way.
+
+AWS's pricing page says a first move from the default Essentials plan to à-la-carte takes effect
+immediately and carries no commitment. Moving back is an upgrade, which is also immediate.
+
+**Effect.** Outbound email costs 37% less. On 1–10 October that was 2,872 emails, US$0.46 on
+Essentials, which would have been US$0.29 on à-la-carte. At October's pace that saves about
+US$0.50 a month. Inbound (US$0.10 per 1,000) is unchanged.
+
+**Considered and not chosen: sending fewer test emails.** Nearly all of the mail is the acceptance
+suites mailing themselves. Each `freshTestAccount` sign-up makes Cognito send a verification email
+to `mail.mootmaker.com`, and SES receives it back, so each one is billed twice. Only sign-up,
+forgot-password and the release smoke test need the real email path. The other tests could get
+pre-confirmed accounts and roughly halve the volume, saving about US$0.30 a month. The tests stay
+as they are. Creating accounts through the real sign-up path is a deliberate choice (see
+`FixtureUsers` in mootmaker-api), and a saving this small does not justify changing it. Test speed
+would be the stronger reason, since each email wait polls for up to 60 seconds, but that is a
+separate decision.
+
+**Loose end.** Outbound exceeds inbound by about 200 messages in October, so some mail goes
+somewhere other than `mail.mootmaker.com`. The apex has no MX record, so mail to
+`demo@mootmaker.com` would bounce, and bounces count against the account's sending reputation.
+Worth identifying, though it costs nothing.
+
 ## Further measures (not yet designed)
 
 To be written up as later sections, each with its own numbers:
 
-2. **Fail releases earlier.** A failed run costs nearly what a successful one does.
-3. **SES pricing plan.** The account is on the Essentials plan, which adds a surcharge per email.
+3. **Fail releases earlier.** A failed run costs nearly what a successful one does.
 4. **SOA negative-cache TTL.** It is 900 seconds. A longer value could reduce repeated NXDOMAIN
    queries, but public resolvers may not respect it.
 5. **Hourly cost data.** Enable it in the management account if daily resolution proves too
