@@ -50,9 +50,8 @@ mootmaker/tools/install-workspace-config.sh --list   # show what it would do
 mootmaker checkouts is itself inside no git repository, so anything written to its `.claude/`
 folder is unversioned, invisible to review, and does not exist on your other machine. Keeping the
 real file in this repo and linking to it means one source of truth, and edits take effect
-immediately with no re-install step to forget. Same pattern as
-[`install-agents.sh`](../../tools/install-agents.sh) and the `CLAUDE.md` → `AGENTS.md` symlink in
-every repo.
+immediately with no re-install step to forget. Same pattern as the `CLAUDE.md` → `AGENTS.md`
+symlink in every repo.
 
 `check.sh` verifies the link exists, so a machine that has not run this is *told* rather than
 silently behaving differently — which is exactly how this problem was found in the first place

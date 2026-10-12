@@ -6,8 +6,7 @@
 # The problem this solves: the directory holding all the mootmaker checkouts is itself inside no git
 # repository, so anything written to its .claude/ folder is unversioned, invisible to review, and
 # does not exist on another machine. The canonical copies therefore live here, in the hub repo, and
-# are symlinked into place. Same pattern as install-agents.sh, and as the CLAUDE.md -> AGENTS.md
-# symlink in every repo.
+# are symlinked into place. Same pattern as the CLAUDE.md -> AGENTS.md symlink in every repo.
 #
 # Symlinks rather than copies: editing the versioned file takes effect immediately, with no
 # re-install step to forget and no silent drift between the committed file and the live one.
