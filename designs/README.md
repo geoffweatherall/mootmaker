@@ -71,7 +71,7 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
    [`../docs/process/principles.md`](../docs/process/principles.md)'s "Nothing accumulates without
    a bound". If nothing deletes it, that is a gap in the design.
 10. **Testing impacts** — broken down **by layer**, not one undifferentiated list (this project's
-    own layering — unit / mocked-integration / e2e / acceptance — is described in each repo's own
+    own layering — unit / mocked-integration / acceptance — is described in each repo's own
     `testing-strategy.md`). For each layer that gets new or changed coverage, say what the
     coverage is *and why that layer is the right one for it* — when a scenario could plausibly be
     proven two ways (e.g. a real-deployed acceptance case vs. a mocked-integration one with exact

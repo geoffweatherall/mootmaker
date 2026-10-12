@@ -136,10 +136,9 @@ that only need a working account can skip email entirely with Cognito's admin AP
 
 ## Coverage gaps worth knowing
 
-- **demo-data and the API's acceptance tests use hand-written GraphQL strings**, so a schema change
-  can break them without any compile error; they fail when run.
-- **The web app's `e2e/` suite** (real sign-up, real password reset, the home page loads) is run only
-  by hand. The acceptance suite and the release smoke test cover the same paths.
+- **The API's acceptance tests use hand-written GraphQL strings** that nothing checks against the
+  schema before they run, so a schema change can break them without any compile error. (demo-data's
+  operations and the web acceptance suite's are checked.)
 - **No automated accessibility checks** beyond Android's large-font screenshots and content
   descriptions.
 - **No load or performance tests.** See [performance](performance.md).

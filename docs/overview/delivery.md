@@ -57,7 +57,7 @@ Named `<kind>-<YYMMDD>-<rand4>`, for example `claude-261012-x7q2`. The kind says
 | Kind | Created by |
 |---|---|
 | `claude` | An AI session working on a change |
-| `web-e2e`, `web-acc` | mootmaker-webapp's `e2e/run.sh` and `acceptance/run.sh` |
+| `web-acc` | mootmaker-webapp's `acceptance/run.sh` |
 | `and-acc` | mootmaker-android's acceptance run on a labelled pull request |
 | `rel-api`, `rel-web`, `rel-demo`, `rel-and` | Each component's acceptance run inside a release |
 | A person's name, e.g. `geoff` | Someone's own manual testing |
@@ -95,7 +95,7 @@ flowchart TB
   tag["tag<br/>push vX.Y.Z to every repository"]
   dt["deploy-test<br/>api, webapp, demo-data, then seed"]
   st["smoke-test-test (web)<br/>smoke-android-test (new APK)<br/>smoke-android-n-1-test (last release's APK)"]
-  dp["deploy-production"]
+  dp["deploy-production<br/>same artifacts, then seed"]
   sp["smoke-test-production (web, read-only)<br/>smoke-android-production"]
   rb["rollback-production<br/>redeploy previous release"]
   rec["record-outcome<br/>GitHub Release + APK, or FAILED prerelease"]
