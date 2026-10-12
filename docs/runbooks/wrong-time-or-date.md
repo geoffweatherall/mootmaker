@@ -12,7 +12,7 @@ unexpected format. The rules are in [time and time zones](../overview/time-and-t
 | A time shifted by whole hours, on one client only | A client parsed a zone-less time as an instant. A bug | Open an issue in that client's repository with the meeting, what was booked and what is shown |
 | "Today" on the home page is the wrong day | The device's date or time zone is wrong. The apps use the device's clock for "today" | Fix the device clock |
 | The booking window ends a day earlier or later than expected | The window is computed from the server's UTC date, not the user's | Expected; the window is wide enough not to matter |
-| Deleting an account or person removed meetings from earlier the same day, or deleting a room is refused because of a meeting that already happened | The server decides "upcoming" by its UTC clock ([mootmaker-api#113](https://github.com/geoffweatherall/mootmaker-api/issues/113)) | Known. Wait until the end of the day (NZ evening), or delete the meeting first |
+| Deleting an account or person removed meetings from earlier the same day, or deleting a room is refused because of a meeting that already happened | The server decides "upcoming" by its UTC clock ([mootmaker-api#113](https://github.com/geoffweatherall/mootmaker-api/issues/113)) | Known and accepted. Wait until the end of the day (NZ evening), or delete the meeting first |
 | A test that books "now" fails late in the evening | The default slot is clamped to the end of the day and has already started | See [flaky test](flaky-test.md); book for tomorrow in the test |
 
 To see what the API stored, ask for the day (see [booking refused](booking-refused.md#if-the-refusal-looks-wrong)).
