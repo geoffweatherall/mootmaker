@@ -66,9 +66,10 @@ enough (30+ days back, 180 ahead) that a few hours either way never matter.
 *upcoming* meetings, and a room cannot be deleted while it has an *upcoming* meeting. "Upcoming" means
 "starts at or after the current UTC time, read as a local time". In New Zealand (UTC+13), a meeting
 that ended at 10:00 local time still counts as upcoming until 10:00 UTC, which is 23:00 local. So
-deleting an account there can remove meetings from earlier the same day. This is tracked as
-[mootmaker-api#113](https://github.com/geoffweatherall/mootmaker-api/issues/113), with a proposal to
-give each environment a configured office time zone.
+deleting an account there can remove meetings from earlier the same day. **This is accepted**: the
+cut-off is at most about 13 hours out, and only for those three operations
+([mootmaker-api#113](https://github.com/geoffweatherall/mootmaker-api/issues/113)). If it ever matters,
+the fix is a configured office time zone per environment, used wherever the server asks for "now".
 
 **Daylight saving is not modelled.** A meeting is a wall-clock time, so a change of clocks does not
 move it, which is what people expect of a meeting room. Nothing in the system needs the real elapsed
