@@ -1,9 +1,9 @@
 # Mootmaker Privacy Policy — DRAFT
 
-**Not yet published or reviewed by Geoff. Written to be accurate to what the app actually does as
-of 2026-08-28** (based on reading the actual data model/handlers in mootmaker-api and
-mootmaker-webapp) **— re-check it against the real code before publishing, and especially if
-functionality changes after this date.** Two placeholders need filling in before this goes live:
+**Not yet published or reviewed by Geoff. Checked against what the system does on 2026-10-12**
+(the data model, the handlers, the web and Android apps, and log retention) **— re-check it against
+the real code before publishing.** It is written for a future "Sign in with Google", which is not
+built yet; remove those parts if it is published before then. Two placeholders need filling in:
 contact email, and the effective date. I'm not a lawyer and this isn't legal advice — treat this as
 a good-faith accurate draft, not a substitute for legal review if you want real certainty
 (particularly if you ever have reason to think GDPR/CCPA-style obligations apply to you).
@@ -13,7 +13,8 @@ a good-faith accurate draft, not a substitute for legal review if you want real 
 **Effective date**: [DATE]
 
 Mootmaker ("we", "us") is a meeting room booking application. This policy covers the public
-Mootmaker site at mootmaker.com and its sign-in options, including "Sign in with Google."
+Mootmaker site at mootmaker.com, the Mootmaker Android app, and their sign-in options, including "Sign
+in with Google."
 
 ## What we collect
 
@@ -21,8 +22,10 @@ Mootmaker site at mootmaker.com and its sign-in options, including "Sign in with
   directly, or your name/email as provided by Google when you use "Sign in with Google."
 - **Password**: only if you sign up directly rather than via Google. It's never stored or seen by
   us in plain text — it's managed entirely by Amazon Cognito, our authentication provider.
-- **Booking data you create**: meeting subjects, times, which room you book, and who you list as
-  attendees (their names, as already known to the system).
+- **Booking data you create**: meeting subjects, times, which room you book, who you list as
+  attendees (their names, as already known to the system), and your answers to invitations.
+- **Preferences**: how you like dates and times shown.
+- **A profile photo**, if one is set for you. It is shown to other signed-in users.
 
 ## What we don't collect
 
@@ -45,13 +48,12 @@ authentication is handled by Amazon Cognito, an industry-standard identity platf
 
 ## How long we keep it
 
-We keep your account and booking data for as long as your account exists. **Account deletion is
-currently a manual process** — contact us at [SUPPORT EMAIL] to request that your account and
-associated data be removed, and we'll action it directly.
+We keep your account for as long as it exists. You can delete it yourself at any time, from
+Settings, in the web app or the Android app: this deletes your account, your profile and photo, and
+your upcoming meetings, and removes you from meetings you were invited to. It cannot be undone.
 
-*(Note for whoever publishes this: this is accurate today, but it's a real gap worth knowing about
-— there's no self-service "delete my account" button yet, only a manually-actioned request. If
-that changes, update this section to describe the self-service flow instead.)*
+Meetings are deleted automatically about a month after they take place. Technical logs, which may
+include your email address when an account is removed, are kept for 120 days.
 
 ## Children
 
@@ -88,6 +90,5 @@ screen out of Testing mode and staying on the right side of reasonable practice 
   scopes), you should **not** need Google's manual verification review at all — that's what makes
   "out of Testing quickly" realistic. That stops being true the moment a *sensitive* scope (like
   Calendar) is added — see the separate note on that question.
-- **Keep the policy honest as the app changes** — the account-deletion gap noted above is the kind
-  of thing that would look bad if a user (or Google, during any future review) found the policy
-  claiming something the app doesn't actually do.
+- **Keep the policy honest as the app changes** — a policy claiming something the app doesn't
+  actually do would look bad to a user, or to Google during any future review.

@@ -22,15 +22,18 @@ Each customer runs their own independent deployment of Mootmaker, with its own d
 
 ## See Room Availability at a Glance
 
-- A daily view lays out every room side by side, with existing meetings shown as blocks across the part of the day they occupy — so it's immediately obvious which rooms are free right now, and which are booked out.
+- A daily view shows every room as a card — "Free now" or "Busy until 2:30" at a glance, its capacity, and that day's meetings in order — so it's immediately obvious which rooms are free right now.
 - Jump to any date, past or future, with one click.
 - Each room is colour-coded for quick scanning, so a regular user starts to recognise "their" meeting room at a glance.
 
 ## Everyone's Schedule, One Click Away
 
-- Every person gets their own calendar view — a full six-week wall calendar showing every meeting they're organising or attending, at a glance.
+- Every person gets their own calendar — a week-at-a-time agenda of every meeting they're organising or attending.
 - Find anyone's calendar instantly with a type-ahead search, and share the link with a colleague so they're looking at exactly the same view.
-- The home page greets each user with **"Today"** and **"Tomorrow"** agenda lists — their own next meetings, front and centre, the moment they sign in.
+- The home page greets each user with their meetings **today and tomorrow**, and the invitations still **waiting for their answer**, front and centre the moment they sign in.
+- Answer an invitation with one tap — **Going**, **Maybe** or **Not going** — and see everyone else's answers next to their names.
+- Organisers can **edit or cancel** a meeting at any time, even moving it to another day or room. Two people editing at once can't silently overwrite each other.
+- Changes appear on everyone's screen **live**, within about a second, without anyone refreshing.
 
 ## Self-Service Onboarding — No IT Bottleneck
 
@@ -42,16 +45,18 @@ Each customer runs their own independent deployment of Mootmaker, with its own d
 
 ## Simple, Centralised Administration
 
-- One Settings screen covers everything an administrator needs: managing the list of rooms (name and capacity) and the list of people, with nothing extra to learn.
+- Dedicated Rooms and People pages cover everything an administrator needs: add, edit and remove rooms (name, capacity, colour) and people, with nothing extra to learn.
 - Guests and visitors who don't need their own login can still be added as a person and booked into meetings on their behalf — useful for external visitors, contractors, or anyone who shouldn't need an account of their own.
 - Rename anyone at any time; the new name appears everywhere instantly — meeting lists, calendars, everywhere their name is shown.
-- Administrator access itself is granted outside the product, not through a screen — a deliberate security choice so no user can ever promote themselves to admin, by accident or otherwise.
+- Administrators grant and remove admin access from the People page. Nobody can promote themselves, and nobody can remove their own access by accident.
 
 ## Designed to Be Loved, Not Endured
 
-- A clean, modern interface built on Google's Material Design language, with its own custom colour palette, typography, and hand-crafted illustrations — not an off-the-shelf, generic-looking internal tool.
+- A clean, modern interface built on Google's Material Design language, with its own custom colour palette and typography — not an off-the-shelf, generic-looking internal tool.
+- Everyone sees dates and times their way: 24-hour or AM/PM, and day-month, month-day or year-first dates.
 - Automatically follows the user's own light or dark mode preference, so it looks right on their device without them having to think about it.
 - Fully responsive — works just as well on a phone or tablet in a corridor as it does at a desk.
+- A **native Android app** with everything the web app offers, for people who live on their phones.
 - Clear feedback at every step: visible loading indicators while data is fetched, disabled/spinning buttons that prevent accidental double-submits, and plain-English messages whenever something needs fixing.
 
 ## Enterprise-Grade Security, Zero Hassle
@@ -71,10 +76,9 @@ Each customer runs their own independent deployment of Mootmaker, with its own d
 Mootmaker is under active development. Planned enhancements include:
 
 - Recurring meetings (e.g. a standing weekly slot).
-- Editing or cancelling a meeting after it's booked.
 - Meeting reminders and confirmation notifications.
 - Signing in with an existing Google account.
-- A native mobile app alongside the web app.
+- Uploading your own profile photo from the app.
 
 ## See It In Action
 
