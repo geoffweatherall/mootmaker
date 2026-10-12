@@ -1,97 +1,101 @@
-# Mootmaker — Business Functionality
+# What Mootmaker does
 
-This document is the authoritative record of the business rules and functionality provided by the Mootmaker system. It is written for a non-technical audience and deliberately excludes technical implementation detail.
+The product's rules, in plain language, for a reader who does not need to know how it is built. The
+web app and the Android app offer the same features. The numbered, testable version of these rules is
+[use-cases.md](use-cases.md); when the two disagree, the use cases and their tests are right and this
+page should be corrected.
 
-Going forward, this file is the source of truth for what the system does. New functionality is added here first, in the same bullet style, before any corresponding code or test changes are made. Each commit to this file is intended to double as a release note for stakeholders — a summary of what changed for users, and why.
+## Accounts and signing in
 
-## Accounts and Sign-In
-
-- Anyone can create their own account (self-service sign-up) by providing a name, email address, and password — no administrator approval is required.
-- A new account must be verified before it can be used: after signing up, the user receives a confirmation code by email which they must enter before they can sign in.
-- Passwords must be at least 10 characters long and include a lowercase letter and a number. This is deliberately loose (there's no requirement for uppercase letters or a special character) because this is a demo system rather than a real business, and the policy is set to match the demo account below.
-- Since this is a demo system, anyone can sign in immediately using a shared, publicly-known demo account instead of creating their own — no sign-up needed. Its email and password are shown directly on the home page for signed-out visitors, next to a sign-in form ready to submit with those details already filled in. The password is randomly generated (not a fixed, guessable word — an earlier one turned out to appear on a public list of compromised passwords) but stays easy to type: lowercase letters and digits only. This applies in every deployment, including a "production" one, since making the system easy to try is the whole point.
-- Users who forget their password can reset it themselves without contacting support: they request a reset code by email, then enter that code along with a new password to regain access.
-- Requesting a password reset never reveals whether a given email address actually has an account — the same response is shown either way, to protect user privacy.
-- Every part of the system other than the home page, sign-in, sign-up, and password-reset screens requires the user to be signed in.
-- If someone tries to open a page without being signed in, they are taken to the sign-in screen and automatically returned to the page they originally wanted once they've signed in.
-- Every account is one of two roles: "standard" or "administrator." A new account is standard by default. This role cannot be changed by the account holder — only granted directly against the underlying system, not through any screen in the product.
-- There is currently no self-service way for a user to close or delete their own account.
+- Anyone can create an account with a name, an email address and a password. No approval is needed.
+- A new account is confirmed by a code emailed to the address. Until it is confirmed it cannot sign in.
+- Passwords need at least 10 characters, including a lowercase letter and a number. This is deliberately
+  easy, because Mootmaker is a public demo.
+- Names must be unique. Signing up with a name someone already has (ignoring capitals and spaces) is
+  refused, because people are chosen by name throughout the app.
+- Anyone can sign in straight away with the **demo account**, whose email and password are shown on the
+  home page. The demo account is an administrator, so visitors can try every feature.
+- A forgotten password is reset with a code sent by email. The reset screen never reveals whether an
+  email address has an account.
+- Everything except the home page, sign-in, sign-up, password reset and the About page needs the user
+  to be signed in. Opening a page while signed out leads to sign-in and then back to that page.
+- Every account is **standard** or **administrator**. New accounts are standard. Only an administrator
+  can change someone's role, and nobody can remove their own administrator access.
+- Users can **delete their own account** from Settings. Their upcoming meetings are cancelled, they are
+  removed from meetings they were invited to, and their account, profile and photo are deleted. This
+  cannot be undone. The demo account cannot be deleted.
 
 ## People
 
-- Everyone who uses the system — whether they have their own login or not — is represented as a "Person," and a Person's name is required.
-- Signing up for an account automatically creates a matching Person record, using the name given at sign-up.
-- The system also supports adding people who do not have their own account or login (for example, a visiting guest), and they can then be booked as the organiser or an attendee of a meeting on their behalf. Adding a person this way is an administrator-only action, done from the Settings screen (see [Administration](#administration)).
-- Any signed-in user can change their own name at any time, from the Settings screen. An administrator can also change any person's name, whether or not that person has their own account. Wherever a person's name is used elsewhere in the system — meeting listings, calendars — the updated name appears immediately.
+- Everyone who can be in a meeting is a **person**. Signing up creates one automatically.
+- Administrators can add people who have no account (for example a visitor), so they can be booked into
+  meetings.
+- Users can change their own name in Settings; administrators can rename anyone. A new name appears
+  everywhere at once.
+- Administrators can delete a person. Their upcoming meetings are cancelled and they are removed from
+  meetings they were invited to; past meetings are left alone. Deleting a person who has an account
+  deletes the account too.
+- A person may have a photo; otherwise their initials are shown. Photos are set through the API (the
+  demo uses this); neither app has an upload screen yet.
 
 ## Rooms
 
-- A room is defined by a name and a capacity — the maximum total number of people, including the organiser, that the room can hold for a meeting.
-- A room's capacity must be at least 2 people.
-- Adding a new room, or editing an existing room's name or capacity, is an administrator-only action, done from the Settings screen (see [Administration](#administration)). Reducing a room's capacity below the size of a meeting already booked into it is allowed — the existing meeting is simply not re-checked against the new, smaller capacity.
-- Rooms cannot currently be removed once created.
-
-## Business Hours
-
-- The business day runs from 08:00 to 17:00. This is the one definition of "business hours" used throughout this document and the system — for example, it is the window shown on the daily room-availability view described below.
+- A room has a name, a capacity (at least 2 people, counting the organiser) and optionally a colour.
+- Administrators add, edit and delete rooms. A room with any meeting from now on cannot be deleted.
+- Reducing a room's capacity does not affect meetings already booked into it.
 
 ## Meetings
 
-- A meeting reserves a specific room for a specific block of time, on behalf of an organiser, with an optional list of other attendees.
-- Every meeting must have a subject; it cannot be left blank.
-- A room can only host one meeting at a time: the system will not allow a new meeting whose time overlaps with an existing meeting for the same room. A meeting is allowed to start the instant an earlier meeting in the same room ends.
-- The total number of people at a meeting — the organiser plus all attendees — cannot exceed the room's capacity.
-- A meeting's start and finish times must fall on a fifteen-minute boundary (for example 10:15 or 10:30, but not 10:20), keeping scheduling consistent across the system.
-- There is no limit on how far in advance, or how far in the past, a meeting can be scheduled.
-- Any signed-in user can create a meeting and may organise it on behalf of any person in the system, not only themselves.
-- The organiser and the attendees are always kept separate: the person organising a meeting cannot also be listed as one of its attendees. This matters because the organiser already counts as one of the meeting's people for the room-capacity rule above — letting the same person be counted as both the organiser and an attendee would let a meeting silently claim to have one more person in the room than it really does.
-- If a meeting or room can't be saved because it breaks one or more rules, every problem is reported back at once, so it can be corrected in a single attempt rather than discovered one issue at a time.
-- Once a meeting has been made there is currently no way to cancel or change it.
-- The system currently assumes all users share the same time zone; meeting times are not converted or adjusted between time zones.
-- Booking a meeting is available directly from the home page ("Add Meeting"), as well as from the daily room-availability view, as a single form: the subject, organiser, attendees, date, time, and room are all entered on one screen with no navigation between steps. The form defaults the organiser to the signed-in user (when they have a linked Person), the start time to the next 15-minute boundary from now, and the length to one hour.
-- The booking form keeps the organiser and attendees choices in sync with each other as they're made, so a user can't even attempt to pick the same person for both: choosing someone as an attendee removes them from the list of people that can be picked as organiser, and choosing someone as organiser removes them from the list of people that can be picked as an attendee. Either way, removing that choice makes the person available on the other list again straight away. (If the signed-in user is defaulted in as organiser, per the point above, but has already picked themselves as an attendee first, that default is skipped rather than fighting the attendee pick they already made.)
-- Next to the room field, a "Suggest a room" button finds the smallest room with enough capacity for the organiser plus all attendees that has no other meeting booked over the chosen time, and fills it in. Pressing it again when a room is already chosen suggests a different room with just sufficient capacity, rather than repeating the same one. If no room qualifies, the user is told so and can adjust the attendees or time themselves.
+- A meeting books one room, for one block of time, for an organiser and any number of attendees up to
+  20.
+- Every meeting needs a subject.
+- A room can hold only one meeting at a time. A meeting may start exactly when another ends.
+- The organiser plus the attendees cannot exceed the room's capacity. The organiser cannot also be an
+  attendee.
+- Start and end times are on the quarter hour (:00, :15, :30, :45), and a meeting starts and ends on the
+  same day.
+- Meetings can be booked from about a month in the past up to 180 days ahead.
+- Any signed-in user can book a meeting and can make anyone the organiser.
+- **Suggest a room** offers the free rooms that fit the meeting, smallest first, one at a time.
+- When a booking breaks a rule, every problem is listed at once.
+- The **organiser** or an **administrator** can edit or cancel a meeting, including moving it to another
+  day or room. Cancelling deletes it. If someone else changed the meeting after it was opened for editing,
+  the edit is refused rather than undoing their change.
+- Each **attendee** answers Going, Maybe or Not going, and can change their answer. Nobody can answer
+  for someone else. The organiser has no answer of their own. Editing a meeting keeps everyone's answers.
+- A day can hold at most 320 meetings across all rooms. Beyond that a booking is refused even if a room
+  is free.
+- Meeting times are the office's local time. Mootmaker models one office and never converts times
+  between time zones.
+- Meetings older than about a month are deleted automatically.
 
-## Calendar Views
+## Screens
 
-- A daily room-availability view shows every room for a chosen day (defaulting to today) as a card: a glanceable status ("Free now" / "Busy until…" for today, a plain summary for any other day), the room's capacity, and an expandable list of that day's meetings in time order, showing each one's start and end time and subject. Tapping a meeting in the expanded list opens its full Meeting Details page.
-- A person calendar view shows the meetings a chosen person is organising or attending as a one-week agenda (Monday to Friday), defaulting to the current week and navigable a week at a time within the range the server currently allows bookings in. Each day lists its meetings in time order, showing the start and end time, the subject, and the room. Tapping a meeting opens a detail panel (a bottom sheet on a narrow viewport, a side panel alongside the agenda on a wider one) showing the room, organiser, and attendees, with a link through to that meeting's full Meeting Details page. The person is chosen from a searchable list — typing any part of a name narrows it down to matching people, which keeps this usable as the number of people grows.
-- Once signed in, both views can be reached from the home page and from the main navigation menu ("Room Availability" and "Calendar"), and each has its own URL reflecting the day or person being viewed, so it can be shared with another signed-in user to show them the same view. Both places default the calendar view to the signed-in user's own calendar.
-- These calendar views replace the earlier flat lists of every person, every room, and every meeting, which have all been removed — rooms and meetings are now browsed through the daily room-availability view rather than as undifferentiated lists. A form to add a meeting remains available, reached from that view; adding or editing a room has moved to the Settings screen (see [Administration](#administration)).
-- Signed-in users also see two agenda lists on the home page: the meetings they're organising or attending "Today" and "Tomorrow", each sorted by start time and showing the subject, time, and room.
-- Signing in doesn't always mean there's a Person to show a calendar for — the demo account and the e2e test account are both examples of a sign-in with no matching Person. Rather than guessing (which used to mean showing a different, unrelated person's private calendar and meetings), the home page shows a clear "your account hasn't been set up properly" message instead, and the navigation menu's "Calendar" item is disabled.
-- Signed-out visitors to the home page see none of the above — since every part of the system requires sign-in, there's nothing to show them yet. Instead the home page offers two ways in: an embedded sign-in form pre-filled with the demo account's details (see Accounts and Sign-In) ready to submit, and a "sign up for your own account" section that spells out the three steps involved before showing the sign-up button.
+- **Home** shows, for the signed-in person, the meetings waiting for their answer (with a way to look
+  further ahead) and their meetings today and tomorrow. Signed out, it shows the demo login and how to
+  sign up.
+- **Room availability** shows every room for a chosen day, with whether it is free now and its meetings.
+- **Calendar** shows one person's meetings for a working week (Monday to Friday), a week at a time. It
+  opens on the signed-in person; any person can be chosen.
+- **Meeting details** shows the room, organiser, attendees and their answers, with a link that can be
+  shared with another signed-in user.
+- **Settings**: your name; date format (2026-10-14, 14/10/2026 or 10/14/2026), time format (24-hour or
+  AM/PM) and which day weeks start on; delete account.
+- **Rooms** and **Persons** (administrators only): manage rooms and people, and grant or remove
+  administrator access.
+- Changes made by other people to meetings appear on screen within about a second, without reloading.
+- Both apps follow the device's light or dark setting.
+- The web app's Feedback link opens the project's GitHub issues.
 
-## Notifications
+## Email
 
-- Users receive an automated email containing a verification code when they sign up, and again if they request a password reset.
-- There are currently no email or in-app notifications for meetings — no meeting confirmations, no reminders before a meeting, and no cancellation notices.
+- Mootmaker sends email only for sign-up confirmation and password reset codes.
+- There are no meeting invitations, reminders or cancellation emails.
 
-## Design and User Experience
+## Not offered
 
-- The application's visual design follows Google's Material Design language, for a clean, consistent, and familiar look and feel.
-- Screens that list information show a clear loading indicator while data is being fetched, and a similar indicator while data is being refreshed in the background.
-- Save buttons disable themselves and show a progress indicator while a submission is in progress, preventing accidental duplicate submissions.
-- When something goes wrong — whether a connection problem or a broken business rule — the user sees a clear, dismissible message explaining what happened or what needs to be fixed.
-- Navigation is a vertical menu down the left of the page (Home, Calendar, Availability, then Sign in/Sign up or Sign out, then About and Feedback), always visible on wider screens; on a narrow screen it collapses behind a menu button that opens the same menu as a flyout. Once signed in, the signed-in user's name and a settings shortcut appear at the bottom of the menu.
-- Every person is shown with a small round avatar wherever they appear — the signed-in user's own entry at the bottom of the navigation menu, a meeting's organiser and attendees, the organiser and attendee pickers when adding a meeting, and the People page. It shows the person's photo when they have one, and otherwise their initials on a coloured circle (e.g. "Priya Chaudhary" → "PC"). The API supports setting a photo, and demo data uses it, but the web app has no screen for uploading one yet. Rooms keep their own small coloured dot instead, shown next to the room's name everywhere it appears, including the Rooms page and the room picker when adding a meeting.
-- On the room-availability and calendar views, the primary "add a meeting" action is a floating action button in the bottom-right of the page, rather than a button in the page header.
-
-## Administration
-
-- The Settings screen, reached from a shortcut at the bottom of the main navigation menu (see [Design and User Experience](#design-and-user-experience)), is where every account manages its own name. Administrators see two additional sections on the same screen: a list of every room, with the ability to edit a room's name/capacity or add a new one, and a list of every person, with the ability to edit anyone's name or add a new person (including a guest with no account of their own — see [People](#people)). Standard users see only the name section.
-- There is still no separate reporting or usage-metrics dashboard.
-- A data-reset function exists that erases all rooms and meetings, and (outside `production`) wipes the Cognito user pool down to the two Terraform-managed reserved accounts. It is intended for testing purposes, and is not reachable by any user of the product — it's an operational tool (`mootmaker-api`'s `database-reset` Lambda) invoked directly with AWS credentials, not part of the API surface at all.
-
-## Not Yet Implemented
-
-The following functionality has been discussed but is not yet built. It is recorded here as a starting point for future enhancements to this document:
-
-- Recurring meetings (for example, a weekly standup).
-- Editing or cancelling an existing meeting.
-- Removing a room once created.
-- Closing/deleting one's own account.
-- Signing up or signing in using an existing Google account.
-- Usage metrics and reporting.
-- An in-app light/dark mode toggle (currently it only follows the OS preference). The custom brand theme itself (colours, typography, light and dark palettes) is already built - see [branding/README.md](../showcase/branding/README.md).
-- An Android app offering the same functionality as the web application.
+- Recurring meetings.
+- Sign-in with Google or another provider ([a design exists](../../designs/google-sign-in.md)).
+- Uploading a photo from the app.
+- Usage reports.
+- Time zones per person or per room.

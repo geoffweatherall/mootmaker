@@ -1,57 +1,22 @@
 # Use cases
 
-A starting list of user-focused test use cases across the mootmaker application, drafted during an
-earlier planning conversation as a checklist to expand into concrete test cases later. This list is
-**client-agnostic** — it describes what must be true of the system, not which frontend proves it or
-how. See [testing-strategy.md](testing-strategy.md) for the overall cross-repo layering, and each
-frontend's own `testing-strategy.md` (e.g.
-[mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md#acceptance-tests))
-for how its own `acceptance/` suite draws on this list — not every case here applies identically to
-every frontend (e.g. a mobile nav flyout is webapp-specific; Android will have its own native nav
-patterns for the equivalent scenario).
+What the system must do, independent of which app proves it. Every case is numbered, and both apps'
+acceptance suites link their tests back to these numbers. How this fits the test layers is in
+[testing](../overview/testing.md#use-cases-what-the-tests-trace-back-to).
 
-**Tagged per-frontend, 2026-09-21.** Every item carries **[All frontends]** or **[Webapp-specific]**
-right after its number, so whoever builds `mootmaker-android`'s own suite can tell at a glance which
-cases it must satisfy (in its own idiom) versus which describe something inherently web-shaped that
-won't recur unchanged. **[All frontends]** means the underlying rule or user-facing outcome must hold
-on every client, even where the wording below or the linked webapp test case names a web-specific
-detail (a "page", a "banner", a "dropdown", a URL) — that's describing today's only implementation,
-not prescribing the same widget for a future one. **[Webapp-specific]** is for cases inherently tied
-to how a browser-based SPA behaves (client-side routing, `localStorage`, a hard page reload) or to a
-particular visual/interaction choice unlikely to carry over as-is (a responsive breakpoint, a
-colour-coded identity check, the mobile nav flyout, a marketing-style signed-out home page) — a
-second frontend needing the equivalent behaviour gets its own, separately-numbered case for whatever
-form that takes there, rather than this tag being changed. When a case's classification isn't obvious
-from its wording alone, the reasoning came from reading the corresponding
+**Tags.** Each case is **[All frontends]** or **[Webapp-specific]**. An [All frontends] case must hold on
+every client, in that client's own idiom: wording that names a web detail (a page, a banner, a URL)
+describes the web app's implementation, not a widget the Android app must copy. A [Webapp-specific] case
+is tied to how a browser works (routing, `localStorage`, a page reload) or to a web-only design choice;
+another client needing the equivalent behaviour gets its own case.
+
+**Links.** Each case links forward to its web test-case design in
 [mootmaker-webapp/acceptance/test-cases/](https://github.com/geoffweatherall/mootmaker-webapp/tree/main/acceptance/test-cases)
-entry, which usually says more about how tied to the current implementation a behaviour actually is.
+and to the Android test that covers it, or says why there is none (`n/a` for a [Webapp-specific]
+case). The test-case designs link back here through each case's `#uc-N` anchor.
 
-This is a first pass, not exhaustive, and not yet expanded in detail — expect it to grow.
-
-**Moved here 2026-08-19** from `mootmaker-e2e/use-cases.md` (that repo is now
-[mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs), and no
-longer owns a use-case list or a test suite of its own — see its README's History section). Only a
-couple of
-cases (A.1, F.38) are automated anywhere so far, in
-[mootmaker-webapp/acceptance/](https://github.com/geoffweatherall/mootmaker-webapp/tree/main/acceptance) —
-the rest of this list is still just a checklist, not a coverage report.
-
-**Detailed test-case designs added 2026-08-22**: every one of the 99 cases below now has a full,
-reviewable test-case design (Given/When/Then, UI-level steps, assertions, explicit "out of scope"
-notes) in
-[mootmaker-webapp/acceptance/test-cases/](https://github.com/geoffweatherall/mootmaker-webapp/tree/main/acceptance/test-cases) —
-"designed" is not the same as "automated": see that catalog's own README for which of the 99 are
-actually implemented yet (still just the same two as before), the rest being designs ready to build
-from. Every item below now links forward to its own webapp test case (`webapp: ...`); its `android:
-...` link names the `mootmaker-android` test that covers it (usually in its acceptance suite; a case
-a real environment can't stage, at its Robolectric flow layer), or says why there is none: `n/a`
-for a **[Webapp-specific]** case, and a reason where an **[All frontends]** case has no Android
-counterpart. Each webapp test case links back here too, via a stable
-`#uc-N` anchor on this exact item — **renumbering an item here breaks that anchor and the forward
-link both**, so prefer adding new items at the end of a section (or the end of the whole list) over
-renumbering existing ones. If an item's own wording changes, its anchor and the forward link both
-stay valid; only its *content* is now out of sync with what the linked test case was designed
-against — that catalog is expected to be re-checked against changes here, not the other way round.
+**Do not renumber.** Renumbering breaks those anchors and links. Add a new case at the end of its section,
+or at the end of the list. When a case's wording changes, re-check the linked test-case design against it.
 
 ## A. Sign up
 
@@ -269,32 +234,6 @@ its cascade and self/reserved-account guards didn't exist before this design). C
 
 ## Notes
 
-A few things worth flagging separately since they shape *how* you'd test rather than *what*:
-
-- Several rules (validation messages, `OrganiserIsAttendee`, capacity math) are enforced
-  server-side and only mirrored client-side for UX — worth deciding whether these get covered at
-  the UI layer, the API acceptance-test layer, or both.
-- The organiser-defaulting race that used to be listed here as hard to automate is **closed**, not
-  merely still open: `AddMeetingPage` no longer renders an interactive form until the signed-in
-  Person has resolved, so no user interaction can precede it. The premises behind the old note also
-  both expired — the e2e account has a linked Person now, and the `myPerson` query it named no
-  longer exists.
-- `AddRoomPage.tsx` exists in the webapp codebase but isn't wired into any route — dead code, not a
-  real use case.
-- **Tagged per-frontend 2026-09-21** (see the header for the convention) — e.g. #36 and #97's
-  mobile-nav-flyout behaviour is tagged **[Webapp-specific]** and won't apply the same way to
-  Android's own native navigation. Re-check a case's tag if its wording changes materially, and tag
-  new cases as they're added — the header's rule of thumb (universal outcome vs. web-shaped
-  mechanic) should cover most of them without needing a fresh decision each time.
-- **Three inconsistencies between this list's wording and the actual webapp/API implementation**
-  were found while writing the detailed test-case catalog (2026-08-22), with full detail in
-  [mootmaker-webapp/acceptance/test-cases/README.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/acceptance/test-cases/README.md)'s
-  "Known doc/code drift" / "Known implementation gaps" sections: case 40's "5-minute boundary"
-  start-time default was stale wording (**fixed 2026-08-22** — the rule itself was tightened to 15
-  minutes system-wide, not just the wording corrected; case 41's picker-step wording was updated to
-  match); case 42's expectation that an end-before-start time range is rejected doesn't appear to
-  be enforced anywhere, client or server (still open — flagged ⚠ above); and case 62's week/month
-  navigation doesn't exist in the current `PersonCalendarPage` at all, no controls beyond the person
-  selector (still open — flagged ⚠ above). Cases 42 and 62 are still a decision for whoever owns
-  this list and the corresponding code (update the wording, or build/fix the behaviour) — not
-  something a documentation pass should resolve unilaterally.
+Several rules (`OrganiserIsAttendee`, capacity, the quarter-hour rule) are enforced by the API and also
+checked in the apps for a better experience. Their cases are covered through each app's UI; the API's own
+acceptance suite covers the server-side rule directly.
