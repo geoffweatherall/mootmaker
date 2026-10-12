@@ -14,7 +14,10 @@ with it, [#23](https://github.com/geoffweatherall/mootmaker-android/issues/23),
 
 ## Status
 
-**Building** — 2026-10-08. Drafted by Claude after a discussion with Geoff, who asked for the work
+**Shipped** — 2026-10-12. Geoff has tried it on his phone and is happy with it; archived with
+[android-app.md](android-app.md).
+
+Building — 2026-10-08. Drafted by Claude after a discussion with Geoff, who asked for the work
 to start straight after the draft. Not yet moved to Ready by Geoff; the "Choices you had me make"
 below are the ones to review.
 
@@ -36,7 +39,7 @@ device's own writes do to them.
 - **Apollo Kotlin's normalized cache** (Decision 1).
 - **The API.** No schema or resolver changes. The broadcast stays `{ dates }`; the planned origin
   ids and reference-data flags
-  ([live-update-origin-and-reference-data.md](live-update-origin-and-reference-data.md)) slot in
+  ([live-update-origin-and-reference-data.md](../live-update-origin-and-reference-data.md)) slot in
   later without reshaping this (see Technical considerations).
 - **Optimistic responses (#26)** are made easier by this but are their own change.
 

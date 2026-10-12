@@ -23,7 +23,11 @@ explains what has changed since then, and terms are explained where they first a
 
 ## Status
 
-**Ready** — 2026-10-07. Approved by Geoff. All seven blocking questions (Q1–Q7) are answered, and
+**Shipped** — 2026-10-12. Geoff has tested the released app and is happy with it; the design is
+archived. Closes
+[mootmaker-android#2](https://github.com/geoffweatherall/mootmaker-android/issues/2).
+
+Ready — 2026-10-07. Approved by Geoff. All seven blocking questions (Q1–Q7) are answered, and
 N3 and N6 are decided. M0 starts once the GitHub and cloud-environment steps under "Before M0" in
 the [Implementation checklist](#implementation-checklist) are done.
 
@@ -33,9 +37,10 @@ built and green, with a real sign-in proven against an ephemeral environment; th
 is in place and releases publish the APK (v5.10.4 was the first). See [M1 results](#m1-results-2026-10-07).
 M2 to M10 are built, green against an ephemeral environment, and merged; each milestone's results are
 under it in [Milestones](#milestones). v5.10.6 published the APK with M1 to M7, v5.10.7 added M8,
-and v5.10.8 adds M9 and M10. Everything in the [Definition of done](#definition-of-done) that Claude
-can do is done; what is left is Geoff's: installing the published APK on a phone and signing in to
-production, then moving this design to Shipped and archiving it.
+and v5.10.8 adds M9 and M10. Later releases (v5.10.9 to v5.10.12) added the
+[cache](android-cache.md), [error display](android-error-display.md) and
+[time dial](quarter-hour-time-dial.md) designs and a round of fixes. With Geoff's sign-off, the
+[Definition of done](#definition-of-done) is met.
 
 History: first drafted 2026-10-05. Revised 2026-10-07 after checking the draft against the code
 and the current cloud-session docs: AWS access from pull requests (Q7), where the signing secrets
@@ -46,7 +51,7 @@ date, and the cloud–CI loop.
 
 **In scope**
 
-- A phone app covering every use case in [`use-cases.md`](../docs/reference/use-cases.md) that
+- A phone app covering every use case in [`use-cases.md`](../../docs/reference/use-cases.md) that
   makes sense on a phone. That is all of it except the webapp-specific parts (see
   [Feature parity](#feature-parity)).
 - The same API, schema, Cognito pool and demo user as the webapp. The app is a second frontend,
@@ -64,7 +69,7 @@ date, and the cloud–CI loop.
   server-side sender. This is a new feature, not parity.
 - **Offline use.** The webapp does not work offline either. The app shows an error state when it
   cannot reach the API, and that is all.
-- **Google sign-in.** [`google-sign-in.md`](google-sign-in.md) is a webapp design that hasn't been
+- **Google sign-in.** [`google-sign-in.md`](../google-sign-in.md) is a webapp design that hasn't been
   started. Q2 records which auth options make it easier or harder later. Building it is not part of
   this design.
 - **Tablets, foldables, Wear OS, Android TV.** A phone layout that is not broken on a tablet is
@@ -151,7 +156,7 @@ explain. See [Manual testing](#manual-testing).
 
 ### 4. Build once, configure at runtime
 
-The release pipeline promotes **the exact artifact it tested**: [ci-cd-pipeline.md](archive/ci-cd-pipeline.md)
+The release pipeline promotes **the exact artifact it tested**: [ci-cd-pipeline.md](ci-cd-pipeline.md)
 Decision 8. The webapp gets this by writing `env-config.js` after the build. The app does the
 equivalent: one signed APK, with the environment chosen **at runtime** rather than compiled in. So
 the APK the pipeline tested against an ephemeral environment is the APK that gets smoke-tested
@@ -166,7 +171,7 @@ sideloaded v6.1.0 keeps running it against every later API until they update by 
 
 - Removing or renaming a schema field, or tightening an argument, breaks installed apps silently,
   even though every suite in the release is green.
-- [graphql-schema-sharing.md](archive/graphql-schema-sharing.md) Decisions 5 and NB-4 both named
+- [graphql-schema-sharing.md](graphql-schema-sharing.md) Decisions 5 and NB-4 both named
   "when Android lands" as the trigger for adding `graphql-inspector` breaking-change detection.
   **This design pulls that trigger.**
 - The release pipeline gains an **n-1 smoke check**: the *previously published* APK against the
@@ -334,7 +339,7 @@ Two consequences of A that are easy to miss:
   subject, which the deploy role already trusts (`github-actions-deploy-role.yaml`), so
   `build-android` needs no trust change.
 - **`RELEASE_TAG_PAT` must be widened to `mootmaker-android`.** It is a fine-grained token scoped
-  to exactly the repositories `tag` writes to ([ci-cd-pipeline.md](archive/ci-cd-pipeline.md)
+  to exactly the repositories `tag` writes to ([ci-cd-pipeline.md](ci-cd-pipeline.md)
   Decision 3). Geoff edits the token's repository list; its value does not change.
 
 #### Q4. Where is the APK published for sideloading?
@@ -397,7 +402,7 @@ building and keeping a test APK for every release.
 
 Each run needs an ephemeral environment (API plus webapp, so that `mobile-config.json` exists),
 which takes about 10 minutes to create and costs real AWS money. The
-[cost investigation of October 2026](../docs/reference/running-costs.md) found September's bill was
+[cost investigation of October 2026](../../docs/reference/running-costs.md) found September's bill was
 5× normal, driven by test volume. Each run also fetches one Cognito M2M token (US$0.00225 each)
 for the admin API.
 
@@ -411,7 +416,7 @@ for the admin API.
 
 **Leaning: B.** PR checks always run the free layers (build, lint, unit, Robolectric, screenshot),
 so most mistakes are caught without AWS. The label is for PRs that change how the app talks to the
-backend. This also fits what [pr-time-smoke-verification.md](pr-time-smoke-verification.md) is
+backend. This also fits what [pr-time-smoke-verification.md](../pr-time-smoke-verification.md) is
 working out for the webapp. If that design lands an approach, Android should follow it rather than
 invent a second one.
 
@@ -425,7 +430,7 @@ Background: the deploy role `mootmaker-release-github-actions-deploy` trusts onl
 subjects ([`github-actions-deploy-role.yaml`](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/blob/main/workload-account/github-actions-deploy-role.yaml)):
 component repositories at `refs/tags/v*`, and mootmaker-release and mootmaker-ephemeral-envs at
 `refs/heads/main`. A `pull_request` workflow presents `repo:<owner>/<repo>:pull_request` and is
-refused. [pr-time-smoke-verification.md](pr-time-smoke-verification.md) found the same thing on
+refused. [pr-time-smoke-verification.md](../pr-time-smoke-verification.md) found the same thing on
 2026-10-05. Cloud sessions have no AWS credentials either, and should not get any. So **every
 emulator run against a real environment happens in Actions**, and before M1's acceptance runs can
 happen, something has to trust pull requests.
@@ -1026,7 +1031,7 @@ The largest functional slice: the most use cases, and the first write.
   Move this design to Shipped and archive it.
 - **Built (2026-10-08), as it differs from the plan:**
   - **Every [All frontends] case now has an `android:` link** in
-    [use-cases.md](../docs/reference/use-cases.md). The 18 still open became acceptance cases
+    [use-cases.md](../../docs/reference/use-cases.md). The 18 still open became acceptance cases
     (B.15, E.37, F.42, F.43, F.45, F.48, M.98, M.109, M.110, N.103, N.104, N.106, O.121) or, where a
     real environment can't stage the condition, Robolectric flow cases in `CrossCuttingFlowTest`
     (M.92 a slow backend, M.93 an unreachable one, M.94 a refused refresh, M.96 the system's dark
@@ -1185,14 +1190,14 @@ suites already do.
 **Cognito:** a new app client (choice 4). No new attributes. The Android client's
 `read_attributes` and `write_attributes` must match the webapp client's exactly. In particular,
 `custom:class` and `custom:personId` must **never** be writable. `cognito.tf` explains why: every
-resolver trusts `custom:personId` to identify the caller. [data-model.md](../docs/reference/data-model.md)
+resolver trusts `custom:personId` to identify the caller. [data-model.md](../../docs/reference/data-model.md)
 needs no change unless it lists app clients.
 
 ## Technical considerations
 
 **Times are naive local strings.** The API's `startTime`/`endTime` are fixed-width
 `yyyy-MM-dd'T'HH:mm:ss` **with no zone**, and the webapp treats them as naive local time, never UTC
-(see [date-time-format-settings.md](archive/date-time-format-settings.md)). In Kotlin that means
+(see [date-time-format-settings.md](date-time-format-settings.md)). In Kotlin that means
 `java.time.LocalDateTime`, **never** `Instant` or `ZonedDateTime`. An Apollo custom-scalar adapter
 should enforce this in one place.
 
@@ -1373,7 +1378,7 @@ The credit applies only to cloud sessions and expires on 2026-11-05 (see Decisio
 
 ## Testing impacts
 
-By layer, following [testing-strategy.md](../docs/reference/testing-strategy.md)'s terms. All new,
+By layer, following [testing-strategy.md](../../docs/reference/testing-strategy.md)'s terms. All new,
 in `mootmaker-android` unless stated.
 
 - **Unit (JVM, no environment):** pure logic, such as date/time formatting per the user's format
@@ -1407,22 +1412,22 @@ in `mootmaker-android` unless stated.
 
 ## Documentation impacts
 
-- [`architecture.md`](../docs/development/architecture.md): an Android row in the shape diagram;
+- [`architecture.md`](../../docs/development/architecture.md): an Android row in the shape diagram;
   the repository table no longer says "Not started"; "How the webapp reaches the API" gains
   `mobile-config.json`; the contract section names Android as the first independently-released
   consumer.
-- [`testing-strategy.md`](../docs/reference/testing-strategy.md): Android rows in the layers table.
-- [`use-cases.md`](../docs/reference/use-cases.md): each milestone fills in the `android:` links for
+- [`testing-strategy.md`](../../docs/reference/testing-strategy.md): Android rows in the layers table.
+- [`use-cases.md`](../../docs/reference/use-cases.md): each milestone fills in the `android:` links for
   the cases it covers (the tags already exist; see N2).
-- [`environments.md`](../docs/process/environments.md): the `and-acc` and `rel-and` kinds in the
+- [`environments.md`](../../docs/process/environments.md): the `and-acc` and `rel-and` kinds in the
   naming table.
-- [`running-costs.md`](../docs/reference/running-costs.md): the extra environment per release and
+- [`running-costs.md`](../../docs/reference/running-costs.md): the extra environment per release and
   per labelled PR.
 - `mootmaker/README.md`: a "Get the Android app" link once an APK is published.
 - `mootmaker-android` README, AGENTS.md, `testing-strategy.md`: written for real.
 - `mootmaker-release` README: the stage table and the "four components" wording.
 - `mootmaker-api` README: the Android client, the new SSM parameter, the deprecation rule.
-- [`tools/workstation/`](../tools/workstation/): Android SDK as an optional workstation tool.
+- [`tools/workstation/`](../../tools/workstation/): Android SDK as an optional workstation tool.
 
 ## Rollout & migration
 

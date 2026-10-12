@@ -104,7 +104,7 @@ Both frontends keep what they have fetched and are told, never sent, what change
 `InMemoryCache`; the Android app marks them stale in its own `WorkspaceStore`, which keeps them on
 screen while it refetches. Both refetch what is shown, distrust everything after a reconnect, and
 fetch again a response that was in flight when its date changed. See
-`../../designs/android-cache.md` for why the Android app has its own store rather than Apollo's
+`../../designs/archive/android-cache.md` for why the Android app has its own store rather than Apollo's
 normalized cache.
 
 `mootmaker-demo-data` and `mootmaker-api/verify` still build GraphQL operations as hand-written
