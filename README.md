@@ -16,8 +16,9 @@ multi-environment infrastructure — and a stack I'd used commercially for years
 the difference rather than guess at it. I started as a sceptic.
 
 The result is a serverless AWS application (GraphQL API on AppSync, Java Lambdas, DynamoDB, Cognito,
-a React SPA on CloudFront) that scales to zero, deploys to any number of independent environments,
-and is covered by unit, integration, and real-deployment acceptance tests.
+a React SPA on CloudFront) with a native Android app beside the web app. It scales to zero, deploys to
+any number of independent environments, ships through a release pipeline, and is covered by unit,
+integration, and real-deployment acceptance tests.
 
 ## What I learned
 
@@ -64,49 +65,48 @@ are in code written to fix the other two.
 
 ## The repositories
 
-A [polyrepo](docs/reference/glossary.md#project) — twelve independent repositories rather than one
-monorepo. `mootmaker` is the [hub](docs/reference/glossary.md#project): every other repository below
-is a satellite.
+Eleven repositories rather than one monorepo. `mootmaker`, this one, is the hub: it holds the
+documentation that spans the system, and every other repository describes itself in its own README.
+See [repositories](docs/overview/repositories.md) for how they fit together.
 
 | Repository | What it is |
 |---|---|
-| **mootmaker** (here) | The hub: designs, process, reference docs, and this write-up |
-| [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api) | GraphQL API — AppSync, Java 25 Lambdas, DynamoDB |
-| [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) | React SPA — TypeScript, MUI, Apollo Client, Vite |
-| [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) | Native Android app — Kotlin, Jetpack Compose, Apollo Kotlin; a second frontend on the same API |
-| [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data) | Per-environment Lambda that keeps the demo populated — ships as part of the product |
-| [mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs) | Ephemeral-environment lifecycle scripts |
-| [mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing) | The persistent SES email-reading pipeline |
-| [mootmaker-release](https://github.com/geoffweatherall/mootmaker-release) | Release pipeline that ships `mootmaker-api`/`mootmaker-webapp`/`mootmaker-demo-data` to `test` and `production`, and publishes the Android APK |
+| **mootmaker** (here) | The hub: overviews, runbooks, designs, process, and this write-up |
+| [mootmaker-api](https://github.com/geoffweatherall/mootmaker-api) | GraphQL API: AppSync, Java 25 Lambdas, DynamoDB, Cognito |
+| [mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp) | Web app: React, TypeScript, MUI, Apollo Client |
+| [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) | Android app: Kotlin, Jetpack Compose, Apollo Kotlin |
+| [mootmaker-demo-data](https://github.com/geoffweatherall/mootmaker-demo-data) | Keeps every environment populated with realistic demo data |
+| [mootmaker-release](https://github.com/geoffweatherall/mootmaker-release) | The release pipeline: build once, test, promote to `test` then `production`, publish the APK |
+| [mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs) | Short-lived environments: create, keep, tear down, and the daily sweep |
+| [mootmaker-email-testing](https://github.com/geoffweatherall/mootmaker-email-testing) | Lets tests read real verification emails |
 | [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) | DNS and mail identity for `mootmaker.com` |
-| [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) | The shared S3 bucket holding Terraform remote state |
-| [mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts) | AWS account guardrails — SCPs, IAM Identity Center, billing alerts |
+| [mootmaker-bootstrap-terraform](https://github.com/geoffweatherall/mootmaker-bootstrap-terraform) | The bucket holding every Terraform state file |
+| [mootmaker-bootstrap-aws-accounts](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts) | AWS account guardrails, SSO, budgets and the GitHub deploy roles |
 
 ## Documentation
 
-| Where | What's in it |
+| To | Read |
 |---|---|
-| [designs/](designs/) | One design document per feature or change, written and reviewed before any code. [The pattern itself](designs/README.md) explains the lifecycle. |
-| [docs/development/](docs/development/) | How to get set up and work on mootmaker, including [how environments work](docs/development/environments.md) |
-| [docs/reference/](docs/reference/) | [Data model](docs/reference/data-model.md), [testing strategy](docs/reference/testing-strategy.md), [use cases](docs/reference/use-cases.md), [running costs](docs/reference/running-costs.md), and [what the system does](docs/reference/business-functionality.md) for a non-technical reader |
-| [docs/showcase/](docs/showcase/) | The learnings write-up, branding, and the marketing material |
+| Understand how it works | [Overviews](docs/overview/), starting with [the system](docs/overview/system.md) |
+| Fix something | [Runbooks](docs/runbooks/README.md) |
+| Get set up and run it | [Getting started](docs/development/getting-started.md) |
+| See how work is done | [Process](docs/process/README.md) and [designs](designs/README.md) |
+| Know what it must do | [Use cases](docs/reference/use-cases.md) and [what Mootmaker does](docs/reference/business-functionality.md) |
 
-Issues are tracked in GitHub, in the repository they concern, and gathered on the
-[Mootmaker board](https://github.com/users/geoffweatherall/projects/1).
+[docs/README.md](docs/README.md) lists every document. Issues live in the repository they concern and
+are gathered on the [Mootmaker board](https://github.com/users/geoffweatherall/projects/1).
 
 ## Working on it
 
-Every repository deploys independently to a named environment, so you can stand up a complete,
-isolated copy of the whole system and tear it down again:
+Any number of complete, isolated copies of the system can run side by side. Stand up your own, try a
+change, and tear it down:
 
 ```bash
-cd mootmaker-api      && ./deploy.sh bob    # your own environment, any name
-cd ../mootmaker-webapp && ./deploy.sh bob   # prints a site URL — open it and try it
+mootmaker-ephemeral-envs/create-ephemeral-env.sh geoff --with-demo-data    # prints the site URL
+mootmaker-ephemeral-envs/teardown-ephemeral-env.sh geoff-261012-a1b2
 ```
 
-See [docs/development/environments.md](docs/development/environments.md) for how that works and how
-to tear it down, and the [testing strategy](docs/reference/testing-strategy.md) for how the four
-test layers fit together.
+See [getting started](docs/development/getting-started.md) and [delivery](docs/overview/delivery.md).
 
 ---
 
