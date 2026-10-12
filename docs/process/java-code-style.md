@@ -37,18 +37,15 @@ Palantir was the closest fit on taste — 4-space indent, 120 columns, much like
 already looked like. It is **disqualified**: it cannot parse Java 25 module imports, failing with
 `Expected ; after import` on all 41 files that use one.
 
-AOSP is google-java-format with 4-space indentation, and would have been a far smaller diff (2,956
-lines against 7,424). It was rejected because `google_checks.xml` hard-codes 2-space indentation, so
-AOSP formatting plus Google's linter contradict each other. Taking Google whole means the two halves
-agree with no overrides.
-
-The reformat cost ~7,400 lines across 99 files, once, mechanically.
+AOSP is google-java-format with 4-space indentation. It was rejected because `google_checks.xml`
+hard-codes 2-space indentation, so AOSP formatting plus Google's linter contradict each other. Taking
+Google whole means the two halves agree with no overrides.
 
 ### The editor must run google-java-format, not VS Code's built-in formatter
 
 VS Code's Java support is Eclipse JDT, which is a **different formatter**. Google publishes an
 Eclipse profile intended to approximate their style; measured against real google-java-format output
-on this codebase it **diverges on 47 of 49 files, 2,708 lines**, mostly javadoc wrapping.
+on this codebase it diverges on almost every file, mostly in javadoc wrapping.
 
 Left to itself, the editor would reformat on save into something CI rejects. So Java formatting is
 handed to an extension that runs google-java-format itself.
@@ -76,8 +73,7 @@ google-java-format's command line runs a string-wrapping pass that its library A
 editor extension runs the command line; Spotless calls the library. Without this setting the editor
 rewraps long string literals and the build then rejects the result — a fight on every save.
 
-With it on, Spotless output is byte-identical to the command line's. Verified across all 49 main
-sources.
+With it on, Spotless output is byte-identical to the command line's.
 
 ### The version is pinned in three places
 
@@ -94,10 +90,9 @@ on errors. Configured the obvious way it prints thousands of findings and still 
 
 ### ecj is there for what Google's tooling misses
 
-javac has no unused-import diagnostic at all, which is why unused imports accumulated here unnoticed.
-google-java-format removes ordinary ones — but not an unused `import module`, and `google_checks.xml`
-contains no `UnusedImports` rule whatsoever. So Google's stack, complete as it is, would not have
-caught the thing that prompted this work.
+javac has no unused-import diagnostic at all. google-java-format removes ordinary unused imports, but
+not an unused `import module`, and `google_checks.xml` contains no `UnusedImports` rule. Without ecj,
+nothing would catch them.
 
 `lint-java.sh` runs the Eclipse compiler in diagnose-only mode. That is the same compiler the editor
 uses, so CI sees what the editor already showed.
