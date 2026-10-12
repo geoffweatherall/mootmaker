@@ -1,10 +1,8 @@
 # Design documents — pattern & workflow
 
-**Started 2026-08-28.** This folder holds one design document per feature/change of any real size
-— written and refined *before* coding starts, then used as the actual prompt implementation begins
-from. `date-time-format-settings.md` is the first design written under this pattern; earlier
-feature docs (`archive/delete-my-account.md` and its paired `-todo.md`) predate it and used an ad
-hoc two-file shape — see "Migrating older docs" below.
+This folder holds one design document per feature or change of any real size, written and refined
+*before* coding starts, then used as the prompt implementation begins from. Completed designs are in
+[`archive/`](archive/), with an [index](archive/README.md) saying how relevant each still is.
 
 ## Why
 
@@ -101,14 +99,13 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
 11. **Documentation impacts** — which READMEs/CLAUDE.md files/use-case catalogs need updating once
     this ships, and roughly what changes in each.
 12. **Rollout & migration** — how this reaches users safely: does it need a data migration/backfill
-    for existing records, a feature flag, a phased rollout (ephemeral → `production` — there is no
-    longer a long-lived `test` environment), or does it just deploy cleanly with no transition
-    state to worry about?
+    for existing records, a feature flag, a staged rollout (each release goes to `test` before
+    `production`, and installed Android apps lag behind), or does it just deploy cleanly with no
+    transition state to worry about?
 13. **Risks** — what could go wrong, and anything that would make this harder to reverse than a
     normal deploy (e.g. a change that's easy to ship but expensive to undo).
 14. **Implementation checklist** — an ordered, dependency-tracked task list, `[Geoff]`/`[Claude]`
-    tagged for manual-vs-implementation steps (mirroring `archive/google-sign-in-todo.md`'s style,
-    which predates this template but got the checklist shape right). Usually sparse or absent while
+    tagged for manual-vs-implementation steps. Usually sparse or absent while
     Drafting, and filled in properly by the time a doc reaches Ready — it's what turns "Ready" into
     something Claude can actually start executing top-to-bottom.
 15. **Definition of done** — the concrete bar for Shipped. At minimum: the feature's own new/changed
@@ -135,27 +132,3 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
 5. Once Definition of done is actually met, Status moves to Shipped, `../docs/reference/data-model.md` (if
    touched) gets updated to reflect the new current state, and the design **moves to
    [`archive/`](archive/)** — so `designs/` only ever lists work that is still pending.
-
-## Migrating older docs
-
-Some planning docs predate this pattern and used an ad hoc two-file shape (a "design & decisions"
-doc plus a separate `-todo.md` checklist). They now live in [`archive/`](archive/):
-
-| Archived | Superseded by |
-|---|---|
-| `archive/delete-my-account.md` + `-todo.md` | Nothing yet — still the most detailed record of that feature's thinking |
-| `archive/meeting-picker-dropdowns-todo.md` | Shipped 2026-08-28; kept only for the record |
-
-The old `archive/google-sign-in.md` and its `-todo.md` were **deleted** on 2026-09-01 rather than
-kept: [`google-sign-in.md`](google-sign-in.md) fully supersedes them and is still unstarted, so
-having two competing docs for unbuilt work was a live source of confusion rather than a record of
-anything. Archiving is for work that is *done*; a superseded doc for work that never began is just
-a second answer to the same open question.
-
-They are **not rewritten to fit this template**. They are genuinely detailed planning notes, and
-reformatting them would risk losing content for no gain. The rule is: when an archived doc is
-picked up again for real work, write a new design in this folder under the current template and
-leave the archived original alone as history. That is what happened with `google-sign-in.md`, and
-what should happen to `delete-my-account` if it is ever revived.
-
-Nothing in `archive/` is maintained or should be treated as current.
