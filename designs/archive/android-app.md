@@ -402,7 +402,7 @@ building and keeping a test APK for every release.
 
 Each run needs an ephemeral environment (API plus webapp, so that `mobile-config.json` exists),
 which takes about 10 minutes to create and costs real AWS money. The
-[cost investigation of October 2026](../../docs/reference/running-costs.md) found September's bill was
+[cost investigation of October 2026](https://github.com/geoffweatherall/mootmaker/blob/c85bd54/docs/reference/running-costs.md) found September's bill was
 5× normal, driven by test volume. Each run also fetches one Cognito M2M token (US$0.00225 each)
 for the admin API.
 
@@ -1378,7 +1378,7 @@ The credit applies only to cloud sessions and expires on 2026-11-05 (see Decisio
 
 ## Testing impacts
 
-By layer, following [testing-strategy.md](../../docs/reference/testing-strategy.md)'s terms. All new,
+By layer, following [testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/c85bd54/docs/reference/testing-strategy.md)'s terms. All new,
 in `mootmaker-android` unless stated.
 
 - **Unit (JVM, no environment):** pure logic, such as date/time formatting per the user's format
@@ -1412,16 +1412,16 @@ in `mootmaker-android` unless stated.
 
 ## Documentation impacts
 
-- [`architecture.md`](../../docs/development/architecture.md): an Android row in the shape diagram;
+- [`architecture.md`](https://github.com/geoffweatherall/mootmaker/blob/c85bd54/docs/development/architecture.md): an Android row in the shape diagram;
   the repository table no longer says "Not started"; "How the webapp reaches the API" gains
   `mobile-config.json`; the contract section names Android as the first independently-released
   consumer.
-- [`testing-strategy.md`](../../docs/reference/testing-strategy.md): Android rows in the layers table.
+- [`testing-strategy.md`](https://github.com/geoffweatherall/mootmaker/blob/c85bd54/docs/reference/testing-strategy.md): Android rows in the layers table.
 - [`use-cases.md`](../../docs/reference/use-cases.md): each milestone fills in the `android:` links for
   the cases it covers (the tags already exist; see N2).
-- [`environments.md`](../../docs/process/environments.md): the `and-acc` and `rel-and` kinds in the
+- [`environments.md`](https://github.com/geoffweatherall/mootmaker/blob/c85bd54/docs/process/environments.md): the `and-acc` and `rel-and` kinds in the
   naming table.
-- [`running-costs.md`](../../docs/reference/running-costs.md): the extra environment per release and
+- [`running-costs.md`](https://github.com/geoffweatherall/mootmaker/blob/c85bd54/docs/reference/running-costs.md): the extra environment per release and
   per labelled PR.
 - `mootmaker/README.md`: a "Get the Android app" link once an APK is published.
 - `mootmaker-android` README, AGENTS.md, `testing-strategy.md`: written for real.

@@ -14,7 +14,7 @@ subject you already know, and follow the links from later sections when somethin
 
 | If you want… | Read |
 |---|---|
-| the idea in five minutes | [The short version](#the-short-version), then the diagram in [4.1](#41-b-edits-a-meeting-while-a-is-looking-at-it) |
+| the idea in five minutes | [The short version](#the-short-version), then the diagram in [5.1](#51-b-edits-a-meeting-while-a-is-looking-at-it) |
 | to understand the server side | [Part 2](#part-2--the-server-broadcasting-a-change), with [Primer D](#primer-d--graphql-subscriptions-websockets-and-appsync) and [Primer E](#primer-e--authentication-and-authorisation-on-aws) |
 | to understand the client side | [Part 3](#part-3--the-client-keeping-the-cache-honest), with [Primer B](#primer-b--react-rendering-and-hooks) and [Primer C](#primer-c--apollo-client-and-its-cache) |
 | to work on a page that shows meetings | [Part 4](#part-4--what-the-screen-shows-while-it-catches-up) |
