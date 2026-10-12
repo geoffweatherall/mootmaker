@@ -19,9 +19,9 @@ mootmaker repository, giving the single view that per-repo issues otherwise lack
 
 | Field | Values | For |
 |---|---|---|
-| Status | Backlog, Ready, In progress, In review, Done | Where the work is |
-| Size | S, M, L | Rough effort, not an estimate |
-| Design | Link | The design document this implements, if any |
+| Status | Todo, In Progress, Done | Where the work is |
+
+A linked design goes in the issue body; the board has no separate field for it.
 
 Everything open should be on the board. An issue that is not on it is invisible.
 
