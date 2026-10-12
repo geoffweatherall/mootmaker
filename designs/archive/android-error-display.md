@@ -12,7 +12,10 @@ writes it down as a rule in the Android README.
 
 ## Status
 
-**Building**: 2026-10-09. Geoff chose the pinned banner (option B) and asked for it to be the app-wide
+**Shipped** — 2026-10-12. Geoff has tried it on his phone and is happy with it; archived with
+[android-app.md](android-app.md).
+
+Building — 2026-10-09. Geoff chose the pinned banner (option B) and asked for it to be the app-wide
 standard and documented as a rule. It need not match the webapp. Not yet moved to Ready by Geoff. Built (mootmaker-android#37) and released in
 [v5.10.10](https://github.com/geoffweatherall/mootmaker-release/releases/tag/v5.10.10) on 2026-10-10 NZDT,
 with the other fixes Geoff approved as a group; waiting on Geoff trying it on his phone.
