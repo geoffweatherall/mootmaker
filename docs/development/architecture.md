@@ -30,7 +30,7 @@ constraint rather than a preference — see [`../process/principles.md`](../proc
 | Repository | Owns |
 |---|---|
 | `mootmaker` | Designs, process, reference docs, showcase. No deployed code. |
-| `mootmaker-api` | GraphQL schema, Java Lambda handlers, DynamoDB tables, Cognito user pool, and the `database-reset`/`database-repair` admin Lambdas (destructive — see [operator.md](../roles/operator.md)) |
+| `mootmaker-api` | GraphQL schema, Java Lambda handlers, DynamoDB tables, Cognito user pool, and the `database-reset`/`database-repair` admin Lambdas (destructive) |
 | `mootmaker-webapp` | React SPA, its S3 bucket and CloudFront distribution |
 | `mootmaker-android` | The native Android app (Kotlin, Compose): a second frontend on the same API, at parity with the webapp. No infrastructure of its own; `mootmaker-release` builds, signs and publishes its APK |
 | `mootmaker-demo-data` | Per-environment Lambdas that seed and top up demo data — ships as part of the product |

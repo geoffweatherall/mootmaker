@@ -20,7 +20,6 @@ mootmaker repository, giving the single view that per-repo issues otherwise lack
 | Field | Values | For |
 |---|---|---|
 | Status | Backlog, Ready, In progress, In review, Done | Where the work is |
-| Hat | Developer, Product owner, Marketer, Operator, Author | Which [role](../roles/README.md) the work belongs to |
 | Size | S, M, L | Rough effort, not an estimate |
 | Design | Link | The design document this implements, if any |
 
@@ -79,7 +78,6 @@ The same set exists in every repository, so a filter behaves consistently across
 | `documentation` | Documentation |
 | `flaky-test` | Intermittent test failure — distinct from `bug`, because the triage is different |
 | `tech-debt` | Known compromise worth revisiting |
-| `hat:developer`, `hat:product`, `hat:marketing`, `hat:operator`, `hat:author` | Which role owns it |
 | `blocked` | Waiting on something external |
 
 ## Issues versus designs

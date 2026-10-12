@@ -59,8 +59,6 @@ design does not become `Ready` by looking thorough.
 **Reference document** — something in `docs/reference/` describing what is true *today*, updated when
 reality changes. Distinct from a design, which describes an intention.
 
-**Hat** — a kind of work, with a role document in `docs/roles/`. One person wears all of them.
-
 ## Testing
 
 **Acceptance test** — a Playwright suite in a frontend's `acceptance/` directory, run against a real

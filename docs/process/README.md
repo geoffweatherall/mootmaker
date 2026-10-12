@@ -39,8 +39,6 @@ Related, elsewhere:
 
 - [`../../designs/README.md`](../../designs/README.md) — the design-document pattern and its
   `Drafting → Ready → Building → Shipped` lifecycle.
-- [`../roles/README.md`](../roles/README.md) — the "hats" a person wears here, and how a session in
-  each one should start.
 - [`../development/`](../development/) — how to get set up, how the system fits together, and how
   environments work mechanically.
 - [`../reference/`](../reference/) — what is true today: data model, testing strategy, use cases,

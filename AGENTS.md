@@ -15,9 +15,8 @@ happens across every repository, and every other repo's `AGENTS.md` points at it
 | [`designs/`](designs/) | One design document per feature or change. [The pattern](designs/README.md) explains the lifecycle |
 | [`docs/reference/`](docs/reference/) | What is true today: data model, testing strategy, use cases, business functionality |
 | [`docs/development/`](docs/development/) | Getting set up, the cross-repo architecture, environment mechanics |
-| [`docs/roles/`](docs/roles/) | The "hats" — which kind of work you are doing, and how a session in each starts |
 | [`docs/showcase/`](docs/showcase/) | Learnings, debugging techniques, branding, marketing |
-| [`tools/`](tools/) | Link checking, the workstation manifest, the agent installer |
+| [`tools/`](tools/) | Link checking, the workstation manifest, the workspace config installer |
 
 ## Working in this repository
 
