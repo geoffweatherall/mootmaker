@@ -24,7 +24,7 @@ matches their first name, and no two people in an environment share one.
 ```mermaid
 flowchart LR
   eb["EventBridge<br/>daily 06:00 UTC<br/>(production only)"]
-  rel["Release<br/>seeds test after deploying"]
+  rel["Release<br/>seeds test and production<br/>after deploying each"]
   hand["A person<br/>aws lambda invoke"]
   lambda["demo-data Lambda<br/>(one run at a time)"]
   api["The environment's API<br/>as a machine client"]
@@ -71,7 +71,7 @@ timeline
 
 | Environment | Deployed | Scheduled |
 |---|---|---|
-| `production` | Always | Daily |
+| `production` | Always | Daily, and each release seeds it after deploying |
 | `test` | Always | No; each release seeds it after deploying |
 | Ephemeral | With `create-ephemeral-env.sh --with-demo-data` | No; seeded once when created |
 
