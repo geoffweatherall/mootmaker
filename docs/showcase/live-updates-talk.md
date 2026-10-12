@@ -162,7 +162,7 @@ What `cache-and-network` looks like over time:
 
 That's the webapp-wide rule: **show the last-known content straight away, put a progress bar over
 it, and replace it when the network answers.** See the
-[Progress indicators](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/README.md#progress-indicators)
+[Progress indicators](https://github.com/geoffweatherall/mootmaker-webapp/blob/ef539e6/README.md#progress-indicators)
 section of the webapp README.
 
 > **Notes:** Render 1 has a trap. Cached data might say "zero meetings". Render "No meetings

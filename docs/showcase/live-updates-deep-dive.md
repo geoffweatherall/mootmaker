@@ -946,7 +946,7 @@ the screen during that gap.
 ## 4.1 The rules
 
 From the webapp's
-[Progress indicators](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/README.md#progress-indicators)
+[Progress indicators](https://github.com/geoffweatherall/mootmaker-webapp/blob/ef539e6/README.md#progress-indicators)
 convention:
 
 1. **A first load with nothing to show:** a centred spinner.
@@ -1372,7 +1372,7 @@ discussed with suggested answers in
   evicted along with their day (Decision 10).
 - [live-updates-open-questions.md](live-updates-open-questions.md): suggested answers to the open
   questions.
-- The webapp README's [Progress indicators](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/README.md#progress-indicators)
+- The webapp README's [Progress indicators](https://github.com/geoffweatherall/mootmaker-webapp/blob/ef539e6/README.md#progress-indicators)
   section.
 - Code: [appsyncSocket.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/appsyncSocket.ts),
   [daysInvalidated.ts](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/webapp/src/realtime/daysInvalidated.ts),
