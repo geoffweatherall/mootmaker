@@ -1190,7 +1190,7 @@ suites already do.
 **Cognito:** a new app client (choice 4). No new attributes. The Android client's
 `read_attributes` and `write_attributes` must match the webapp client's exactly. In particular,
 `custom:class` and `custom:personId` must **never** be writable. `cognito.tf` explains why: every
-resolver trusts `custom:personId` to identify the caller. [data-model.md](../../docs/reference/data-model.md)
+resolver trusts `custom:personId` to identify the caller. [data-model.md](https://github.com/geoffweatherall/mootmaker/blob/336fe92/docs/reference/data-model.md)
 needs no change unless it lists app clients.
 
 ## Technical considerations

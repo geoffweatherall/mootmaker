@@ -233,7 +233,7 @@ anyone's preference.
 
 ## Changes to the domain data model and data storage models
 
-See [`data-model.md`](../../docs/reference/data-model.md) for the current state. This design adds two new fields to the
+See [`data-model.md`](https://github.com/geoffweatherall/mootmaker/blob/336fe92/docs/reference/data-model.md) for the current state. This design adds two new fields to the
 `Person` domain concept — `timeFormat` (enum: `TwentyFourHour` | `AmPm`) and `dateFormat` (enum:
 `Usa` | `British` | `Iso`) — both **mandatory** at the domain level: a Person always has exactly one
 of each, and the pair defaults to `Iso`/`TwentyFourHour` for any Person that has never set them
@@ -338,7 +338,7 @@ scales:
   Settings page section list.
 - `mootmaker-api/README.md` — a new section documenting the `updateMyPreferences` mutation
   alongside the existing `updatePerson`/`createPerson` documentation.
-- [`docs/reference/data-model.md`](../../docs/reference/data-model.md) — update once shipped, per this
+- [`docs/reference/data-model.md`](https://github.com/geoffweatherall/mootmaker/blob/336fe92/docs/reference/data-model.md) — update once shipped, per this
   folder's own process.
 
 ## Rollout & migration

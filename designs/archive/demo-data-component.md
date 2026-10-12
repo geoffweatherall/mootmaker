@@ -261,7 +261,7 @@ persisted thing is two SSM parameters, which are configuration, not domain data.
 
 Worth stating explicitly because it is load-bearing for the blocking open question above: this design
 **relies on** the existing property that `Person` has no publicly-exposed link to a Cognito account.
-See [`../docs/reference/data-model.md`](../../docs/reference/data-model.md) for the storage-level
+See [`../docs/reference/data-model.md`](https://github.com/geoffweatherall/mootmaker/blob/336fe92/docs/reference/data-model.md) for the storage-level
 `cognitoSub` attribute that is deliberately not surfaced in the schema.
 
 ## Technical considerations

@@ -280,7 +280,7 @@ itself — currently relies entirely on the separate `database-reset` Lambda for
 
 ## Changes to the domain data model and data storage models
 
-See [`data-model.md`](../../docs/reference/data-model.md) for the current state. Deltas:
+See [`data-model.md`](https://github.com/geoffweatherall/mootmaker/blob/336fe92/docs/reference/data-model.md) for the current state. Deltas:
 
 - **DynamoDB, People table**: new `isAdmin` attribute (Boolean, optional — absent means `false`,
   same "optional attribute, non-null GraphQL field with a default" pattern `dateFormat`/
@@ -371,7 +371,7 @@ admin-only Settings/Rooms/People flows today; nothing here changes what it shoul
 
 ## Documentation impacts
 
-- [`docs/reference/data-model.md`](../../docs/reference/data-model.md) — update once shipped, per this
+- [`docs/reference/data-model.md`](https://github.com/geoffweatherall/mootmaker/blob/336fe92/docs/reference/data-model.md) — update once shipped, per this
   folder's process (new `isAdmin` attribute, retired `cognitoSub-index`-adjacent notes if any
   reference the old mutation shape).
 - [`docs/reference/use-cases.md`](../../docs/reference/use-cases.md) — retire/rewrite the Settings §J/K
