@@ -136,8 +136,21 @@ tools:
     install: ../mootmaker-android/scripts/cloud-setup.sh
     notes: >-
       The script installs the command-line tools, platform 35 and build-tools 35 under
-      $ANDROID_HOME (default ~/android-sdk) and adds ANDROID_HOME to ~/.bashrc. The Gradle build
-      also wants JDK 21 (sudo apt install -y openjdk-21-jdk), alongside the JDK 25 the API needs.
+      $ANDROID_HOME (default ~/android-sdk) and adds ANDROID_HOME to ~/.bashrc. Needs jdk-21 too.
+    optional: true
+
+  - name: jdk-21
+    why: >-
+      mootmaker-android's Gradle build. Its modules use a Java 21 toolchain, and Gradle 8.14 cannot
+      run on Java 25 at all.
+    check: test -x /usr/lib/jvm/java-21-openjdk-amd64/bin/java
+    version: /usr/lib/jvm/java-21-openjdk-amd64/bin/java -version 2>&1 | head -1
+    install: sudo apt install -y openjdk-21-jdk
+    notes: >-
+      Installed alongside JDK 25, which stays the default `java`. Run Gradle with
+      JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew ... In VS Code, set
+      "java.import.gradle.java.home" to that directory in user settings, or the Gradle import fails
+      with "Can't use Java 25 and Gradle 8.14.3".
     optional: true
 
   - name: nvidia-gpu
