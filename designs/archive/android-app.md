@@ -1358,7 +1358,7 @@ The credit applies only to cloud sessions and expires on 2026-11-05 (see Decisio
 [pacing summary](#pacing-summary)).
 
 - **One milestone at a time, started deliberately.** Start each cloud session, with both
-  `mootmaker-android` and `mootmaker` attached, with "read `mootmaker/designs/android-app.md`,
+  `mootmaker-android` and `mootmaker` attached, with "read `mootmaker/designs/archive/android-app.md`,
   continue milestone MN". That is what this folder's design pattern is for, and it keeps the
   context small.
 - **Push as you go.** See "Files are not durable" above.
