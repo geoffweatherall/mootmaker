@@ -49,10 +49,14 @@ Fix: sign up again.
 
 ## Unconfirmed
 
-The user signed up and never entered the code. Neither app can resend a code or resume the sign-up
-([mootmaker#166](https://github.com/geoffweatherall/mootmaker/issues/166)), signing up again is refused
-because the email exists, and a password reset is refused because the email was never verified. The
-user cannot get out of this alone. Either:
+The user signed up and never entered the code. Signing up again is refused because the email exists,
+and a password reset is refused because the email was never verified.
+
+**They can finish it themselves:** sign in with the same email and password. Both apps then ask for the
+code, with **Send a new code** if the first one is lost (use case 150). If that email never arrives
+either, see [verification email not arriving](verification-email-not-arriving.md).
+
+If they have lost the password too, or cannot receive the email, an operator can do one of these:
 
 ```bash
 # Confirm it for them. Only after confirming the email is genuinely theirs (they reply from it).
