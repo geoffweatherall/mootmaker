@@ -30,20 +30,20 @@ repositories, which is why CI costs nothing.
 
 ## Branch protection
 
-Only the three repositories with a deployable backend part protect `main`, and only lightly:
-
 | Repository | `main` protection |
 |---|---|
 | mootmaker-api | Requires the `unit-tests` check. No force pushes. Admins may bypass |
 | mootmaker-webapp | Requires the `pr-checks` check. No force pushes. Admins may bypass |
 | mootmaker-demo-data | Requires the `unit-tests` check. No force pushes. Admins may bypass |
+| mootmaker-release, mootmaker-ephemeral-envs | Requires a pull request (no reviews). No force pushes or deletion. **Applies to admins too** |
 | Every other repository | None |
 
-No repository requires a pull request or a review, because with one person there is nobody to
-review. The required check stops a red pull request merging by accident; it is not a security
-boundary, since the only person with write access is an admin. Note that mootmaker-release and
-mootmaker-ephemeral-envs, whose `main` branches can assume the AWS release role, are unprotected;
-see [security](security.md#github-and-aws).
+The component checks stop a red pull request merging by accident; they are not a security boundary,
+since the only person with write access is an admin. mootmaker-release and mootmaker-ephemeral-envs
+are different: the AWS release role trusts their `main`, so anything on it can deploy `test` and
+`production`. There, even an admin token cannot push to `main` directly; a change has to arrive
+through a visible pull request. No repository requires a review, because with one person there is
+nobody to review. See [security](security.md#github-and-aws).
 
 ## What GitHub Actions runs
 

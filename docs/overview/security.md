@@ -74,6 +74,11 @@ Cognito, ACM and CloudFront only get ids when created, so creating them cannot b
 which also means the ephemeral role's denials cannot cover those four services by name. The
 denials guard against mistakes, not against someone deliberately misusing push access.
 
+**Nothing reaches a trusted `main` by direct push.** mootmaker-release and mootmaker-ephemeral-envs
+require a pull request to change `main`, for admins too, so a leaked token with push access cannot
+quietly change what the release role runs. Tags in the component repositories are pushed only by the
+release's `tag` job. See [GitHub](github.md#branch-protection).
+
 **Pull requests from forks get no AWS access.** GitHub gives a fork's pull-request run neither
 secrets nor an OIDC token, and first-time contributors' runs need approval.
 
@@ -137,7 +142,6 @@ Deleting an account removes everything in the first three rows. The
 
 | Gap | Risk | Tracked |
 |---|---|---|
-| `main` is unprotected in mootmaker-release and mootmaker-ephemeral-envs, both trusted by the production deploy role | Low while only one person has push access | [mootmaker-release#91](https://github.com/geoffweatherall/mootmaker-release/issues/91) |
 | The site sends no security headers (no CSP, no HSTS), and the web app keeps tokens in `localStorage` | Script injection would expose tokens. No known injection point | [mootmaker-webapp#170](https://github.com/geoffweatherall/mootmaker-webapp/issues/170) |
 | The demo account is an admin, and its password is public | By design: the demo must show admin features. Anyone can change demo rooms and people | Accepted |
 | Weak password policy, no MFA | By design, to keep the demo easy to try | Accepted |
