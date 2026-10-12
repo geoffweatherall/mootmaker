@@ -2,7 +2,7 @@
 
 What Mootmaker stores, where, for how long, and the limits that keep it bounded. The attribute-level
 reference (every table, key and field) lives with the code that owns it, in
-[the data model reference](../reference/data-model.md).
+[mootmaker-api's data model](https://github.com/geoffweatherall/mootmaker-api/blob/main/docs/data-model.md).
 
 ## Where data lives
 

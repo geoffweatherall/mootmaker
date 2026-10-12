@@ -187,7 +187,7 @@ rather than trusting one grep pass).
 
 ## Changes to the domain data model and data storage models
 
-Delta against [`../docs/reference/data-model.md`](../../docs/reference/data-model.md):
+Delta against [`../docs/reference/data-model.md`](https://github.com/geoffweatherall/mootmaker/blob/336fe92/docs/reference/data-model.md):
 
 - **Meetings table, `meetings` list, each element:** `id`, `roomId`, `organiserId`, each element of
   `attendeeIds` — same attribute names, DynamoDB type stays `S`, value goes from a 36-character UUID

@@ -15,7 +15,7 @@ happens across every repository, and every other repo's `AGENTS.md` points at it
 | [`docs/runbooks/`](docs/runbooks/README.md) | What to do when something is wrong, by symptom |
 | [`docs/process/`](docs/process/) | How work is done: principles, branching and PRs, issues, working with AI, Java style |
 | [`designs/`](designs/) | One design per feature or change. [The pattern](designs/README.md) explains the lifecycle; [archive/](designs/archive/README.md) holds completed ones |
-| [`docs/reference/`](docs/reference/) | Use cases, what the system does, glossary, data model |
+| [`docs/reference/`](docs/reference/) | Use cases, what the system does, glossary |
 | [`docs/development/`](docs/development/) | Getting started and the workstation |
 | [`docs/showcase/`](docs/showcase/) | Learnings, talks, branding, marketing. Dated writing, not maintained |
 | [`tools/`](tools/) | Link checking, the workstation manifest, the workspace config installer |

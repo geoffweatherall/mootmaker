@@ -29,17 +29,11 @@ needs re-opening) — the table above is the normal forward path, not a one-way 
 ## File naming and location
 
 - One file per feature: `designs/<kebab-case-feature-name>.md` (e.g. `date-time-format-settings.md`).
-- [`../docs/reference/data-model.md`](../docs/reference/data-model.md) is not a feature doc — it's
-  a standing, living reference for the project's *current* domain data model (Cognito + DynamoDB
-  both — see its own header), which is why it lives under `docs/reference/` rather than here. Every
-  design doc's "Changes to the domain data model" section describes the *delta* it proposes against
-  that reference, links to it rather than duplicating it, and the reference itself gets updated
-  once the design ships — it should always reflect what's actually deployed today, never a
-  proposal.
-- `archive/` holds designs that are **done** — shipped, or superseded by a newer doc — kept for the
-  record, not maintained. Nothing in there should be treated as current. Moving a design here when
-  it reaches Shipped is what keeps this folder a list of *pending* work: if it is in `designs/`,
-  it is still live.
+- [mootmaker-api's `docs/data-model.md`](https://github.com/geoffweatherall/mootmaker-api/blob/main/docs/data-model.md) is not a feature doc: it is the living reference for
+  the *current* data model (DynamoDB and Cognito). Every design's "Changes to the domain data model"
+  section describes the *delta* it proposes against that reference and links to it rather than
+  duplicating it, and the reference is updated when the design ships, so it always reflects what is
+  deployed.
 
 ## Section template
 
@@ -64,7 +58,7 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
    enough that "impacts on components" plus "trade-offs and decisions" together could brief a fresh
    implementer with no other context.
 8. **Changes to the domain data model and data storage models** — the delta against
-   `../docs/reference/data-model.md` (Cognito attributes, DynamoDB tables/attributes/indexes, or both — most features
+   mootmaker-api's [data model](https://github.com/geoffweatherall/mootmaker-api/blob/main/docs/data-model.md) (Cognito attributes, DynamoDB tables/attributes/indexes, or both — most features
    that touch persisted state touch more than just DynamoDB, so check both explicitly rather than
    defaulting to "just the obvious database"). `N/A` for anything that's pure UI/display logic over
    already-existing data.
@@ -129,6 +123,6 @@ complexity; a small change doesn't need paragraphs where one sentence covers it.
 4. An implementation session starts by reading the doc directly, moves Status to Building, and
    works through the Implementation checklist. The doc keeps being updated as reality diverges from
    plan (a design doc describes the *current* plan, not a frozen record of the first draft).
-5. Once Definition of done is actually met, Status moves to Shipped, `../docs/reference/data-model.md` (if
+5. Once Definition of done is actually met, Status moves to Shipped, mootmaker-api's `docs/data-model.md` (if
    touched) gets updated to reflect the new current state, and the design **moves to
    [`archive/`](archive/)** — so `designs/` only ever lists work that is still pending.

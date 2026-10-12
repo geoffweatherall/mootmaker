@@ -526,7 +526,7 @@ at all**.
 
 ## Changes to the domain data model and data storage models
 
-Delta against [`../docs/reference/data-model.md`](../../docs/reference/data-model.md):
+Delta against [`../docs/reference/data-model.md`](https://github.com/geoffweatherall/mootmaker/blob/336fe92/docs/reference/data-model.md):
 
 - **DynamoDB `People` table** — the `photoUrl` attribute is **renamed to `avatarUrl`**, keeping its
   meaning and nullability. Its *format* also narrows, to `v1/<personId>/<sha256>`, and only the API

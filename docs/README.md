@@ -64,7 +64,9 @@ Twenty-two runbooks, indexed by symptom with a triage chart.
 | [use-cases.md](reference/use-cases.md) | The numbered, testable requirements both apps meet |
 | [business-functionality.md](reference/business-functionality.md) | The same rules in plain language |
 | [glossary.md](reference/glossary.md) | Terms with a specific meaning here |
-| [data-model.md](reference/data-model.md) | Every table, key and attribute |
+
+The detailed data model (every table, key and attribute) lives with the code, in
+[mootmaker-api's docs/data-model.md](https://github.com/geoffweatherall/mootmaker-api/blob/main/docs/data-model.md).
 
 ## Why it is like this: [designs/](../designs/README.md)
 

@@ -138,7 +138,7 @@ def check_bare_refs(src: Path, repo_root: Path, checkouts: dict[str, Path]) -> l
                 continue
             target = checkouts[repo] / m.group("path")
             if not target.exists():
-                rel = src.relative_to(repo_root) if repo_root in src.parents else src
+                rel = f"{repo_root.name}/{src.relative_to(repo_root)}" if repo_root in src.parents else src
                 problems.append(
                     f"{rel}:{lineno}: bare-text reference to missing path "
                     f"{repo}/{m.group('path')}"
@@ -152,7 +152,7 @@ def check_file(md: Path, repo_root: Path, checkouts: dict[str, Path]) -> list[st
         text = md.read_text(encoding="utf-8")
     except (UnicodeDecodeError, OSError) as exc:
         return [f"{md}: could not read ({exc})"]
-    rel = md.relative_to(repo_root) if repo_root in md.parents else md
+    rel = f"{repo_root.name}/{md.relative_to(repo_root)}" if repo_root in md.parents else md
 
     for lineno, line in enumerate(text.splitlines(), 1):
         for target in LINK_RE.findall(line):
