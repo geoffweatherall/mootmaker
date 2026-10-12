@@ -68,7 +68,8 @@ a branch or start the fix before that happens.
 
 ## Labels
 
-The same set exists in every repository, so a filter behaves consistently across the board.
+Use these, so a filter behaves the same across the board. Most repositories have all of them; create
+one with `gh label create` where it is missing rather than inventing a synonym.
 
 | Label | For |
 |---|---|
@@ -79,6 +80,13 @@ The same set exists in every repository, so a filter behaves consistently across
 | `flaky-test` | Intermittent test failure — distinct from `bug`, because the triage is different |
 | `tech-debt` | Known compromise worth revisiting |
 | `blocked` | Waiting on something external |
+
+Two labels change what CI does, in one repository each:
+
+| Label | Repository | Effect |
+|---|---|---|
+| `run-acceptance` | mootmaker-android | Runs the Android acceptance suite on the pull request |
+| `allow-breaking-schema-change` | mootmaker-api | Lets the `schema-compatible` check pass a breaking change. Use only when no installed app can be affected |
 
 ## Issues versus designs
 

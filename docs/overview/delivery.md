@@ -40,7 +40,9 @@ no release can name. It is for recovering a broken pipeline, not for shipping.
 
 An environment is just a name. Every component's `deploy.sh <name>` creates or updates that
 environment's copy, with resources named `<name>-mootmaker-*`, hostnames `*.<name>.mootmaker.com`
-and Terraform state under `<name>/` in the state bucket. There is no registry.
+and Terraform state under `<name>/` in the state bucket. There is no registry. Each script also sets
+`TF_DATA_DIR=.terraform-<name>`, so one checkout can work on several environments at once without their
+local Terraform metadata colliding. Every script requires the name explicitly; there is no default.
 
 **`test` is the rehearsal stage.** Each release deploys there first and runs the full smoke test,
 including a real sign-up with a real emailed code, before `production` is touched. Because `test`

@@ -1,103 +1,95 @@
 # Getting started
 
-Your first hour on mootmaker. If you are an AI agent, read
-[`../process/README.md`](../process/README.md) first — this page is about getting a machine working.
+Your first hour on Mootmaker: a working machine, the code, credentials, your own copy of the system,
+and the tests. If you are an AI agent, read the [process](../process/README.md) first; this page is
+about the machine.
 
-## 1. Check your machine
+Development targets Ubuntu. Nothing here is tested on macOS or Windows.
 
-```bash
-mootmaker/tools/workstation/check.sh
-```
+## 1. Get the repositories
 
-Install anything it reports as missing. See [workstation.md](workstation.md).
-
-## 2. Get the repositories
-
-Every repository expects the others as **siblings in one directory**. Scripts resolve
-`../mootmaker-api` and similar relative paths, so a flat layout is not optional.
-
-```
-mootmaker-workspace/
-  mootmaker/               mootmaker-api/             mootmaker-webapp/
-  mootmaker-android/       mootmaker-demo-data/       mootmaker-release/
-  mootmaker-ephemeral-envs/  mootmaker-email-testing/  mootmaker-domain/
-  mootmaker-bootstrap-terraform/  mootmaker-bootstrap-aws-accounts/
-```
+Every repository expects the others checked out side by side in one directory, because scripts use
+paths like `../mootmaker-api`.
 
 ```bash
 mkdir mootmaker-workspace && cd mootmaker-workspace
-for r in mootmaker mootmaker-api mootmaker-webapp mootmaker-android \
-         mootmaker-demo-data mootmaker-release \
-         mootmaker-ephemeral-envs mootmaker-email-testing mootmaker-domain \
+for r in mootmaker mootmaker-api mootmaker-webapp mootmaker-android mootmaker-demo-data \
+         mootmaker-release mootmaker-ephemeral-envs mootmaker-email-testing mootmaker-domain \
          mootmaker-bootstrap-terraform mootmaker-bootstrap-aws-accounts; do
   git clone "https://github.com/geoffweatherall/$r.git"
 done
 ```
 
-## 3. Authenticate
+What each one is: [repositories](../overview/repositories.md).
+
+## 2. Check and set up the machine
 
 ```bash
-aws sso login                      # no long-lived credentials by design
-gh auth login                      # then: gh auth refresh -s project
+mootmaker/tools/workstation/check.sh                     # what is installed, what is missing, how to install it
+mootmaker/tools/install-workspace-config.sh --force      # VS Code and Claude Code settings, extensions
 ```
+
+`check.sh` reads [`tools/workstation/manifest.yaml`](../../tools/workstation/manifest.yaml); see
+[workstation](workstation.md). The usual set is git, the GitHub CLI, the AWS CLI v2, Terraform 1.10+,
+JDK 25 and Maven, Node 20 or later, Python 3, and jq. Android work also needs JDK 21 and the Android SDK.
+
+Each Node project needs `npm install`. mootmaker-webapp has **two** `package.json` files, at the root
+(test suites) and in `webapp/` (the app); install both.
+
+## 3. Sign in to AWS and GitHub
+
+```bash
+aws sso login          # after setting up ~/.aws/config as in the AWS accounts overview
+aws sts get-caller-identity
+gh auth login
+gh auth refresh -s project     # to read the project board
+```
+
+The exact `~/.aws/config` is in [AWS accounts](../overview/aws-accounts.md#getting-access). There are no
+access keys.
 
 ## 4. Stand up your own environment
 
-An environment is just a name. Pick one nobody else is using, following the ephemeral naming
-convention in [`../process/environments.md`](../process/environments.md):
-
 ```bash
-cd mootmaker-api      && ./deploy.sh geoff-260829-a1b2
-cd ../mootmaker-webapp && ./deploy.sh geoff-260829-a1b2   # prints a site URL
+mootmaker-ephemeral-envs/create-ephemeral-env.sh geoff --with-demo-data
 ```
 
-Optionally add demo data. Deploying it does not populate anything — the Lambda only runs when
-invoked — so seeding is a second, deliberate step:
+This creates an environment named like `geoff-261012-a1b2`: the API, the web app, and demo data, about ten
+minutes. It prints the site URL; the demo login is on the home page. Deploying costs a few cents.
+
+To change something and see it: edit, then redeploy just that component, for example
+`mootmaker-api/deploy.sh geoff-261012-a1b2`. Deploy the API before the web app.
+
+**Tear it down when you are done:**
 
 ```bash
-cd ../mootmaker-demo-data && ./deploy.sh geoff-260829-a1b2
-aws lambda invoke --function-name geoff-260829-a1b2-mootmaker-demo-data \
-  --cli-read-timeout 900 --payload '{}' /dev/stdout
+mootmaker-ephemeral-envs/teardown-ephemeral-env.sh geoff-261012-a1b2
 ```
 
-`--cli-read-timeout 900` matters: the function's ceiling is 900 seconds and the CLI defaults to 60,
-so without it a full seed is reported to you as a failure while the Lambda finishes regardless.
-
-(`create-ephemeral-env.sh claude --with-demo-data` does all of the above in one command.)
-
-**Tear it down when you are done. This is not optional** — see
-[`../process/environments.md`](../process/environments.md).
-
-```bash
-cd ../mootmaker-ephemeral-envs && ./teardown-ephemeral-env.sh geoff-260829-a1b2
-```
-
-That script discovers what is actually deployed from the environment's Terraform state prefix, so
-it tears down demo-data too if you deployed it, and refuses to finish quietly if anything is left
-behind.
+If you will be away more than two days, either tear it down or keep it with
+`keep-env.sh <name> "<reason>"`; otherwise the daily sweep destroys it. See
+[delivery](../overview/delivery.md#ephemeral-environments).
 
 ## 5. Run the tests
 
-```bash
-cd mootmaker-api      && mvn -f impl/pom.xml test    # unit
-cd ../mootmaker-webapp && npm --prefix webapp test   # unit + mocked integration
-cd ../mootmaker-webapp && ./acceptance/run.sh        # real deployment, creates and destroys its own env
-```
+| Repository | Fast tests | Against your environment |
+|---|---|---|
+| mootmaker-api | `mvn -f impl/pom.xml test` | `./verify.sh <env>` |
+| mootmaker-webapp | `npm --prefix webapp run test:unit` and `npm --prefix webapp run test:integration` | `./acceptance/run.sh <env>` |
+| mootmaker-demo-data | `mvn -f impl/pom.xml test` | `./verify.sh <env>` (it resets the environment) |
+| mootmaker-android | `./gradlew :app:assembleDebug :app:lintDebug :data:testDebugUnitTest :app:verifyRoborazziDebug` (with JDK 21) | GitHub Actions only: label the PR `run-acceptance` |
 
-`acceptance/run.sh` with no argument creates a fresh ephemeral environment and tears it down
-afterwards. Pass an environment name to reuse one instead — faster when iterating, but be aware that
-a reused environment accumulates state, which has caused confusing failures before.
+`acceptance/run.sh` with no environment creates a fresh one and tears it down afterwards.
 
-**`npm install` at the repository root as well as in `webapp/`.** They are separate `package.json`
-files; missing the root one produces a silent "playwright: not found".
+Java formatting is checked in CI; `mvn -f impl/pom.xml spotless:apply` fixes it. See
+[Java code style](../process/java-code-style.md).
 
-## Where to go next
+## Where next
 
-| You want to | Read |
+| To | Read |
 |---|---|
-| Understand how work is done | [`../process/README.md`](../process/README.md) |
-| Understand the system | [architecture.md](architecture.md) |
-| Understand the tests | [`../reference/testing-strategy.md`](../reference/testing-strategy.md) |
-| Understand the data | [`../reference/data-model.md`](../reference/data-model.md) |
-| Know what it does | [`../reference/business-functionality.md`](../reference/business-functionality.md) |
-| Build something | [`../../designs/README.md`](../../designs/README.md) |
+| Understand the system | [System overview](../overview/system.md), then the other [overviews](../overview/) |
+| Know how work is done here | [Process](../process/README.md) |
+| Build something | [Designs](../../designs/README.md) |
+| Fix something that is broken | [Runbooks](../runbooks/README.md) |
+| Know what the system must do | [Use cases](../reference/use-cases.md) |

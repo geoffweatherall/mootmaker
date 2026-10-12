@@ -125,7 +125,7 @@ connected all working day, making 2,000 meeting changes a day**, over 22 working
 
 That totals about US$12.40, or roughly **NZ$21 a month** at about 1.7 NZD to the USD, for a load
 well beyond anything mootmaker sees. For scale, AppSync's whole bill for August 2026 was US$0.11
-([running-costs.md](../reference/running-costs.md)), recorded before subscriptions shipped, so
+([running-costs.md](https://github.com/geoffweatherall/mootmaker/blob/c85bd54/docs/reference/running-costs.md)), recorded before subscriptions shipped, so
 there's no measured real-time figure yet. The cost grows as writes × connected clients, so it stays
 proportional rather than surprising.
 

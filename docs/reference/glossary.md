@@ -1,92 +1,108 @@
 # Glossary
 
-Terms that mean something specific here, where the general meaning would mislead. Not a dictionary
+Terms with a specific meaning in Mootmaker, where the general meaning would mislead. Not a dictionary
 of software terms.
 
-## Project
+## The project
 
-**mootmaker** — the whole project: twelve repositories, one deployed system. Also the name of the
-hub repository, which confusingly contains no deployed code. "The hub" is clearer when the
-distinction matters.
+**Mootmaker** — the whole system, and the product's name. Also the name of the hub repository.
 
-**Polyrepo** — the shape of the project: many independent repositories rather than one monorepo.
-Each deploys, versions, and runs CI on its own; a change that spans several becomes several PRs (see
-[branching-and-prs.md](../process/branching-and-prs.md)). mootmaker is a polyrepo, not a monorepo —
-worth naming explicitly, since "hub" and "satellite" below describe roles *within* that shape rather
-than the shape itself.
+**The hub** — the `mootmaker` repository: overviews, designs, process, runbooks and tooling. It holds no
+deployed code. Every other repository is a **component** repository. See
+[repositories](../overview/repositories.md).
 
-**The hub** — the `mootmaker` repository: the role responsible for system-wide documentation
-(designs, process docs, reference docs, the showcase write-up) and the tooling that configures the
-satellites, while holding no deployed code of its own and appearing in no build. Elsewhere this role
-is sometimes called a *meta*, *umbrella*, or *system* repository — none of those is standard enough
-to adopt here, and none quite fits a repo that also configures the repos around it, which is why this
-project uses "hub" instead.
+**Component** — one of the deployable parts: the API, the web app and demo-data, deployed per
+environment, plus the Android app, which is built and published but not deployed.
 
-**Satellite repository** — any mootmaker repository other than the hub. Preferred here over the more
-conventional "spoke": hub-and-spoke implies traffic routed *through* the hub, and nothing does — the
-hub appears in no build and sits in no dependency path. Satellites orbit a centre without routing
-through it, which is the actual relationship. Used mostly when talking about changes that touch many
-repos at once.
+## Environments and delivery
 
-## Environments
+**Environment** — a complete, isolated copy of the per-environment parts, identified by a name. Any name
+works; there is no registry. `production` and `geoff-261012-a1b2` are the same kind of thing.
 
-**Environment** — a complete, isolated copy of the stack, identified by a name. Not a stage in a
-pipeline: there is no registry, and any name works. `production` and `bob-260829-a1b2` are the same
-kind of thing.
+**`production`** — the public demo at www.mootmaker.com. Changed only by releases.
 
-**Ephemeral environment** — an environment created for one piece of work and destroyed when it is
-done. Named `<kind>-<YYMMDD>-<rand4>`. Anything older than 24 hours is a **leak**.
+**`test`** — the release pipeline's rehearsal stage. Changed only by releases, never reset, never used by
+hand.
 
-**production** — the public demo at www.mootmaker.com. The only long-lived environment. Its data is
-disposable and its passwords are deliberately weak, because it is a demo rather than a business.
+**Ephemeral environment** — one created for a piece of work and destroyed when it is done, named
+`<kind>-<YYMMDD>-<rand4>`. Destroyed by the daily **sweep** after 48 hours without a state write, unless
+it carries a **KEEP marker**.
 
-**`test`** — a long-lived environment that existed until 2026-08-29, when it was retired. If you find
-a reference to it, that reference is stale.
+**Resource prefix** — every AWS resource name starts with `<environment>-mootmaker`
+(`production-mootmaker-resolvers`, `production-mootmaker-webapp-site-...`). What lets environments
+share one account.
 
-**Resource prefix** — `<environment>-<project>`, from which every AWS resource name derives. What
-keeps environments from colliding in one account.
+**Release** — one run of `release.yml` in mootmaker-release: build every component once, tag, deploy
+to `test`, smoke test, deploy to `production`, smoke test, publish. A failed one is a **FAILED
+prerelease** and its version number is never reused.
 
-## Documents
-
-**Design** — a document in `designs/`, written before code, carrying a `Status:` of `Drafting`,
-`Ready`, `Building` or `Shipped`. Not a diagram or an architecture description.
-
-**Ready** — a design status meaning "build this as written". The one transition only Geoff makes. A
-design does not become `Ready` by looking thorough.
-
-**Shipped** — implemented, deployed, and verified against a real environment. Not "code written".
-
-**Reference document** — something in `docs/reference/` describing what is true *today*, updated when
-reality changes. Distinct from a design, which describes an intention.
+**n-1 check** — running the previous release's Android app against the new `test`, because installed
+apps are not updated when the API is.
 
 ## Testing
 
-**Acceptance test** — a Playwright suite in a frontend's `acceptance/` directory, run against a real
-deployed environment, derived from the use-case catalogue. Not a unit or mocked test.
+**Unit / integration / acceptance / smoke** — the test layers, from no environment at all to the
+released build against `test` and `production`. See [testing](../overview/testing.md).
 
-**e2e test** — also Playwright against a real deployment, in `e2e/`, but covering flows rather than
-catalogued use cases.
+**Green** — the acceptance suite passing against a real deployed environment. The definition of
+working.
 
-**Integration test** — in `webapp/tests/`, against a mocked API. Real browser, fake backend.
+**Use case** — a numbered requirement in [use-cases.md](use-cases.md), tagged **[All frontends]** or
+**[Webapp-specific]**, which tests link back to.
 
-**Green** — the acceptance suite passing against a real deployed environment. The project's
-definition of working.
+**Fixture users** — three test accounts (admin, standard, and one with no Person) that exist only in
+ephemeral environments and are restored by every reset.
 
-**Instrumentable** — a problem where you can attach a probe and observe real state while it fails.
-Determines whether to iterate empirically or reason carefully, and therefore which model to use. See
-[`../showcase/debugging-techniques.md`](../showcase/debugging-techniques.md).
+**Instrumentable** — a problem where you can attach a probe and watch real state while it fails. Decides
+whether to iterate empirically or reason carefully; see
+[debugging techniques](../showcase/debugging-techniques.md).
+
+## People and accounts
+
+**Account** — a Cognito user: an email and a password, for signing in.
+
+**Person** — someone who can organise or attend meetings, stored in DynamoDB. Normally linked to an
+account; a **guest** Person has none.
+
+**Role** — `standard` or `admin`, held in the account's `custom:class` attribute and carried in its
+sign-in token. The Person's `isAdmin` is a display copy.
+
+**Demo account** — `demo@mootmaker.com`, an admin, whose password is shown on the home page so anyone
+can try the system.
+
+**Reserved account** — the demo account and the fixture users. They cannot be deleted through the app
+and survive a reset.
+
+**Machine client** — a Cognito app client used by a program rather than a person (the test suites,
+demo-data), authenticating with the OAuth2 client-credentials flow.
 
 ## Data
 
-**Person** — a DynamoDB record for someone who can attend a meeting. Created automatically by a
-Cognito `post_confirmation` trigger. A Person may exist without a Cognito account; a confirmed
-Cognito account should always have a Person.
+**Day item** — the one DynamoDB item holding every meeting on one calendar date, with a version number.
+See [data](../overview/data.md).
 
-**cognitoSub** — the Cognito user identifier, and the key linking a Cognito account to its Person
-record. The join between the two halves of the data model.
+**Pointer** — a small item (`PTR#<meetingId>`) recording which date a meeting is on, so a meeting can be
+found by id.
 
-**Participant** — a fully derived, materialised record linking a Person to a Meeting. Not a source of
-truth: it is rebuilt from meetings, and `database-repair` exists partly to reconcile it.
+**Booking window** — the dates that can be viewed and booked: from the **retention boundary** (30–37
+days back, moved forward weekly by `history-cleanup`) to the **booking horizon** (180 days ahead).
 
-**Demo account** — the shared account whose credentials are published on the home page, so a visitor
-can try the system without signing up. Exists in every environment including production.
+**Meeting version** — a fingerprint of a meeting's editable fields. An edit sends the version it started
+from and is refused with `MeetingChanged` if someone else changed the meeting first.
+
+**Workspace query** — `workspace(dates: [...])`, the one query that returns everything a screen needs.
+
+**Broadcast / `daysInvalidated`** — the live-update message: the dates that changed, never the data.
+See [concurrent updates](../overview/concurrent-updates.md).
+
+**Reset / repair** — the `database-reset` and `database-repair` Lambdas, run with AWS credentials to wipe
+or fix an environment's data.
+
+## Documents
+
+**Design** — a document in `designs/`, written before the work, with a status of Drafting, Ready,
+Building or Shipped. Shipped designs move to `designs/archive/`. Only Geoff moves a design to Ready.
+
+**Overview** — a page in `docs/overview/` describing how part of the system works as built.
+
+**Runbook** — a page in `docs/runbooks/` saying what to do about a symptom.

@@ -54,8 +54,10 @@ overlap in time just recreates the "two pieces of work sharing a branch" problem
 up. "One PR" means one PR for the thing being done, however many agents or sessions that took —
 never a shared branch that bundles whatever else happened to be in flight at the same time.
 
-**Branch protection is deliberately not enabled.** With one developer it would mostly obstruct.
-The discipline here is convention, and the review that matters is described below.
+**Branch protection is light.** mootmaker-api, mootmaker-webapp and mootmaker-demo-data require their
+main PR check to pass and forbid force pushes on `main`; no repository requires a review, which with
+one developer would only obstruct. The rest of the discipline is convention, and the review that
+matters is described below. See [GitHub](../overview/github.md#branch-protection).
 
 ## Commits
 
@@ -97,8 +99,7 @@ can never be pressed would be broken by construction.
 
 So:
 
-- **Reading the diff is the review. Merging is the approval.** Nothing is lost, because branch
-  protection is not enabled and self-merge is expected.
+- **Reading the diff is the review. Merging is the approval.** Self-merge is expected.
 - **For a design, the real gate is elsewhere**: the `Drafting → Ready` promotion in the design's own
   `Status:` line, which is Geoff's alone. That is deliberately recorded in the artifact rather than
   in GitHub's review state, so any tool can read it.
@@ -116,9 +117,8 @@ Run it when a change is large, subtle, or in one of the always-reviewed categori
 findings as a PR comment so there is a trail of what it caught.
 
 It is not mandatory because there is no evidence yet that it earns its cost, and mandating it would
-bake in an untested assumption. Note also that a second agent currently acts through the same GitHub
-account, so its review is indistinguishable from the author's — a genuine limitation, tracked as
-NB-7 in [`../../designs/archive/project-reorganisation.md`](../../designs/archive/project-reorganisation.md).
+bake in an untested assumption. Note also that a second agent acts through the same GitHub account,
+so its review is indistinguishable from the author's — a genuine limitation.
 
 ## Cross-repo changes
 

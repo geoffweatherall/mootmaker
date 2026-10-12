@@ -17,10 +17,10 @@ something that does not exist yet. Nothing here depends on a particular tool.
 3. **All work happens on a branch and lands via a pull request — one branch, one PR per piece of
    work, not one per commit or per session.** See [branching-and-prs.md](branching-and-prs.md).
 4. **Testing against a real deployment is the quality gate**, not code review. See
-   [principles.md](principles.md) and [`../reference/testing-strategy.md`](../reference/testing-strategy.md).
+   [principles.md](principles.md) and [testing](../overview/testing.md).
 5. **Environments are `production`, `test`, or ephemeral.** `test` and `production` change only
    through the release pipeline; everything else is ephemeral and yours to tear down. See
-   [environments.md](environments.md).
+   [delivery](../overview/delivery.md#environments).
 6. **Leave the documentation true.** If your change makes a document wrong, fixing it is part of
    the change, not a follow-up.
 
@@ -31,7 +31,6 @@ something that does not exist yet. Nothing here depends on a particular tool.
 | [principles.md](principles.md) | The constraints everything else is built on — cost, stack, and how much human review code actually gets |
 | [branching-and-prs.md](branching-and-prs.md) | Branch naming, commit discipline, how a PR is reviewed and merged, and what to do about cross-repo changes |
 | [issues-and-board.md](issues-and-board.md) | Where issues live, the label set, and the cross-repo project board |
-| [environments.md](environments.md) | Which environments exist, how they are named, and the rules for tearing them down |
 | [ai-collaboration.md](ai-collaboration.md) | Choosing a model, AI-reviewing-AI, and what makes a bug worth reasoning about versus instrumenting |
 | [java-code-style.md](java-code-style.md) | google-java-format and Google's Checkstyle ruleset: how to set an editor up, and why each setting is what it is |
 
@@ -39,10 +38,10 @@ Related, elsewhere:
 
 - [`../../designs/README.md`](../../designs/README.md) — the design-document pattern and its
   `Drafting → Ready → Building → Shipped` lifecycle.
-- [`../development/`](../development/) — how to get set up, how the system fits together, and how
-  environments work mechanically.
-- [`../reference/`](../reference/) — what is true today: data model, testing strategy, use cases,
-  business functionality.
+- [`../overview/`](../overview/) — how the system works, as built: one page per topic.
+- [`../runbooks/`](../runbooks/) — what to do when something is wrong.
+- [`../development/`](../development/) — setting up a machine and getting started.
+- [`../reference/`](../reference/) — use cases, what the system does, and the glossary.
 
 ## Rules that apply to every piece of work
 
@@ -102,14 +101,16 @@ surprise, so "I can undo it" is not an answer to "what does it cost".
 **Report money in NZD.** Convert from the provider's currency and say what you converted from, since
 AWS bills in USD and the rate moves — "about NZ$0.17 (US$0.10)" rather than either alone.
 
-**Do not create long-lived environments.** See [environments.md](environments.md). Ephemeral
-environments cost real money and have leaked before; tearing yours down is part of finishing.
+**Do not create long-lived environments.** An ephemeral environment costs a little for as long as it
+exists, and the daily sweep only catches one after 48 idle hours. Tearing yours down is part of
+finishing; keep one deliberately with `keep-env.sh` and a reason. See
+[delivery](../overview/delivery.md#ephemeral-environments).
 
 **Finishing includes checking the account, not just your own environment.** Run
 [`list-unmanaged-resources.sh`](https://github.com/geoffweatherall/mootmaker-bootstrap-aws-accounts/blob/main/list-unmanaged-resources.sh)
 and expect `Nothing needs attention`. Checking for resources named after your environment cannot
 find one that was never named that way — a hand-made resource, or something a partially-failed
-destroy left behind. See [environments.md](environments.md#and-then-check-the-account-not-just-your-environment).
+destroy left behind. See [AWS accounts](../overview/aws-accounts.md#checking-the-account-as-a-whole).
 
 ## When something here is wrong
 

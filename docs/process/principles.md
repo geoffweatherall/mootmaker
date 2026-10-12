@@ -1,7 +1,6 @@
 # Principles and constraints
 
-The things that were previously only in Geoff's head, written down for the first time in August
-2026. Everything else in [`process/`](README.md) is downstream of these.
+The constraints everything else in [`process/`](README.md) follows from.
 
 When a decision is hard, work out which principle it turns on and follow that. When two conflict,
 the one earlier in this document usually wins.
@@ -30,16 +29,13 @@ capacity, S3 + CloudFront over a server.
 **Free tier first.** Where a free option is adequate, take it. GitHub Actions is free with unlimited
 minutes on public repositories, which is why CI has no marginal cost here.
 
-**A long-lived environment must justify itself.** `production` is the only one, and it exists
-because a public demo is part of the point. The `test` environment was retired in August 2026
-precisely because it could not justify its standing cost — and brought back in September 2026 when
-it could: as the release pipeline's rehearsal stage, deployed to only by that pipeline, never poked
-at by hand. The principle did not change; the environment found a job that pays for it. See
-[environments.md](environments.md).
+**A long-lived environment must justify itself.** There are two. `production` exists because a
+public demo is part of the point. `test` exists as the release pipeline's rehearsal stage, deployed
+to only by that pipeline and never used by hand, because catching a broken release before
+`production` is worth its small standing cost. See [delivery](../overview/delivery.md#environments).
 
 **Ephemeral means ephemeral.** An environment left running is a direct contradiction of scale to
-zero. Four leaked in a single day in August 2026 before anyone noticed — tearing yours down is part
-of finishing the work, not a tidy-up.
+zero. Tearing yours down is part of finishing the work, not a tidy-up.
 
 **Nothing accumulates without a bound.** Under steady usage the bill should be *flat*. If usage does
 not grow but the bill does, something is accumulating that nobody chose to keep — and that is a
@@ -56,8 +52,8 @@ growing forever unless something is configured to expire them. Every one of them
 *what deletes this*, and "nothing" is only acceptable when the thing is genuinely bounded by
 something else.
 
-Measured rather than asserted: [running costs](../reference/running-costs.md) has the actual bill,
-the cost model it implies, and the checks that would catch this principle being broken.
+Measured rather than asserted: [cost and scale to zero](../overview/cost-and-scale-to-zero.md) has
+the actual bill, what drives it, and the checks that would catch this principle being broken.
 
 Concretely, and as a rule rather than a suggestion:
 
@@ -69,9 +65,8 @@ Concretely, and as a rule rather than a suggestion:
   S3 lifecycle rules, CloudWatch metric filters and alarms, ECR image retention, snapshot and
   backup schedules, SQS message retention, DynamoDB TTL where the data is genuinely transient.
 - **A resource that outlives what it belonged to is a leak**, even a free one. `terraform destroy`
-  removes a Lambda but *not* the log group Lambda created for it, which is how this account reached
-  282 orphaned log groups against 15 live ones by September 2026 — all retaining forever, from
-  environments and functions that no longer existed.
+  removes a Lambda but *not* a log group Lambda created for itself, so such groups pile up unless
+  something deletes them. The daily sweep does, and `check-accumulation.sh` fails if one is missed.
 
 **When designing anything new, ask what it leaves behind.** Not just "what does this run" but "what
 does this write, where does it go, and what deletes it". If the answer to the last part is nothing,
@@ -81,8 +76,8 @@ considerations for exactly this reason.
 
 ## The stack
 
-Verified against what is actually deployed, 2026-08-29. Prefer these over introducing something new;
-if a new dependency is genuinely better, say why in the design.
+Prefer these over introducing something new; if a new dependency is genuinely better, say why in the
+design.
 
 | Layer | Choice |
 |---|---|
@@ -90,21 +85,24 @@ if a new dependency is genuinely better, say why in the design.
 | Data | DynamoDB, with GSIs rather than table scans |
 | Auth | Amazon Cognito, with a `post_confirmation` trigger creating the Person record |
 | Web | React 19, TypeScript 6, MUI 9, Apollo Client 4, Vite 8 |
+| Android | Kotlin, Jetpack Compose, Apollo Kotlin; minimum Android 8.0 |
 | Hosting | S3 + CloudFront, Route 53, ACM |
 | Mail | SES, for sign-up and password-reset flows |
 | Infrastructure | Terraform, remote state in a shared S3 bucket, one state key per environment |
-| Testing | JUnit, Vitest, Playwright (integration, e2e, and acceptance layers) |
+| Testing | JUnit, Vitest, Playwright, Robolectric and Roborazzi, Compose UI tests, Maestro |
+| CI and releases | GitHub Actions, AWS access by OIDC only |
 | Orchestration | bash — deploy, undeploy, verify, and environment lifecycle scripts |
 
 **No long-lived credentials anywhere.** Local work uses AWS SSO; anything automated should use OIDC
 rather than an access key. The account guardrails in `mootmaker-bootstrap-aws-accounts` exist to
-enforce this.
+enforce this. The one exception is `RELEASE_TAG_PAT`, a fine-grained GitHub token that release tagging
+needs because a workflow's own token can only write to its own repository; see
+[security](../overview/security.md#github-and-aws).
 
 ## How much human review the code actually gets
 
 This is the project's position on the "how much vibe coding is acceptable" question, and it is
-deliberately an experiment rather than a settled rule. It was written down on 2026-08-29 and is
-expected to move as evidence accumulates.
+deliberately an experiment rather than a settled rule, expected to move as evidence accumulates.
 
 **Always reviewed properly by a human:**
 
@@ -129,8 +127,8 @@ should change.
 ## Testing
 
 **A green acceptance run against a real deployed environment is the definition of working.** Not a
-passing unit suite, not a successful deploy. See [`../reference/testing-strategy.md`](../reference/testing-strategy.md)
-for how the four layers fit together.
+passing unit suite, not a successful deploy. See [testing](../overview/testing.md) for how the layers
+fit together.
 
 **Verify against reality, not against your own output.** A script exiting zero is not evidence that
 the thing it was meant to do happened. Check the resource, the file, the deployed page.
@@ -172,8 +170,10 @@ instructions it is given, so keeping the code consistent matters more than writi
 **Prefer changes that are cheap to undo.** Where two approaches are close, take the one that is
 easier to back out.
 
-**Archive rather than delete.** Superseded planning docs go to `designs/archive/`; repositories get
-archived, not deleted. The account's GitHub token deliberately lacks `delete_repo`.
+**Archive designs; correct or delete everything else.** A shipped or superseded design moves to
+`designs/archive/`, where it records why things are the way they are. Any other document or comment
+that stops being true is corrected or deleted, not kept for the record: git history keeps the record.
+Repositories are archived, not deleted; the account's GitHub token deliberately lacks `delete_repo`.
 
 **Git history is the honest record.** Do not rewrite it to make the story look tidier. The mistakes
 are part of what this project is demonstrating.

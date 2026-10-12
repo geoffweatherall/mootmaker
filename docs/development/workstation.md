@@ -54,8 +54,7 @@ immediately with no re-install step to forget. Same pattern as the `CLAUDE.md` �
 symlink in every repo.
 
 `check.sh` verifies the link exists, so a machine that has not run this is *told* rather than
-silently behaving differently — which is exactly how this problem was found in the first place
-(mysterious permission prompts on one machine and not the other).
+silently behaving differently (permission prompts on one machine and not another).
 
 **What lives where**, deliberately:
 
@@ -70,9 +69,8 @@ deliberate and load-bearing: it is what lets the universal git guards apply ever
 mootmaker's own config stays permissive for routine work.
 
 **Never put a credential in any of these files.** Claude Code records approved one-off commands
-verbatim, so an approved `curl ... -H 'x-api-key: ...'` becomes a permanent, plaintext rule. Two
-such rules (a dead AppSync key and a test-account password) were found and removed on 2026-08-29 —
-before the file was versioned into a **public** repo, which would have published them.
+verbatim, so an approved `curl ... -H 'x-api-key: ...'` becomes a permanent, plaintext rule, and
+the workspace settings file is versioned in a **public** repository.
 
 ## What it cannot check
 

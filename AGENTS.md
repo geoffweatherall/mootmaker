@@ -11,12 +11,16 @@ happens across every repository, and every other repo's `AGENTS.md` points at it
 
 | Path | What |
 |---|---|
-| [`docs/process/`](docs/process/) | How work is done: principles, branching and PRs, issues, environments, working with AI |
-| [`designs/`](designs/) | One design document per feature or change. [The pattern](designs/README.md) explains the lifecycle |
-| [`docs/reference/`](docs/reference/) | What is true today: data model, testing strategy, use cases, business functionality |
-| [`docs/development/`](docs/development/) | Getting set up, the cross-repo architecture, environment mechanics |
-| [`docs/showcase/`](docs/showcase/) | Learnings, debugging techniques, branding, marketing |
+| [`docs/overview/`](docs/overview/) | How the system works, as built: one page per topic, starting with [system.md](docs/overview/system.md) |
+| [`docs/runbooks/`](docs/runbooks/README.md) | What to do when something is wrong, by symptom |
+| [`docs/process/`](docs/process/) | How work is done: principles, branching and PRs, issues, working with AI, Java style |
+| [`designs/`](designs/) | One design per feature or change. [The pattern](designs/README.md) explains the lifecycle; [archive/](designs/archive/README.md) holds completed ones |
+| [`docs/reference/`](docs/reference/) | Use cases, what the system does, glossary, data model |
+| [`docs/development/`](docs/development/) | Getting started and the workstation |
+| [`docs/showcase/`](docs/showcase/) | Learnings, talks, branding, marketing. Dated writing, not maintained |
 | [`tools/`](tools/) | Link checking, the workstation manifest, the workspace config installer |
+
+[docs/README.md](docs/README.md) lists every document.
 
 ## Working in this repository
 
@@ -27,6 +31,19 @@ git history before writing them down.
 
 **Do not let documents drift.** If you change something in another repository that makes a document
 here wrong, fixing it is part of that change.
+
+**Write as built, in one place.** Describe the system as it is now, not how it got here: git history,
+designs and issues hold the history. Each fact lives in one document; the overviews here explain how
+things fit together and link to each component's own README for detail, rather than repeating it. The
+same applies to code comments: say what and why, never what used to be.
+
+**Do not edit Geoff's dated writing** beyond fixing links: every design, `docs/showcase/learnings.md`,
+`docs/showcase/debugging-techniques.md`, the four `docs/showcase/live-updates-*` documents, and
+`docs/process/ai-collaboration.md`.
+
+**Diagrams are Mermaid**, inside the Markdown, so GitHub renders them. Render them before committing:
+GitHub shows a parse error in place of a broken diagram. Avoid `#` and `;` in labels, and the words
+`end`, `call` and `click` as node ids.
 
 **Verify links before committing.** Documents here are heavily cross-linked and moves break things
 silently:
