@@ -113,6 +113,27 @@ flowchart LR
 - **Smoke tests are deliberately small**: about five minutes of what a person would click through
   after a deploy. They are not a second acceptance run.
 
+## Why the layers are shaped this way
+
+Most of the code here is written by AI agents and gets a skim rather than a line-by-line review (see
+[principles](../process/principles.md#how-much-human-review-the-code-actually-gets)). That changes what
+the tests are for:
+
+- **The tests do the job review used to do.** They are the check that the code does what was asked,
+  so a behaviour change without a test change is treated as unfinished.
+- **The fast layers are the ones an agent uses while working.** Unit and mocked integration tests run in
+  seconds and cost nothing, so they run after nearly every change. The real-environment layers take
+  minutes and a few cents, so they run once per piece of work. If the fast layers are thin, everything
+  leans on the slow ones.
+- **A flaky test is worse for an agent than for a person.** A person learns which red to ignore; an agent
+  either chases a ghost or learns to ignore red. So real email and real AWS are kept to the layers whose
+  job is proving them, and a flaky test is investigated rather than retried.
+
+**Why tests read real email through one shared pipeline.** SES allows one active receipt rule set per
+region, so a pipeline per environment would fight over which is active. One permanent rule set catches
+everything under `mail.mootmaker.com`, and each test filters the queue for its own unique address. Tests
+that only need a working account can skip email entirely with Cognito's admin APIs.
+
 ## Coverage gaps worth knowing
 
 - **demo-data and the API's acceptance tests use hand-written GraphQL strings**, so a schema change
